@@ -193,6 +193,7 @@ async def record_movement(
     event_id: str | None = None,
     commit: bool = True,
     skip_negative_check: bool = False,
+    unit_cost: Decimal | None = None,
 ) -> StockMovement:
     """Record a stock movement atomically.
 
@@ -238,6 +239,11 @@ async def record_movement(
         has already happened and must be recorded even if it drives inventory
         negative.  Defaults to ``False`` so all other callers (Stage 6
         endpoints) are completely unaffected.
+    unit_cost : Decimal | None
+        Explicit per-unit cost to freeze on the movement row (purchase legs
+        pass the receipt's actual ``unit_cost``). When ``None`` the item's
+        current ``unit_cost`` is snapshotted at write time; stays ``None``
+        only when the item has no basis on file.
 
     Returns
     -------
@@ -323,6 +329,12 @@ async def record_movement(
 
     # ── Step 6: Insert stock_movements row ──────────────────────────
     actor_enum = ActorType(actor_type)
+    # Freeze the per-unit cost basis at event time so later deliveries that
+    # revalue Item.unit_cost cannot rewrite this row's history. An explicit
+    # receipt cost (purchase legs) wins; otherwise snapshot the item's
+    # current basis (waste/adjust/transfer/production legs). Stays null only
+    # when the item itself has no basis on file.
+    frozen_cost = unit_cost if unit_cost is not None else item.unit_cost
     movement = StockMovement(
         item_id=item_id,
         business_id=business_id,
@@ -334,6 +346,7 @@ async def record_movement(
         actor_type=actor_enum,
         actor_id=actor_id,
         reason=reason,
+        unit_cost=frozen_cost,
     )
     db.add(movement)
 

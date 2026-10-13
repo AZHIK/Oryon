@@ -208,10 +208,11 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
   /// Per-unit production cost snapshot for each cart line, taken at sale
   /// time from live recipe costs (see `lib/utils/cogs.dart`).
   ///
-  /// Lines whose cost is genuinely unknown — no recipe and nothing on file,
-  /// which `CogsIndex` reports as zero-and-estimated — are left out so they
-  /// sync as null (unknown, not zero) and profit figures fall back to live
-  /// costs for those. Everything else freezes at today's number.
+  /// Every line is frozen — including zero-cost unknowns (no recipe and
+  /// nothing on file). A frozen zero flagged estimated downstream beats a
+  /// null that silently reprices at today's recipe cost: history must not
+  /// move when groceries are repriced. Null is reserved for legacy rows
+  /// synced before snapshots existed.
   Map<String, double> _saleTimeUnitCosts(Cart cart) {
     final recipes = ref.read(recipesCatalogListProvider);
     final items = ref.read(inventoryItemsListProvider);
@@ -229,9 +230,7 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     final costs = <String, double>{};
     for (final line in cart.items) {
       final unit = index.unitCostFor(line.item.id);
-      if (unit.cost != Decimal.zero || !unit.estimated) {
-        costs[line.item.id] = double.parse(unit.cost.toString());
-      }
+      costs[line.item.id] = double.parse(unit.cost.toString());
     }
     return costs;
   }

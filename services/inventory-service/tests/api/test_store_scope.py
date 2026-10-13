@@ -252,7 +252,6 @@ class TestReorderScope:
                 "item_id": str(item.id),
                 "supplier_id": str(supplier.id),
                 "quantity": "5.000",
-                "unit_cost": "100.00",
             },
             headers=headers,
         )

@@ -148,23 +148,29 @@ final itemMixProvider =
 ///
 /// Sums cached sale lines of completed sales in the window: each line's
 /// snapshot when present, otherwise the live recipe/fallback cost for its
-/// item (legacy rows synced before snapshots existed, or lines whose cost
-/// was unknown at sale time) — same fallback semantics as `CogsIndex`, so
-/// a window mixing both reads exact where frozen, estimated where derived.
+/// item (legacy rows synced before snapshots existed) — same fallback
+/// semantics as `CogsIndex`, so a window mixing both reads exact where
+/// frozen, estimated where derived. New sales always carry a snapshot
+/// (zero when unknown), so the fallback only fires for legacy rows.
 /// `covered` is false when the cache holds no usable lines in the window
 /// (nothing synced yet) — the caller then falls back to live costs over
-/// item-mix rather than reporting zero.
+/// item-mix rather than reporting zero. `frozenLines` / `fallbackLines`
+/// expose the unsnapshotted tail so owners can see how soft the number is.
 @immutable
 class SnapshotCogs {
   const SnapshotCogs({
     required this.cogs,
     required this.estimated,
     required this.covered,
+    this.frozenLines = 0,
+    this.fallbackLines = 0,
   });
 
   final Decimal cogs;
   final bool estimated;
   final bool covered;
+  final int frozenLines;
+  final int fallbackLines;
 
   static final uncovered = SnapshotCogs(
     cogs: Decimal.zero,
@@ -224,11 +230,18 @@ final snapshotCogsProvider = FutureProvider<SnapshotCogs>((ref) async {
 
   var cogs = Decimal.zero;
   var estimated = false;
+  var frozenLines = 0;
+  var fallbackLines = 0;
   for (final line in lines) {
     final snap = line.unitCost;
     if (snap != null) {
       cogs += snap * line.quantity;
+      frozenLines++;
+      if (snap == Decimal.zero && line.quantity != Decimal.zero) {
+        estimated = true;
+      }
     } else {
+      fallbackLines++;
       final unit = index.unitCostFor(line.itemId);
       if (unit.cost != Decimal.zero) {
         cogs += unit.cost * line.quantity;
@@ -238,7 +251,13 @@ final snapshotCogsProvider = FutureProvider<SnapshotCogs>((ref) async {
       if (unit.estimated) estimated = true;
     }
   }
-  return SnapshotCogs(cogs: cogs, estimated: estimated, covered: true);
+  return SnapshotCogs(
+    cogs: cogs,
+    estimated: estimated,
+    covered: true,
+    frozenLines: frozenLines,
+    fallbackLines: fallbackLines,
+  );
 });
 
 /// An item-mix line with its catalog name resolved. The backend returns ids
@@ -677,41 +696,6 @@ final productPurchasesProvider = AsyncNotifierProvider<
   ProductPurchasesNotifier.new,
 );
 
-class PurchasePaymentsNotifier
-    extends AsyncNotifier<List<PurchasePaymentLineDto>> {
-  @override
-  Future<List<PurchasePaymentLineDto>> build() async {
-    final businessId = ref.watch(currentBusinessIdProvider);
-    final filter = ref.watch(reportsDateFilterProvider);
-    if (businessId == null) return const [];
-    return ref.watch(inventoryApiServiceProvider).fetchPurchasePayments(
-          businessId: businessId,
-          from: filter.from,
-          to: filter.to,
-        );
-  }
-
-  Future<void> refresh() async {
-    final businessId = ref.read(currentBusinessIdProvider);
-    if (businessId == null) return;
-    final filter = ref.read(reportsDateFilterProvider);
-    state = const AsyncLoading<List<PurchasePaymentLineDto>>()
-        .copyWithPrevious(state);
-    state = AsyncData(
-      await ref.read(inventoryApiServiceProvider).fetchPurchasePayments(
-            businessId: businessId,
-            from: filter.from,
-            to: filter.to,
-          ),
-    );
-  }
-}
-
-final purchasePaymentsProvider = AsyncNotifierProvider<
-    PurchasePaymentsNotifier, List<PurchasePaymentLineDto>>(
-  PurchasePaymentsNotifier.new,
-);
-
 class StockAdjustmentsNotifier
     extends AsyncNotifier<List<StockAdjustmentLineDto>> {
   @override
@@ -899,7 +883,6 @@ Future<void> refreshAllReports(WidgetRef ref) async {
     ref.read(customerGroupsProvider.notifier).refresh(),
     ref.read(customerSpendProvider.notifier).refresh(),
     ref.read(productPurchasesProvider.notifier).refresh(),
-    ref.read(purchasePaymentsProvider.notifier).refresh(),
     ref.read(stockAdjustmentsProvider.notifier).refresh(),
     ref.read(lotReportProvider.notifier).refresh(),
     ref.read(expiryReportProvider.notifier).refresh(),

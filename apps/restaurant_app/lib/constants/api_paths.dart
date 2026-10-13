@@ -103,14 +103,14 @@ abstract final class InventoryApiPaths {
   static String stock(String businessId) => '/businesses/$businessId/stock';
   static String productPurchases(String businessId) =>
       '/businesses/$businessId/product-purchases';
-  static String purchasePayments(String businessId) =>
-      '/businesses/$businessId/purchase-payments';
   static String stockAdjustments(String businessId) =>
       '/businesses/$businessId/stock-adjustments';
   static String lotReport(String businessId) =>
       '/businesses/$businessId/lot-report';
   static String expiryReport(String businessId) =>
       '/businesses/$businessId/expiry-report';
+  static String costHistory(String businessId) =>
+      '/businesses/$businessId/cost-history';
   static String supplierPurchases(String businessId) =>
       '/businesses/$businessId/supplier-purchases';
   static String activityLog(String businessId) =>
@@ -128,14 +128,6 @@ abstract final class InventoryApiPaths {
     String orderId,
     String action,
   ) => '/businesses/$businessId/purchases/orders/$orderId/$action';
-  static String purchaseReturns(String businessId) =>
-      '/businesses/$businessId/purchases/returns';
-  static String purchaseInvoices(String businessId) =>
-      '/businesses/$businessId/purchases/invoices';
-  static String purchaseInvoicePayments(String businessId, String invoiceId) =>
-      '/businesses/$businessId/purchases/invoices/$invoiceId/payments';
-  static String supplierStatement(String businessId, String supplierId) =>
-      '/businesses/$businessId/purchases/suppliers/$supplierId/statement';
 
   /// Unified multi-supplier requisition cart → per-supplier PO split.
   static String requisitions(String businessId) =>
@@ -151,13 +143,11 @@ abstract final class InventoryApiPaths {
   static String supplierItems(String businessId) =>
       '/businesses/$businessId/supplier-items';
 
-  /// WhatsApp Business Cloud API connection + explicit PO send.
+  /// WhatsApp Business Cloud API connection.
   static String whatsappConnection(String businessId) =>
       '/businesses/$businessId/whatsapp/connection';
   static String whatsappConnectionTest(String businessId) =>
       '/businesses/$businessId/whatsapp/connection/test';
-  static String whatsappSendOrder(String businessId, String orderId) =>
-      '/businesses/$businessId/purchases/orders/$orderId/send-whatsapp';
 
   /// Global taxonomy endpoints (no business scope).
   static const categories = '/categories';

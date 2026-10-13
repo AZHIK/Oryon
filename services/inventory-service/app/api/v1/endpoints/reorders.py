@@ -30,6 +30,7 @@ time — better to refuse it up front with a clear message.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -41,7 +42,7 @@ from sqlmodel.sql.expression import SelectOfScalar
 
 from app.core.database import get_db
 from app.deps.auth import get_current_claims, require_business_permission
-from app.models.inventory import ActorType, Item, ItemType, MovementType
+from app.models.inventory import ActorType, Item, ItemType, MovementType, StockLevel
 from app.models.reorders import Reorder, ReorderStatus
 from app.models.suppliers import Supplier
 from app.models.units import Unit
@@ -50,6 +51,7 @@ from app.schemas.reorders import (
     ReorderListFilters,
     ReorderListResponse,
     ReorderRead,
+    ReorderReceive,
 )
 from app.services.stock_movement_service import (
     InsufficientStockError,
@@ -146,7 +148,6 @@ async def create_reorder(
         supplier_id=body.supplier_id,
         quantity=body.quantity,
         unit=unit.code,
-        unit_cost=body.unit_cost,
         notes=body.notes,
         ordered_at=datetime.now(UTC),
         ordered_by=_extract_actor_id(claims),
@@ -194,6 +195,7 @@ async def receive_reorder(
     session: Annotated[AsyncSession, Depends(get_db)],
     claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reorders.receive"))],
+    body: ReorderReceive | None = None,
 ) -> Reorder:
     reorder = await _get_reorder_or_404(business_id, reorder_id, session)
     if reorder.status != ReorderStatus.PENDING:
@@ -203,6 +205,35 @@ async def receive_reorder(
         )
 
     actor_id = _extract_actor_id(claims)
+    unit_cost = body.unit_cost if body is not None else None
+
+    # Snapshot the pre-receipt cost basis BEFORE record_movement mutates the
+    # level row in-session (same read-before-write order as purchases.py).
+    costing: tuple[Item, Decimal, Decimal | None] | None = None
+    if unit_cost is not None:
+        snapshot_item = (
+            await session.exec(
+                select(Item).where(
+                    Item.id == reorder.item_id, Item.business_id == business_id
+                )
+            )
+        ).one_or_none()
+        if snapshot_item is not None:
+            snapshot_level = (
+                await session.exec(
+                    select(StockLevel).where(
+                        StockLevel.item_id == snapshot_item.id,
+                        StockLevel.store_id == reorder.store_id,
+                    )
+                )
+            ).one_or_none()
+            costing = (
+                snapshot_item,
+                snapshot_level.current_quantity
+                if snapshot_level
+                else Decimal("0.000"),
+                snapshot_item.unit_cost,
+            )
 
     try:
         await record_movement(
@@ -218,7 +249,23 @@ async def receive_reorder(
             actor_id=actor_id,
             reason=f"Reorder {reorder.id} received",
             commit=False,
+            unit_cost=unit_cost,
         )
+
+        # Cost enters here when supplied — same weighted-average rule the
+        # GRN path uses. Omitted cost leaves Item.unit_cost untouched.
+        if costing is not None:
+            item, old_qty, old_cost = costing
+            basis = old_cost if old_cost is not None else unit_cost
+            assert unit_cost is not None
+            denom = old_qty + reorder.quantity
+            if denom > 0:
+                item.unit_cost = (
+                    (old_qty * basis + reorder.quantity * unit_cost) / denom
+                ).quantize(Decimal("0.0001"))
+            else:
+                item.unit_cost = unit_cost
+            session.add(item)
 
         reorder.status = ReorderStatus.RECEIVED
         reorder.received_at = datetime.now(UTC)

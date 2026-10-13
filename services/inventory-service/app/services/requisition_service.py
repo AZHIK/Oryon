@@ -3,16 +3,17 @@
 Pure business logic over ``Requisition``/``PurchaseOrder``/``SupplierMessage``.
 Endpoint layers handle auth + HTTP mapping; everything transactional lives here.
 
-Currency rule: TZS-whole-amount formatting with ``Decimal`` arithmetic only —
-line_total = qty × unit_price quantized to 2dp, PO total = Σ lines quantized
-to 2dp, and ``text_preview`` renders those same quantized values, so the
-three can never disagree.
+Purchase orders are qty-only: no money lives on the PO or in the supplier
+payload. Actual cost enters later on ``GoodsReceiptLine.unit_cost``. The
+``SupplierItem`` catalogue and ``RequisitionLine`` price snapshots remain as
+buyer-side reference only — they are never copied to the PO nor rendered in
+the WhatsApp message.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from typing import Any
 from urllib.parse import quote
 from uuid import UUID
@@ -36,21 +37,10 @@ from app.models.requisition import (
 from app.models.suppliers import Supplier
 from app.models.units import Unit
 
-_Q2 = Decimal("0.01")
-_Q4 = Decimal("0.0001")
-
 # Statuses a requisition PO may hold while still appendable. Rule confirmed:
-# SAME REQUISITION ONLY — we append to a draft/payload_ready PO from the same
+# SAME REQUISITION ONLY — we append to an unfulfilled PO from the same
 # requisition+supplier, never to another day's or cart's PO.
-_APPENDABLE = (PurchaseOrderStatus.DRAFT, PurchaseOrderStatus.PAYLOAD_READY)
-
-
-def _q2(value: Decimal) -> Decimal:
-    return value.quantize(_Q2, rounding=ROUND_HALF_UP)
-
-
-def _fmt_money(value: Decimal) -> str:
-    return f"{_q2(value):,.2f}"
+_APPENDABLE = (PurchaseOrderStatus.UNFULFILLED,)
 
 
 def _supplier_number(supplier: Supplier) -> str | None:
@@ -154,39 +144,19 @@ def build_whatsapp_payload(
 ) -> dict[str, Any] | None:
     """Build the provider-agnostic WhatsApp JSON for one supplier PO.
 
-    Returns ``None`` when the supplier has no WhatsApp number — the PO is
-    still created; payload/deep_link generation is skipped and the UI shows
-    "Add WhatsApp number to send."
+    Qty-only: each entry carries ``name``/``qty``/``unit`` — no prices, no
+    totals. Returns ``None`` when the supplier has no WhatsApp number — the
+    PO is still created; payload/deep_link generation is skipped and the UI
+    shows "Add WhatsApp number to send."
     """
     number = _supplier_number(supplier)
     if number is None:
         return None
 
-    items: list[dict[str, Any]] = []
-    total = Decimal("0.00")
-    for entry in lines:
-        qty = Decimal(str(entry["qty"]))
-        unit_price = (
-            Decimal(str(entry["unit_price"]))
-            if entry.get("unit_price") is not None
-            else Decimal("0")
-        )
-        line_total = (
-            _q2(qty * unit_price) if entry.get("unit_price") is not None else Decimal("0.00")
-        )
-        if entry.get("unit_price") is not None:
-            total += line_total
-        items.append(
-            {
-                "name": entry["name"],
-                "qty": str(qty),
-                "unit": entry.get("unit", ""),
-                "unit_price": str(_q2(unit_price)) if entry.get("unit_price") is not None else None,
-                "line_total": str(line_total) if entry.get("unit_price") is not None else None,
-                "price_unconfirmed": bool(entry.get("price_unconfirmed", False)),
-            }
-        )
-    total = _q2(total)
+    items: list[dict[str, Any]] = [
+        {"name": entry["name"], "qty": str(entry["qty"]), "unit": entry.get("unit", "")}
+        for entry in lines
+    ]
 
     header = (
         f"Hello {supplier.name}, new order from {restaurant_name} "
@@ -196,16 +166,7 @@ def build_whatsapp_payload(
         header += f" Delivery requested: {delivery_requested_date}."
     body_lines = [header, ""]
     for it in items:
-        if it["price_unconfirmed"]:
-            body_lines.append(f"- {it['name']}: {it['qty']} {it['unit']} — price TBC")
-        else:
-            body_lines.append(
-                f"- {it['name']}: {it['qty']} {it['unit']} "
-                f"@ {it['unit_price']} = {it['line_total']}"
-            )
-    body_lines += ["", f"Total: {_fmt_money(total)}"]
-    if any(it["price_unconfirmed"] for it in items):
-        body_lines.append("(Some items price TBC — please confirm.)")
+        body_lines.append(f"- {it['name']}: {it['qty']} {it['unit']}".rstrip())
     if notes:
         body_lines += ["", f"Notes: {notes}"]
     text_preview = "\n".join(body_lines)
@@ -224,7 +185,6 @@ def build_whatsapp_payload(
             "order_date": order_date,
             "delivery_requested_date": delivery_requested_date,
             "items": items,
-            "total": str(total),
             "notes": notes,
         },
         "deep_link": deep_link,
@@ -234,33 +194,17 @@ def build_whatsapp_payload(
 def rollup_requisition_status(po_statuses: list[str]) -> str:
     """Pure rollup: derive the requisition-level state from child PO statuses.
 
-    * all confirmed/fulfilled/received → ``Confirmed``
-    * mix of confirmed + open → ``Partially Confirmed``
-    * any sent → ``Sent`` (actionable: awaiting supplier reply)
-    * otherwise → ``Not sent`` (actionable: staff must send)
-    * any cancelled + rest terminal → ``Partially Confirmed`` unless all cancelled.
+    * all fulfilled → ``Fulfilled``
+    * all cancelled → ``Cancelled``
+    * otherwise → ``Unfulfilled`` (actionable: staff must receive)
     """
     if not po_statuses:
-        return "Not sent"
-    terminal_ok = {"confirmed", "fulfilled", "received"}
-    sent_like = {
-        "sent",
-        "payload_ready",
-        "draft",
-        "submitted",
-        "approved",
-        "partially_received",
-        "partially_fulfilled",
-    }
-    if all(s in terminal_ok for s in po_statuses):
-        return "Confirmed"
+        return "Unfulfilled"
+    if all(s == "fulfilled" for s in po_statuses):
+        return "Fulfilled"
     if all(s == "cancelled" for s in po_statuses):
         return "Cancelled"
-    if any(s in terminal_ok for s in po_statuses):
-        return "Partially Confirmed"
-    if any(s == "sent" for s in po_statuses):
-        return "Sent"
-    return "Not sent"
+    return "Unfulfilled"
 
 
 async def _next_po_number(session: AsyncSession, business_id: UUID) -> str:
@@ -287,14 +231,17 @@ async def submit_requisition(
     idempotency_key: str | None,
     restaurant_name: str,
 ) -> tuple[Requisition, list[PurchaseOrder], list[SupplierMessage], list[str]]:
-    """Create a requisition and split it into one PO per supplier.
+    """Create a requisition and split it into one qty-only PO per supplier.
 
     * Rejects lines with no ``supplier_id`` — structured error naming items.
-    * Allows ``price_unconfirmed`` lines; returns their names as flags.
+    * ``SupplierItem`` catalogue prices are snapshotted onto
+      ``RequisitionLine`` as buyer-side reference only (plus the
+      ``price_unconfirmed`` flag list returned for UI hints) — they are
+      never copied to the PO nor rendered in the supplier payload.
     * Same (item, supplier) pair appearing twice merges into ONE PO line
       (quantities summed); the SAME item under TWO suppliers yields two
       lines in two POs.
-    * Append rule (confirmed): reuse a DRAFT/PAYLOAD_READY PO from the SAME
+    * Append rule (confirmed): reuse an UNFULFILLED PO from the SAME
       requisition+supplier — on first submit there is none, so one PO per
       supplier is created. Idempotent re-submit returns the existing rows.
     * All-or-nothing transaction boundary is owned by the caller (the
@@ -433,7 +380,7 @@ async def submit_requisition(
     flagged_names: list[str] = []
 
     for supplier_id, items_map in grouped.items():
-        # Same-requisition append: reuse a draft PO only if this very
+        # Same-requisition append: reuse an unfulfilled PO only if this very
         # requisition already produced one (re-submit path); otherwise new.
         po = (
             await session.exec(
@@ -451,8 +398,7 @@ async def submit_requisition(
                 store_id=store_id,
                 supplier_id=supplier_id,
                 po_number=po_number,
-                status=PurchaseOrderStatus.PAYLOAD_READY,
-                total_amount=Decimal("0.00"),
+                status=PurchaseOrderStatus.UNFULFILLED,
                 notes=notes,
                 ordered_at=datetime.now(UTC),
                 ordered_by=created_by,
@@ -464,15 +410,13 @@ async def submit_requisition(
             await session.flush()
 
         payload_entries: list[dict[str, Any]] = []
-        po_total = Decimal("0.00")
         for item_id, agg in items_map.items():
             item = items_by_id[item_id]
             row = catalogue.get((supplier_id, item_id))
             if row is not None and row.price is not None:
                 unit_price, unconfirmed = row.price, False
             else:
-                # Fall back to the item's own cost basis so the PO stays
-                # receivable; still flag TBC when no catalogue price exists.
+                # Buyer-side reference only — never copied to the PO.
                 if item.unit_cost is not None:
                     unit_price, unconfirmed = item.unit_cost, True
                 else:
@@ -491,9 +435,6 @@ async def submit_requisition(
             )
             session.add(rline)
 
-            line_total = (
-                _q2(agg["qty"] * unit_price) if not unconfirmed or unit_price else Decimal("0.00")
-            )
             existing_line = (
                 await session.exec(
                     select(PurchaseOrderLine).where(
@@ -510,26 +451,19 @@ async def submit_requisition(
                         quantity_ordered=agg["qty"],
                         quantity_received=Decimal("0.000"),
                         unit=units_by_id[item_id],
-                        unit_cost=unit_price,
-                        price_unconfirmed=unconfirmed,
                     )
                 )
             else:
                 existing_line.quantity_ordered = existing_line.quantity_ordered + agg["qty"]
                 session.add(existing_line)
-            if not unconfirmed:
-                po_total += line_total
             payload_entries.append(
                 {
                     "name": item.name,
                     "qty": agg["qty"],
                     "unit": units_by_id[item_id],
-                    "unit_price": None if unconfirmed and row is None else unit_price,
-                    "price_unconfirmed": unconfirmed,
                 }
             )
 
-        po.total_amount = _q2(po_total)
         session.add(po)
         created_pos.append(po)
 
@@ -582,7 +516,6 @@ async def regenerate_payload(
         )
     ).all()
     entries: list[dict[str, Any]] = []
-    total = Decimal("0.00")
     for pl in polines:
         item = (await session.exec(select(Item).where(Item.id == pl.item_id))).one()
         entries.append(
@@ -590,13 +523,8 @@ async def regenerate_payload(
                 "name": item.name,
                 "qty": pl.quantity_ordered,
                 "unit": pl.unit,
-                "unit_price": None if pl.price_unconfirmed and pl.unit_cost == 0 else pl.unit_cost,
-                "price_unconfirmed": pl.price_unconfirmed,
             }
         )
-        if not pl.price_unconfirmed:
-            total += _q2(pl.quantity_ordered * pl.unit_cost)
-    po.total_amount = _q2(total)
     session.add(po)
 
     payload = build_whatsapp_payload(

@@ -137,23 +137,4 @@ class WhatsAppApiService {
       _rethrow(e);
     }
   }
-
-  /// Sends the PO's prepared message through the Cloud API.
-  ///
-  /// Throws [WhatsAppApiException] with 409 when not connected (show the
-  /// Connect screen) or 422 when the supplier has no number (fall back to
-  /// the manual wa.me send).
-  Future<Map<String, dynamic>> sendOrder({
-    required String businessId,
-    required String orderId,
-  }) async {
-    try {
-      final response = await _dio.post(
-        InventoryApiPaths.whatsappSendOrder(businessId, orderId),
-      );
-      return response.data as Map<String, dynamic>;
-    } on DioException catch (e) {
-      _rethrow(e);
-    }
-  }
 }

@@ -71,13 +71,13 @@ from app.models.purchases import (
     PurchaseOrder,
     PurchaseOrderLine,
     PurchaseOrderStatus,
-    SupplierInvoice,
-    SupplierPayment,
 )
 from app.models.suppliers import Supplier
 from app.schemas.analytics import (
     ActivityLogLine,
     ActivityLogResponse,
+    CostHistoryLine,
+    CostHistoryResponse,
     ExpiryLine,
     ExpiryReportResponse,
     IngredientConsumption,
@@ -86,8 +86,6 @@ from app.schemas.analytics import (
     ProductPurchaseLine,
     ProductPurchaseResponse,
     ProductionSummaryResponse,
-    PurchasePaymentLine,
-    PurchasePaymentResponse,
     StockAdjustmentLine,
     StockAdjustmentResponse,
     StockValuationLine,
@@ -298,9 +296,10 @@ async def waste_summary(
     """Waste recorded in the window, per item, with cost.
 
     Waste movements store negative deltas, so quantities are negated back
-    to positive "wasted" amounts. Cost multiplies by the item's current
-    ``unit_cost`` — an item with no cost basis contributes quantity but zero
-    cost, rather than being dropped from the report.
+    to positive "wasted" amounts. Cost uses each movement's frozen
+    ``unit_cost`` (the basis at event time) — legacy rows without a snapshot
+    fall back to the item's current ``unit_cost`` and are flagged estimated.
+    An item with no basis anywhere contributes quantity but zero cost.
     """
     start, end = _day_bounds(from_date, to_date)
 
@@ -311,6 +310,13 @@ async def waste_summary(
             Unit.code,
             Item.unit_cost,
             sa_func.sum(-StockMovement.quantity_delta).label("quantity"),
+            # Frozen cost: sum of qty × movement basis per item. Movements
+            # without a snapshot (legacy) use the item's current cost.
+            sa_func.sum(
+                -StockMovement.quantity_delta
+                * sa_func.coalesce(StockMovement.unit_cost, Item.unit_cost, Decimal("0"))
+            ).label("cost"),
+            sa_func.bool_or(StockMovement.unit_cost.is_(None)).label("has_legacy"),
         )
         .join(Item, StockMovement.item_id == Item.id)
         .join(Unit, Item.unit_id == Unit.id, isouter=True)
@@ -337,17 +343,23 @@ async def waste_summary(
             item_name=row.name,
             item_unit=row.code or "",
             quantity_wasted=row.quantity or Decimal("0"),
-            cost_wasted=(row.quantity or Decimal("0"))
-            * (row.unit_cost or Decimal("0")),
+            cost_wasted=row.cost or Decimal("0"),
+            cost_estimated=bool(row.has_legacy)
+            or (
+                row.unit_cost is None
+                and (row.cost or Decimal("0")) == Decimal("0")
+                and (row.quantity or Decimal("0")) != Decimal("0")
+            ),
         )
         for row in rows
     ]
     total = sum((line.cost_wasted for line in lines), Decimal("0"))
+    estimated = any(line.cost_estimated for line in lines)
 
     logger.info(
         "reports.waste_summary", business_id=str(business_id), lines=len(lines)
     )
-    return WasteSummaryResponse(lines=lines, total_cost_wasted=total)
+    return WasteSummaryResponse(lines=lines, total_cost_wasted=total, estimated=estimated)
 
 
 @router.get("/production-summary", response_model=ProductionSummaryResponse)
@@ -496,114 +508,115 @@ async def product_purchases(
 ) -> ProductPurchaseResponse:
     """Product Purchase Report: quantities and cost per item+supplier.
 
-    Reads ``PurchaseOrderLine`` (ordered/received/cost) joined to its order
-    header for the date/store/supplier scoping. Cancelled orders are
-    excluded — a cancelled PO is intent, not spend.
+    Quantities ordered come from ``PurchaseOrderLine`` (qty-only); received
+    quantities and cost come from ``GoodsReceiptLine`` actuals
+    (qty × receipt unit_cost). Cancelled orders are excluded — a cancelled
+    PO is intent, not spend.
     """
     start, end = _day_bounds(from_date, to_date)
-    stmt = (
+    ordered_stmt = (
         select(
             PurchaseOrderLine.item_id.label("item_id"),
-            Item.name.label("item_name"),
-            Unit.code.label("unit_code"),
             PurchaseOrder.supplier_id.label("supplier_id"),
-            Supplier.name.label("supplier_name"),
             sa_func.sum(PurchaseOrderLine.quantity_ordered).label("qty_ordered"),
-            sa_func.sum(PurchaseOrderLine.quantity_received).label("qty_received"),
-            sa_func.sum(
-                PurchaseOrderLine.quantity_ordered * PurchaseOrderLine.unit_cost
-            ).label("cost"),
         )
         .join(PurchaseOrder, PurchaseOrderLine.purchase_order_id == PurchaseOrder.id)
-        .join(Item, PurchaseOrderLine.item_id == Item.id)
-        .join(Unit, Item.unit_id == Unit.id, isouter=True)
-        .join(Supplier, PurchaseOrder.supplier_id == Supplier.id, isouter=True)
         .where(
             PurchaseOrder.business_id == business_id,
             PurchaseOrder.status != PurchaseOrderStatus.CANCELLED,
         )
     )
     if start is not None:
-        stmt = stmt.where(PurchaseOrder.ordered_at >= start)
+        ordered_stmt = ordered_stmt.where(PurchaseOrder.ordered_at >= start)
     if end is not None:
-        stmt = stmt.where(PurchaseOrder.ordered_at <= end)
+        ordered_stmt = ordered_stmt.where(PurchaseOrder.ordered_at <= end)
     if store_id is not None:
-        stmt = stmt.where(PurchaseOrder.store_id == store_id)
+        ordered_stmt = ordered_stmt.where(PurchaseOrder.store_id == store_id)
     if supplier_id is not None:
-        stmt = stmt.where(PurchaseOrder.supplier_id == supplier_id)
-    stmt = (
-        stmt.group_by(
-            PurchaseOrderLine.item_id, Item.name, Unit.code,
-            PurchaseOrder.supplier_id, Supplier.name,
-        )
-        .order_by(sa_func.sum(PurchaseOrderLine.quantity_ordered * PurchaseOrderLine.unit_cost).desc())
+        ordered_stmt = ordered_stmt.where(PurchaseOrder.supplier_id == supplier_id)
+    ordered_stmt = ordered_stmt.group_by(
+        PurchaseOrderLine.item_id, PurchaseOrder.supplier_id
     )
-    rows = (await session.exec(stmt)).all()
+    ordered_rows = (await session.exec(ordered_stmt)).all()
+    ordered = {(r.item_id, r.supplier_id): r.qty_ordered or Decimal("0") for r in ordered_rows}
+
+    received_stmt = (
+        select(
+            GoodsReceiptLine.item_id.label("item_id"),
+            PurchaseOrder.supplier_id.label("supplier_id"),
+            sa_func.sum(GoodsReceiptLine.quantity_received).label("qty_received"),
+            sa_func.sum(
+                GoodsReceiptLine.quantity_received * GoodsReceiptLine.unit_cost
+            ).label("cost"),
+        )
+        .join(GoodsReceipt, GoodsReceiptLine.goods_receipt_id == GoodsReceipt.id)
+        .join(PurchaseOrder, GoodsReceipt.purchase_order_id == PurchaseOrder.id)
+        .where(
+            GoodsReceipt.business_id == business_id,
+            PurchaseOrder.status != PurchaseOrderStatus.CANCELLED,
+        )
+    )
+    if start is not None:
+        received_stmt = received_stmt.where(PurchaseOrder.ordered_at >= start)
+    if end is not None:
+        received_stmt = received_stmt.where(PurchaseOrder.ordered_at <= end)
+    if store_id is not None:
+        received_stmt = received_stmt.where(GoodsReceipt.store_id == store_id)
+    if supplier_id is not None:
+        received_stmt = received_stmt.where(PurchaseOrder.supplier_id == supplier_id)
+    received_stmt = received_stmt.group_by(
+        GoodsReceiptLine.item_id, PurchaseOrder.supplier_id
+    )
+    received_rows = (await session.exec(received_stmt)).all()
+    received = {
+        (r.item_id, r.supplier_id): (
+            r.qty_received or Decimal("0"),
+            r.cost or Decimal("0"),
+        )
+        for r in received_rows
+    }
+
+    keys = set(ordered) | set(received)
+    names: dict = {}
+    sup_names: dict = {}
+    units: dict = {}
+    if keys:
+        item_rows = (
+            await session.exec(
+                select(Item.id, Item.name, Unit.code).join(
+                    Unit, Item.unit_id == Unit.id, isouter=True
+                ).where(Item.id.in_([k[0] for k in keys]))
+            )
+        ).all()
+        for iid, name, code in item_rows:
+            names[iid] = name
+            units[iid] = code or ""
+        sup_rows = (
+            await session.exec(
+                select(Supplier.id, Supplier.name).where(
+                    Supplier.id.in_([k[1] for k in keys])
+                )
+            )
+        ).all()
+        sup_names = {row[0]: row[1] for row in sup_rows}
+
     lines = [
         ProductPurchaseLine(
-            item_id=row.item_id,
-            item_name=row.item_name,
-            item_unit=row.unit_code or "",
-            supplier_id=row.supplier_id,
-            supplier_name=row.supplier_name or "Unknown",
-            quantity_ordered=row.qty_ordered or Decimal("0"),
-            quantity_received=row.qty_received or Decimal("0"),
-            total_cost=row.cost or Decimal("0"),
+            item_id=item_id,
+            item_name=names.get(item_id, "Unknown"),
+            item_unit=units.get(item_id, ""),
+            supplier_id=sup_id,
+            supplier_name=sup_names.get(sup_id, "Unknown"),
+            quantity_ordered=ordered.get((item_id, sup_id), Decimal("0")),
+            quantity_received=received.get((item_id, sup_id), (Decimal("0"), Decimal("0")))[0],
+            total_cost=received.get((item_id, sup_id), (Decimal("0"), Decimal("0")))[1],
         )
-        for row in rows
+        for item_id, sup_id in keys
     ]
+    lines.sort(key=lambda l: l.total_cost, reverse=True)
     total = sum((line.total_cost for line in lines), Decimal("0"))
     logger.info("reports.product_purchases", business_id=str(business_id), lines=len(lines))
     return ProductPurchaseResponse(lines=lines, total_cost=total)
-
-
-@router.get("/purchase-payments", response_model=PurchasePaymentResponse)
-async def purchase_payments(
-    business_id: UUID,
-    session: Annotated[AsyncSession, Depends(get_db)],
-    _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
-    from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
-    to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
-    supplier_id: UUID | None = Query(default=None, description="Filter by supplier"),
-) -> PurchasePaymentResponse:
-    """Purchase Payment Report: supplier payments grouped by supplier+method."""
-    start, end = _day_bounds(from_date, to_date)
-    stmt = (
-        select(
-            SupplierInvoice.supplier_id.label("supplier_id"),
-            Supplier.name.label("supplier_name"),
-            SupplierPayment.method.label("method"),
-            sa_func.count(SupplierPayment.id).label("count"),
-            sa_func.sum(SupplierPayment.amount).label("paid"),
-        )
-        .join(SupplierInvoice, SupplierPayment.invoice_id == SupplierInvoice.id)
-        .join(Supplier, SupplierInvoice.supplier_id == Supplier.id, isouter=True)
-        .where(SupplierPayment.business_id == business_id)
-    )
-    if start is not None:
-        stmt = stmt.where(SupplierPayment.paid_at >= start)
-    if end is not None:
-        stmt = stmt.where(SupplierPayment.paid_at <= end)
-    if supplier_id is not None:
-        stmt = stmt.where(SupplierInvoice.supplier_id == supplier_id)
-    stmt = (
-        stmt.group_by(SupplierInvoice.supplier_id, Supplier.name, SupplierPayment.method)
-        .order_by(sa_func.sum(SupplierPayment.amount).desc())
-    )
-    rows = (await session.exec(stmt)).all()
-    lines = [
-        PurchasePaymentLine(
-            supplier_id=row.supplier_id,
-            supplier_name=row.supplier_name or "Unknown",
-            method=row.method,
-            payments_count=row.count,
-            total_paid=row.paid or Decimal("0"),
-        )
-        for row in rows
-    ]
-    total = sum((line.total_paid for line in lines), Decimal("0"))
-    logger.info("reports.purchase_payments", business_id=str(business_id), lines=len(lines))
-    return PurchasePaymentResponse(lines=lines, total_paid=total)
 
 
 @router.get("/stock-adjustments", response_model=StockAdjustmentResponse)
@@ -702,6 +715,8 @@ async def lot_report(
             item_id=line.item_id,
             item_name=item_name,
             quantity_received=line.quantity_received,
+            unit_cost=line.unit_cost,
+            total_cost=line.quantity_received * line.unit_cost,
             supplier_name=supplier_name,
             expiry_date=line.expiry_date.isoformat() if line.expiry_date else None,
             received_at=gr.received_at.isoformat(),
@@ -748,6 +763,8 @@ async def expiry_report(
             item_id=line.item_id,
             item_name=item_name,
             quantity_received=line.quantity_received,
+            unit_cost=line.unit_cost,
+            total_cost=line.quantity_received * line.unit_cost,
             expiry_date=line.expiry_date.isoformat(),  # type: ignore[union-attr]
             received_at=gr.received_at.isoformat(),
         )
@@ -765,7 +782,12 @@ async def supplier_purchases(
     from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
 ) -> SupplierPurchaseResponse:
-    """Supplier leg of the Supplier & Customer Report: ordered vs paid."""
+    """Supplier leg of the Supplier & Customer Report: received value.
+
+    POs are qty-only so there is no ordered money value and no payables
+    ledger — ``total_received`` reports the received value (Σ receipt qty
+    × receipt unit_cost) per supplier. Cancelled orders are excluded.
+    """
     start, end = _day_bounds(from_date, to_date)
     po_filters = [PurchaseOrder.business_id == business_id, PurchaseOrder.status != PurchaseOrderStatus.CANCELLED]
     if start is not None:
@@ -777,31 +799,41 @@ async def supplier_purchases(
             select(
                 PurchaseOrder.supplier_id,
                 sa_func.count(PurchaseOrder.id).label("orders"),
-                sa_func.sum(PurchaseOrder.total_amount).label("ordered"),
             )
             .where(*po_filters)
             .group_by(PurchaseOrder.supplier_id)
         )
     ).all()
-    ordered = {row[0]: (row[1], row[2] or Decimal("0")) for row in po_rows}
-    pay_filters = [SupplierPayment.business_id == business_id]
+    counts = {row[0]: row[1] for row in po_rows}
+    recv_filters = [
+        GoodsReceipt.business_id == business_id,
+        PurchaseOrder.status != PurchaseOrderStatus.CANCELLED,
+    ]
     if start is not None:
-        pay_filters.append(SupplierPayment.paid_at >= start)
+        recv_filters.append(PurchaseOrder.ordered_at >= start)
     if end is not None:
-        pay_filters.append(SupplierPayment.paid_at <= end)
-    pay_rows = (
+        recv_filters.append(PurchaseOrder.ordered_at <= end)
+    recv_rows = (
         await session.exec(
             select(
-                SupplierInvoice.supplier_id,
-                sa_func.sum(SupplierPayment.amount).label("paid"),
+                PurchaseOrder.supplier_id,
+                sa_func.sum(
+                    GoodsReceiptLine.quantity_received * GoodsReceiptLine.unit_cost
+                ).label("received"),
             )
-            .join(SupplierInvoice, SupplierPayment.invoice_id == SupplierInvoice.id)
-            .where(*pay_filters)
-            .group_by(SupplierInvoice.supplier_id)
+            .join(GoodsReceipt, GoodsReceiptLine.goods_receipt_id == GoodsReceipt.id)
+            .join(PurchaseOrder, GoodsReceipt.purchase_order_id == PurchaseOrder.id)
+            .where(*recv_filters)
+            .group_by(PurchaseOrder.supplier_id)
         )
     ).all()
-    paid = {row[0]: row[1] or Decimal("0") for row in pay_rows}
-    supplier_ids = set(ordered) | set(paid)
+    ordered = {
+        row[0]: (counts.get(row[0], 0), row[1] or Decimal("0")) for row in recv_rows
+    }
+    for sid, count in counts.items():
+        if sid not in ordered:
+            ordered[sid] = (count, Decimal("0"))
+    supplier_ids = set(ordered)
     names: dict = {}
     if supplier_ids:
         sup_rows = (
@@ -813,15 +845,72 @@ async def supplier_purchases(
             supplier_id=sid,
             supplier_name=names.get(sid, "Unknown"),
             orders_count=ordered.get(sid, (0, Decimal("0")))[0],
-            total_ordered=ordered.get(sid, (0, Decimal("0")))[1],
-            total_paid=paid.get(sid, Decimal("0")),
-            balance=ordered.get(sid, (0, Decimal("0")))[1] - paid.get(sid, Decimal("0")),
+            total_received=ordered.get(sid, (0, Decimal("0")))[1],
         )
         for sid in supplier_ids
     ]
-    lines.sort(key=lambda l: l.total_ordered, reverse=True)
+    lines.sort(key=lambda l: l.total_received, reverse=True)
     logger.info("reports.supplier_purchases", business_id=str(business_id), lines=len(lines))
     return SupplierPurchaseResponse(lines=lines)
+
+
+@router.get("/cost-history", response_model=CostHistoryResponse)
+async def cost_history(
+    business_id: UUID,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
+    from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
+    to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
+    store_id: UUID | None = Query(default=None, description="Filter by store"),
+    item_id: UUID | None = Query(default=None, description="Filter by item"),
+    supplier_id: UUID | None = Query(default=None, description="Filter by supplier"),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> CostHistoryResponse:
+    """Cost history: frozen receipt costs over time ("what did flour cost in March").
+
+    Receipt lines are append-only — unlike ``Item.unit_cost`` (rewritten on
+    every delivery) and ``SupplierItem.price`` (overwritten on every upsert)
+    — so this is the reconstructable price record for historical P&L.
+    """
+    start, end = _day_bounds(from_date, to_date)
+    stmt = (
+        select(GoodsReceiptLine, GoodsReceipt, Item.name, Supplier.name)
+        .join(GoodsReceipt, GoodsReceiptLine.goods_receipt_id == GoodsReceipt.id)
+        .join(Item, GoodsReceiptLine.item_id == Item.id)
+        .join(PurchaseOrder, GoodsReceipt.purchase_order_id == PurchaseOrder.id, isouter=True)
+        .join(Supplier, PurchaseOrder.supplier_id == Supplier.id, isouter=True)
+        .where(GoodsReceipt.business_id == business_id)
+    )
+    if start is not None:
+        stmt = stmt.where(GoodsReceipt.received_at >= start)
+    if end is not None:
+        stmt = stmt.where(GoodsReceipt.received_at <= end)
+    if store_id is not None:
+        stmt = stmt.where(GoodsReceipt.store_id == store_id)
+    if item_id is not None:
+        stmt = stmt.where(GoodsReceiptLine.item_id == item_id)
+    if supplier_id is not None:
+        stmt = stmt.where(PurchaseOrder.supplier_id == supplier_id)
+    stmt = stmt.order_by(GoodsReceipt.received_at.desc()).offset(offset).limit(limit)
+    rows = (await session.exec(stmt)).all()
+    lines = [
+        CostHistoryLine(
+            goods_receipt_id=gr.id,
+            grn_number=gr.grn_number,
+            lot_no=line.lot_no or gr.grn_number,
+            item_id=line.item_id,
+            item_name=item_name,
+            supplier_name=supplier_name,
+            quantity_received=line.quantity_received,
+            unit_cost=line.unit_cost,
+            total_cost=line.quantity_received * line.unit_cost,
+            received_at=gr.received_at.isoformat(),
+        )
+        for line, gr, item_name, supplier_name in rows
+    ]
+    logger.info("reports.cost_history", business_id=str(business_id), lines=len(lines))
+    return CostHistoryResponse(lines=lines)
 
 
 @router.get("/activity-log", response_model=ActivityLogResponse)

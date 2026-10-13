@@ -37,16 +37,14 @@ Map<String, dynamic> _submitResponse() => {
           'id': 'po-a',
           'supplier_id': 'sup-a',
           'po_number': 'PO-0042',
-          'status': 'payload_ready',
-          'total_amount': '100.00',
+          'status': 'unfulfilled',
           'requisition_id': 'req-1',
         },
         {
           'id': 'po-b',
           'supplier_id': 'sup-b',
           'po_number': 'PO-0043',
-          'status': 'payload_ready',
-          'total_amount': '20.00',
+          'status': 'unfulfilled',
           'requisition_id': 'req-1',
         },
       ],
@@ -74,20 +72,13 @@ Map<String, dynamic> _submitResponse() => {
                   'name': 'Flour',
                   'qty': '20.000',
                   'unit': 'kg',
-                  'unit_price': '2.50',
-                  'line_total': '50.00',
-                  'price_unconfirmed': false,
                 },
                 {
                   'name': 'Sugar',
                   'qty': '10.000',
                   'unit': 'kg',
-                  'unit_price': null,
-                  'line_total': null,
-                  'price_unconfirmed': true,
                 },
               ],
-              'total': '50.00',
               'notes': 'weekly restock',
             },
             'deep_link': 'https://wa.me/255700000001?text=Hello',
@@ -98,7 +89,7 @@ Map<String, dynamic> _submitResponse() => {
         },
       ],
       'price_unconfirmed_items': ['Sugar'],
-      'rollup_status': 'Not sent',
+      'rollup_status': 'Unfulfilled',
     };
 
 class FakeRequisitionApi extends RequisitionApiService {
@@ -406,19 +397,19 @@ void main() {
   });
 
   group('SubmittedRequisition.fromJson', () {
-    test('parses groups, badges, totals and TBC flags', () {
+    test('parses groups, badges, line counts and TBC flags', () {
       final order = SubmittedRequisition.fromJson(
         _submitResponse(),
         {'sup-a': 'Supplier A', 'sup-b': 'Supplier B'},
       );
       expect(order.id, 'req-1');
-      expect(order.rollupStatus, 'Not sent');
-      expect(order.total, 120.0);
+      expect(order.rollupStatus, 'Unfulfilled');
+      expect(order.totalLines, 2);
 
       final groupA = order.groups.firstWhere((g) => g.poId == 'po-a');
       expect(groupA.poNumber, 'PO-0042');
       expect(groupA.supplierName, 'Supplier A');
-      expect(groupA.badge, 'Not sent');
+      expect(groupA.badge, 'Unfulfilled');
       expect(groupA.isTerminal, isFalse);
       expect(groupA.hasWhatsapp, isTrue);
       expect(groupA.deepLink, startsWith('https://wa.me/'));
@@ -439,17 +430,13 @@ void main() {
             supplierId: 'sup',
             supplierName: 'S',
             status: status,
-            subtotal: 0,
             lines: const [],
           );
-      expect(groupWith('payload_ready').badge, 'Not sent');
-      expect(groupWith('sent').badge, 'Sent');
-      expect(groupWith('confirmed').badge, 'Confirmed');
-      expect(groupWith('fulfilled').badge, 'Confirmed');
-      expect(groupWith('partially_fulfilled').badge, 'Partial');
+      expect(groupWith('unfulfilled').badge, 'Unfulfilled');
+      expect(groupWith('fulfilled').badge, 'Fulfilled');
       expect(groupWith('cancelled').badge, 'Cancelled');
-      expect(groupWith('confirmed').isTerminal, isTrue);
-      expect(groupWith('sent').isTerminal, isFalse);
+      expect(groupWith('fulfilled').isTerminal, isTrue);
+      expect(groupWith('unfulfilled').isTerminal, isFalse);
     });
   });
 }

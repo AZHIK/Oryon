@@ -1,14 +1,9 @@
-/// UI models for the purchases module (multi-line POs, GRNs, payables).
+/// UI models for the purchases module (two-step POs: create → receive).
 ///
 /// Thin wrappers over `PurchaseApiService` DTOs for the presentation layer.
-/// Status strings come straight from the backend enum — both the classic
-/// GRN lifecycle (`draft`, `submitted`, `approved`, `partially_received`,
-/// `received`, `cancelled`) and the requisition-split lifecycle
-/// (`payload_ready`, `sent`, `confirmed`, `partially_fulfilled`,
-/// `fulfilled`; see `PurchaseOrderStatus` in
-/// `services/inventory-service/app/models/purchases.py`). Cart-created POs
-/// start at `payload_ready`, which is why they must map here and not fall
-/// into [PurchaseOrderStatus.unknown].
+/// Status strings come straight from the backend enum: `unfulfilled`
+/// (open, accepts GRNs), `fulfilled` (terminal, quantities met),
+/// `cancelled`.
 library;
 
 import 'package:flutter/foundation.dart';
@@ -17,71 +12,35 @@ import '../l10n/l10n.dart';
 import '../services/purchase_api_service.dart';
 
 enum PurchaseOrderStatus {
-  draft,
-  submitted,
-  approved,
-  partiallyReceived,
-  received,
-  cancelled,
-  payloadReady,
-  sent,
-  confirmed,
-  partiallyFulfilled,
+  unfulfilled,
   fulfilled,
+  cancelled,
   unknown;
 
   static PurchaseOrderStatus fromBackend(String value) => switch (value) {
-        'draft' => draft,
-        'submitted' => submitted,
-        'approved' => approved,
-        'partially_received' => partiallyReceived,
-        'received' => received,
-        'cancelled' => cancelled,
-        'payload_ready' => payloadReady,
-        'sent' => sent,
-        'confirmed' => confirmed,
-        'partially_fulfilled' => partiallyFulfilled,
+        'unfulfilled' => unfulfilled,
         'fulfilled' => fulfilled,
+        'cancelled' => cancelled,
         _ => unknown,
       };
 
-  /// Labels follow the submitted-order badge language
-  /// (`RequisitionSupplierGroup.badge`): `payload_ready` reads "Not sent",
-  /// `fulfilled` reads "Confirmed" (terminal, goods arrived).
-  /// `partiallyFulfilled` deliberately reads "Partially fulfilled" rather
-  /// than the badge's "Partial", to parallel "Partially received".
+  /// Staff-facing labels for the two-step flow.
   String get label => switch (this) {
-        draft => L10n.t('poStatusDraft', 'Draft'),
-        submitted => L10n.t('poStatusSubmitted', 'Submitted'),
-        approved => L10n.t('poStatusApproved', 'Approved'),
-        partiallyReceived => L10n.t('poStatusPartial', 'Partially received'),
-        received => L10n.t('poStatusReceived', 'Received'),
+        unfulfilled => L10n.t('poStatusUnfulfilled', 'Unfulfilled'),
+        fulfilled => L10n.t('poStatusFulfilled', 'Fulfilled'),
         cancelled => L10n.t('poStatusCancelled', 'Cancelled'),
-        payloadReady => L10n.t('poStatusPayloadReady', 'Not sent'),
-        sent => L10n.t('poStatusSent', 'Sent'),
-        confirmed => L10n.t('poStatusConfirmed', 'Confirmed'),
-        partiallyFulfilled =>
-          L10n.t('poStatusPartialFulfilled', 'Partially fulfilled'),
-        fulfilled => L10n.t('poStatusFulfilled', 'Confirmed'),
         unknown => L10n.t('unknown', 'Unknown'),
       };
 
-  /// Still changeable — not terminally received/fulfilled or cancelled.
+  /// Still changeable — unfulfilled orders accept further GRNs.
   bool get isOpen => switch (this) {
-        draft ||
-        submitted ||
-        approved ||
-        partiallyReceived ||
-        payloadReady ||
-        sent ||
-        confirmed ||
-        partiallyFulfilled =>
-          true,
-        received || fulfilled || cancelled || unknown => false,
+        unfulfilled => true,
+        fulfilled || cancelled || unknown => false,
       };
 }
 
-/// One item line of a purchase order.
+/// One item line of a purchase order — qty-only. Cost is captured per
+/// receipt when goods arrive, never on the order.
 @immutable
 class PurchaseOrderLine {
   const PurchaseOrderLine({
@@ -90,7 +49,6 @@ class PurchaseOrderLine {
     required this.quantityOrdered,
     required this.quantityReceived,
     required this.unit,
-    required this.unitCost,
   });
 
   factory PurchaseOrderLine.fromDto(PurchaseOrderLineDto dto) =>
@@ -100,7 +58,6 @@ class PurchaseOrderLine {
         quantityOrdered: dto.quantityOrdered.toDouble(),
         quantityReceived: dto.quantityReceived.toDouble(),
         unit: dto.unit,
-        unitCost: dto.unitCost.toDouble(),
       );
 
   final String id;
@@ -108,10 +65,8 @@ class PurchaseOrderLine {
   final double quantityOrdered;
   final double quantityReceived;
   final String unit;
-  final double unitCost;
 
   double get outstanding => quantityOrdered - quantityReceived;
-  double get lineTotal => quantityOrdered * unitCost;
 
   @override
   bool operator ==(Object other) =>
@@ -122,7 +77,7 @@ class PurchaseOrderLine {
   int get hashCode => id.hashCode;
 }
 
-/// A multi-line purchase order header with its lines.
+/// A multi-line purchase order header with its lines — qty-only, no money.
 @immutable
 class PurchaseOrder {
   const PurchaseOrder({
@@ -131,14 +86,11 @@ class PurchaseOrder {
     required this.supplierId,
     required this.poNumber,
     required this.status,
-    required this.invoiceStatus,
-    required this.totalAmount,
     required this.orderedAt,
     this.expectedAt,
     this.receivedAt,
     this.notes,
     this.lines = const [],
-    this.invoices = const [],
   });
 
   factory PurchaseOrder.fromDto(PurchaseOrderDto dto) => PurchaseOrder(
@@ -147,14 +99,11 @@ class PurchaseOrder {
         supplierId: dto.supplierId,
         poNumber: dto.poNumber,
         status: PurchaseOrderStatus.fromBackend(dto.status),
-        invoiceStatus: dto.invoiceStatus,
-        totalAmount: dto.totalAmount.toDouble(),
         orderedAt: dto.orderedAt,
         expectedAt: dto.expectedAt,
         receivedAt: dto.receivedAt,
         notes: dto.notes,
         lines: dto.lines.map(PurchaseOrderLine.fromDto).toList(),
-        invoices: dto.invoices,
       );
 
   final String id;
@@ -162,14 +111,11 @@ class PurchaseOrder {
   final String supplierId;
   final String poNumber;
   final PurchaseOrderStatus status;
-  final String invoiceStatus;
-  final double totalAmount;
   final DateTime orderedAt;
   final DateTime? expectedAt;
   final DateTime? receivedAt;
   final String? notes;
   final List<PurchaseOrderLine> lines;
-  final List<SupplierInvoiceDto> invoices;
 
   @override
   bool operator ==(Object other) =>

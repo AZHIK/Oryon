@@ -9,7 +9,6 @@
 /// business context the list is simply empty.
 library;
 
-import 'package:decimal/decimal.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/purchase_order.dart';
@@ -46,7 +45,7 @@ class PurchasesNotifier extends AsyncNotifier<List<PurchaseOrder>> {
     state = await AsyncValue.guard(() => _fetch(businessId));
   }
 
-  /// Full detail (lines, receipts, invoices) for one order.
+  /// Full detail (lines and receipts) for one order.
   Future<PurchaseOrder> fetchDetail(String orderId) async {
     final businessId = ref.read(currentBusinessIdProvider);
     if (businessId == null) throw StateError('No active business context');
@@ -56,7 +55,7 @@ class PurchasesNotifier extends AsyncNotifier<List<PurchaseOrder>> {
     return PurchaseOrder.fromDto(dto);
   }
 
-  /// Drafts a multi-line order, then refreshes the list.
+  /// Creates an order (unfulfilled), then refreshes the list.
   Future<PurchaseOrder> create({
     required String supplierId,
     required List<PurchaseOrderLineInput> lines,
@@ -88,26 +87,7 @@ class PurchasesNotifier extends AsyncNotifier<List<PurchaseOrder>> {
     await refresh();
   }
 
-  Future<void> submit(String orderId) async {
-    final businessId = ref.read(currentBusinessIdProvider);
-    if (businessId == null) throw StateError('No active business context');
-    final api = ref.read(purchaseApiServiceProvider);
-    await _act(
-      orderId,
-      () => api.submitOrder(businessId: businessId, orderId: orderId),
-    );
-  }
-
-  Future<void> approve(String orderId) async {
-    final businessId = ref.read(currentBusinessIdProvider);
-    if (businessId == null) throw StateError('No active business context');
-    final api = ref.read(purchaseApiServiceProvider);
-    await _act(
-      orderId,
-      () => api.approveOrder(businessId: businessId, orderId: orderId),
-    );
-  }
-
+  /// Cancels an unfulfilled order with no receipts, then refreshes.
   Future<void> cancel(String orderId) async {
     final businessId = ref.read(currentBusinessIdProvider);
     if (businessId == null) throw StateError('No active business context');
@@ -135,60 +115,6 @@ class PurchasesNotifier extends AsyncNotifier<List<PurchaseOrder>> {
     await refresh();
     return grn;
   }
-
-  /// Returns stock to the supplier, then refreshes.
-  Future<void> returnStock({
-    required String itemId,
-    required Decimal quantity,
-    String? purchaseOrderId,
-    String? reason,
-  }) async {
-    final businessId = ref.read(currentBusinessIdProvider);
-    if (businessId == null) throw StateError('No active business context');
-    await ref.read(purchaseApiServiceProvider).createReturn(
-          businessId: businessId,
-          itemId: itemId,
-          quantity: quantity,
-          purchaseOrderId: purchaseOrderId,
-          reason: reason,
-        );
-    await refresh();
-  }
-
-  /// Captures the supplier's invoice for an order, then refreshes.
-  Future<SupplierInvoiceDto> invoice({
-    required String orderId,
-    required String invoiceNumber,
-    Decimal? amountTotal,
-  }) async {
-    final businessId = ref.read(currentBusinessIdProvider);
-    if (businessId == null) throw StateError('No active business context');
-    final invoice = await ref.read(purchaseApiServiceProvider).createInvoice(
-          businessId: businessId,
-          purchaseOrderId: orderId,
-          invoiceNumber: invoiceNumber,
-          amountTotal: amountTotal,
-        );
-    await refresh();
-    return invoice;
-  }
-
-  /// Records a payment against an invoice, then refreshes.
-  Future<void> pay({
-    required String invoiceId,
-    required Decimal amount,
-    String? method,
-  }) async {
-    final businessId = ref.read(currentBusinessIdProvider);
-    if (businessId == null) throw StateError('No active business context');
-    await ref.read(purchaseApiServiceProvider).recordPayment(
-          businessId: businessId,
-          invoiceId: invoiceId,
-          amount: amount,
-          method: method,
-        );
-    await refresh();
-  }
 }
 
 final purchasesProvider =
@@ -200,7 +126,7 @@ final purchasesListProvider = Provider<List<PurchaseOrder>>(
   (ref) => ref.watch(purchasesProvider).valueOrNull ?? const [],
 );
 
-/// Open orders (draft → partially received), newest first.
+/// Open orders (unfulfilled), newest first.
 final openPurchasesProvider = Provider<List<PurchaseOrder>>((ref) {
   return ref
       .watch(purchasesListProvider)

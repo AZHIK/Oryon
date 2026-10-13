@@ -3,9 +3,9 @@
 /// Matches `ReorderApiService`'s convention: a plain Dio-wrapping class,
 /// no offline/demo mode — every call here requires connectivity. Purchases
 /// are strictly online-only: there is no Drift outbox or background sync
-/// for POs, GRNs, returns, invoices, or payments (unlike POS sales or
-/// finance). The UI gates these calls on `isOnlineProvider` and surfaces
-/// `PurchaseApiException.message` directly.
+/// for POs and GRNs (unlike POS sales or finance). The UI gates these calls
+/// on `isOnlineProvider` and surfaces `PurchaseApiException.message`
+/// directly.
 library;
 
 import 'package:decimal/decimal.dart';
@@ -35,13 +35,11 @@ DateTime? _dt(dynamic v) => v == null ? null : DateTime.parse(v as String);
 class PurchaseOrderLineInput {
   final String itemId;
   final Decimal quantityOrdered;
-  final Decimal unitCost;
   final String? notes;
 
   const PurchaseOrderLineInput({
     required this.itemId,
     required this.quantityOrdered,
-    required this.unitCost,
     this.notes,
   });
 }
@@ -53,7 +51,6 @@ class PurchaseOrderLineDto {
   final Decimal quantityOrdered;
   final Decimal quantityReceived;
   final String unit;
-  final Decimal unitCost;
   final String? notes;
 
   const PurchaseOrderLineDto({
@@ -63,7 +60,6 @@ class PurchaseOrderLineDto {
     required this.quantityOrdered,
     required this.quantityReceived,
     required this.unit,
-    required this.unitCost,
     this.notes,
   });
 
@@ -75,7 +71,6 @@ class PurchaseOrderLineDto {
         quantityOrdered: _dec(j['quantity_ordered']),
         quantityReceived: _dec(j['quantity_received']),
         unit: j['unit'] as String,
-        unitCost: _dec(j['unit_cost']),
         notes: j['notes'] as String?,
       );
 
@@ -89,14 +84,11 @@ class PurchaseOrderDto {
   final String supplierId;
   final String poNumber;
   final String status;
-  final String invoiceStatus;
-  final Decimal totalAmount;
   final String? notes;
   final DateTime orderedAt;
   final DateTime? expectedAt;
   final DateTime? receivedAt;
   final List<PurchaseOrderLineDto> lines;
-  final List<SupplierInvoiceDto> invoices;
 
   const PurchaseOrderDto({
     required this.id,
@@ -105,14 +97,11 @@ class PurchaseOrderDto {
     required this.supplierId,
     required this.poNumber,
     required this.status,
-    required this.invoiceStatus,
-    required this.totalAmount,
     this.notes,
     required this.orderedAt,
     this.expectedAt,
     this.receivedAt,
     this.lines = const [],
-    this.invoices = const [],
   });
 
   factory PurchaseOrderDto.fromJson(Map<String, dynamic> j) => PurchaseOrderDto(
@@ -122,8 +111,6 @@ class PurchaseOrderDto {
         supplierId: j['supplier_id'] as String,
         poNumber: j['po_number'] as String,
         status: j['status'] as String,
-        invoiceStatus: j['invoice_status'] as String,
-        totalAmount: _dec(j['total_amount']),
         notes: j['notes'] as String?,
         orderedAt: DateTime.parse(j['ordered_at'] as String),
         expectedAt: _dt(j['expected_at']),
@@ -134,12 +121,6 @@ class PurchaseOrderDto {
               .toList(),
           _ => const [],
         },
-        invoices: switch (j['invoices']) {
-          final List invoices => invoices
-              .map((e) => SupplierInvoiceDto.fromJson(e as Map<String, dynamic>))
-              .toList(),
-          _ => const [],
-        },
       );
 }
 
@@ -147,10 +128,48 @@ class GoodsReceiptLineInput {
   final String purchaseOrderLineId;
   final Decimal quantityReceived;
 
+  /// Actual price for this delivery — drives weighted-average costing.
+  final Decimal unitCost;
+
   const GoodsReceiptLineInput({
     required this.purchaseOrderLineId,
     required this.quantityReceived,
+    required this.unitCost,
   });
+}
+
+class GoodsReceiptLineDto {
+  final String id;
+  final String goodsReceiptId;
+  final String purchaseOrderLineId;
+  final String itemId;
+  final Decimal quantityReceived;
+  final Decimal unitCost;
+  final String? lotNo;
+  final DateTime? expiryDate;
+
+  const GoodsReceiptLineDto({
+    required this.id,
+    required this.goodsReceiptId,
+    required this.purchaseOrderLineId,
+    required this.itemId,
+    required this.quantityReceived,
+    required this.unitCost,
+    this.lotNo,
+    this.expiryDate,
+  });
+
+  factory GoodsReceiptLineDto.fromJson(Map<String, dynamic> j) =>
+      GoodsReceiptLineDto(
+        id: j['id'] as String,
+        goodsReceiptId: j['goods_receipt_id'] as String,
+        purchaseOrderLineId: j['purchase_order_line_id'] as String,
+        itemId: j['item_id'] as String,
+        quantityReceived: _dec(j['quantity_received']),
+        unitCost: _dec(j['unit_cost']),
+        lotNo: j['lot_no'] as String?,
+        expiryDate: _dt(j['expiry_date']),
+      );
 }
 
 class GoodsReceiptDto {
@@ -158,7 +177,7 @@ class GoodsReceiptDto {
   final String purchaseOrderId;
   final String grnNumber;
   final DateTime receivedAt;
-  final List<PurchaseOrderLineDto> lines;
+  final List<GoodsReceiptLineDto> lines;
 
   const GoodsReceiptDto({
     required this.id,
@@ -175,45 +194,13 @@ class GoodsReceiptDto {
         receivedAt: DateTime.parse(j['received_at'] as String),
         lines: switch (j['lines']) {
           final List lines => lines
-              .map((e) => PurchaseOrderLineDto.fromJson(e as Map<String, dynamic>))
+              .map((e) => GoodsReceiptLineDto.fromJson(e as Map<String, dynamic>))
               .toList(),
           _ => const [],
         },
       );
 }
 
-class SupplierInvoiceDto {
-  final String id;
-  final String supplierId;
-  final String purchaseOrderId;
-  final String invoiceNumber;
-  final Decimal amountTotal;
-  final Decimal amountPaid;
-  final String status;
-
-  const SupplierInvoiceDto({
-    required this.id,
-    required this.supplierId,
-    required this.purchaseOrderId,
-    required this.invoiceNumber,
-    required this.amountTotal,
-    required this.amountPaid,
-    required this.status,
-  });
-
-  factory SupplierInvoiceDto.fromJson(Map<String, dynamic> j) =>
-      SupplierInvoiceDto(
-        id: j['id'] as String,
-        supplierId: j['supplier_id'] as String,
-        purchaseOrderId: j['purchase_order_id'] as String,
-        invoiceNumber: j['invoice_number'] as String,
-        amountTotal: _dec(j['amount_total']),
-        amountPaid: _dec(j['amount_paid']),
-        status: j['status'] as String,
-      );
-
-  Decimal get remaining => amountTotal - amountPaid;
-}
 
 // ── Service ──────────────────────────────────────────────────────────────
 
@@ -249,7 +236,7 @@ class PurchaseApiService {
     }
   }
 
-  /// Fetches one order with lines, receipts, and invoices.
+  /// Fetches one order with lines and receipts.
   /// Requires `procurement.view`.
   Future<PurchaseOrderDto> fetchOrder({
     required String businessId,
@@ -289,7 +276,6 @@ class PurchaseApiService {
               {
                 'item_id': line.itemId,
                 'quantity_ordered': line.quantityOrdered.toString(),
-                'unit_cost': line.unitCost.toString(),
                 if (line.notes != null) 'notes': line.notes,
               },
           ],
@@ -356,80 +342,12 @@ class PurchaseApiService {
               {
                 'purchase_order_line_id': line.purchaseOrderLineId,
                 'quantity_received': line.quantityReceived.toString(),
+                'unit_cost': line.unitCost.toString(),
               },
           ],
         },
       );
       return GoodsReceiptDto.fromJson(response.data as Map<String, dynamic>);
-    } on DioException catch (e) {
-      _rethrow(e);
-    }
-  }
-
-  /// Returns stock to a supplier. Requires `procurement.receive`.
-  Future<Map<String, dynamic>> createReturn({
-    required String businessId,
-    required String itemId,
-    required Decimal quantity,
-    String? purchaseOrderId,
-    String? reason,
-  }) async {
-    try {
-      final response = await _dio.post(
-        InventoryApiPaths.purchaseReturns(businessId),
-        data: {
-          'item_id': itemId,
-          'quantity': quantity.toString(),
-          if (purchaseOrderId != null) 'purchase_order_id': purchaseOrderId,
-          if (reason != null) 'reason': reason,
-        },
-      );
-      return response.data as Map<String, dynamic>;
-    } on DioException catch (e) {
-      _rethrow(e);
-    }
-  }
-
-  /// Captures the supplier's bill for an order. Requires `procurement.approve`.
-  Future<SupplierInvoiceDto> createInvoice({
-    required String businessId,
-    required String purchaseOrderId,
-    required String invoiceNumber,
-    Decimal? amountTotal,
-  }) async {
-    try {
-      final response = await _dio.post(
-        InventoryApiPaths.purchaseInvoices(businessId),
-        data: {
-          'purchase_order_id': purchaseOrderId,
-          'invoice_number': invoiceNumber,
-          if (amountTotal != null) 'amount_total': amountTotal.toString(),
-        },
-      );
-      return SupplierInvoiceDto.fromJson(response.data as Map<String, dynamic>);
-    } on DioException catch (e) {
-      _rethrow(e);
-    }
-  }
-
-  /// Records one payment against an invoice. Requires `procurement.approve`.
-  Future<Map<String, dynamic>> recordPayment({
-    required String businessId,
-    required String invoiceId,
-    required Decimal amount,
-    String? method,
-    String? reference,
-  }) async {
-    try {
-      final response = await _dio.post(
-        InventoryApiPaths.purchaseInvoicePayments(businessId, invoiceId),
-        data: {
-          'amount': amount.toString(),
-          if (method != null) 'method': method,
-          if (reference != null) 'reference': reference,
-        },
-      );
-      return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
       _rethrow(e);
     }

@@ -91,7 +91,6 @@ class PurchaseOrderSplitRead(BaseModel):
     supplier_id: UUID
     po_number: str
     status: str
-    total_amount: Decimal
     requisition_id: UUID | None = None
 
 

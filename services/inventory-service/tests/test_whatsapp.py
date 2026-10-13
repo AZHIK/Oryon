@@ -1,10 +1,11 @@
-"""Tests for the WhatsApp Business Cloud API pass.
+"""Tests for the WhatsApp Business connection + webhooks.
 
-Connection CRUD (store + live-verify, masked reads, disconnect), the
-explicit Cloud API send (ready → sent + PO SENT + wamid stored), webhook
+Connection CRUD (store + live-verify, masked reads, disconnect), webhook
 verification, status callbacks (sent → delivered → read / failed), and
 inbound reply storage with confirmation detection. Network calls to Meta
 are faked with monkeypatched service functions — no live Graph calls.
+Staff send order messages via the wa.me deep link; there is no Cloud API
+per-PO send.
 """
 
 from __future__ import annotations
@@ -21,7 +22,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import get_settings
 from app.models.inventory import Item, ItemType
-from app.models.purchases import PurchaseOrder
 from app.models.requisition import MessageStatus, SupplierMessage
 from app.models.suppliers import Supplier
 from app.models.units import Unit
@@ -262,76 +262,13 @@ async def test_connection_rejects_other_business(
     assert response.status_code == 404
 
 
-# ── Explicit send ─────────────────────────────────────────────────────────
+# ── Per-PO Cloud API send is gone ──────────────────────────────────────────
 
 
-async def test_send_order_via_cloud_api(
-    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, db_session: AsyncSession
-) -> None:
-    await _connect(client, monkeypatch)
-    supplier = await _supplier(db_session)
-    item = await _item(db_session)
-    submitted = await _submit_order(client, supplier, item)
-    po_id = submitted["purchase_orders"][0]["id"]
-
-    async def _fake_send(**_kwargs):  # noqa: ANN003, ANN202
-        assert _kwargs["to"] == "255700000001"
-        assert "Acme" in _kwargs["body"]
-        return "wamid.test123"
-
-    monkeypatch.setattr(whatsapp_service, "send_text_message", _fake_send)
-    response = await client.post(
-        f"{PO_PREFIX}/orders/{po_id}/send-whatsapp", headers=AUTH_HEADER
-    )
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["status"] == "sent"
-    assert body["provider_message_id"] == "wamid.test123"
-
-    po = (
-        await db_session.exec(select(PurchaseOrder).where(PurchaseOrder.id == UUID(po_id)))
-    ).one()
-    assert po.status.value == "sent"
-    row = (
-        await db_session.exec(
-            select(SupplierMessage).where(SupplierMessage.id == UUID(body["message_id"]))
-        )
-    ).one()
-    assert row.provider_message_id == "wamid.test123"
-
-    again = await client.post(f"{PO_PREFIX}/orders/{po_id}/send-whatsapp", headers=AUTH_HEADER)
-    assert again.json()["already_sent"] is True
-
-
-async def test_send_provider_failure_marks_failed(
-    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, db_session: AsyncSession
-) -> None:
-    await _connect(client, monkeypatch)
-    supplier = await _supplier(db_session)
-    item = await _item(db_session)
-    submitted = await _submit_order(client, supplier, item)
-    po_id = submitted["purchase_orders"][0]["id"]
-
-    async def _boom(**_kwargs):  # noqa: ANN003, ANN202
-        raise CloudApiError("Recipient is not a valid WhatsApp user", status_code=400)
-
-    monkeypatch.setattr(whatsapp_service, "send_text_message", _boom)
-    response = await client.post(
-        f"{PO_PREFIX}/orders/{po_id}/send-whatsapp", headers=AUTH_HEADER
-    )
-    assert response.status_code == 502
-    rows = (
-        await db_session.exec(
-            select(SupplierMessage).where(SupplierMessage.po_id == UUID(po_id))
-        )
-    ).all()
-    assert rows[0].status == MessageStatus.FAILED
-    assert "not a valid WhatsApp user" in (rows[0].last_error or "")
-
-
-async def test_send_without_connection_is_409(
+async def test_send_whatsapp_route_is_gone(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
+    """Staff send via the wa.me deep link — no Cloud API per-PO send."""
     supplier = await _supplier(db_session)
     item = await _item(db_session)
     submitted = await _submit_order(client, supplier, item)
@@ -339,30 +276,7 @@ async def test_send_without_connection_is_409(
     response = await client.post(
         f"{PO_PREFIX}/orders/{po_id}/send-whatsapp", headers=AUTH_HEADER
     )
-    assert response.status_code == 409
-
-
-async def test_send_without_supplier_number_is_422(
-    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, db_session: AsyncSession
-) -> None:
-    await _connect(client, monkeypatch)
-    supplier = await _supplier(db_session)
-    item = await _item(db_session)
-    submitted = await _submit_order(client, supplier, item)
-    po_id = submitted["purchase_orders"][0]["id"]
-    supplier.whatsapp_number = None
-    supplier.phone = None
-    db_session.add(supplier)
-    await db_session.commit()
-
-    async def _unused(**_kwargs):  # noqa: ANN003, ANN202
-        raise AssertionError("network must not be touched without a number")
-
-    monkeypatch.setattr(whatsapp_service, "send_text_message", _unused)
-    response = await client.post(
-        f"{PO_PREFIX}/orders/{po_id}/send-whatsapp", headers=AUTH_HEADER
-    )
-    assert response.status_code == 422
+    assert response.status_code == 404
 
 
 # ── Webhook verification ──────────────────────────────────────────────────
@@ -428,17 +342,33 @@ async def test_webhook_status_flow(
     submitted = await _submit_order(client, supplier, item)
     po_id = submitted["purchase_orders"][0]["id"]
 
-    async def _fake_send(**_kwargs):  # noqa: ANN003, ANN202
-        return "wamid.flow1"
-
-    monkeypatch.setattr(whatsapp_service, "send_text_message", _fake_send)
-    await client.post(f"{PO_PREFIX}/orders/{po_id}/send-whatsapp", headers=AUTH_HEADER)
+    # No Cloud API send — join the status callback to the prepared message
+    # by stamping the provider id directly.
+    msg = (
+        await db_session.exec(
+            select(SupplierMessage).where(SupplierMessage.po_id == UUID(po_id))
+        )
+    ).one()
+    msg.provider_message_id = "wamid.flow1"
+    db_session.add(msg)
+    await db_session.commit()
 
     for state in ("delivered", "read"):
         response = await client.post(
             "/api/v1/whatsapp/webhook", json=_status_payload("wamid.flow1", state)
         )
         assert response.status_code == 200
+    row = (
+        await db_session.exec(
+            select(SupplierMessage).where(
+                SupplierMessage.provider_message_id == "wamid.flow1"
+            )
+        )
+    ).one()
+    # This session already holds the row (stamped above) — refresh past the
+    # identity map to see the webhook session's update.
+    await db_session.refresh(row)
+    assert row.status == MessageStatus.READ
     row = (
         await db_session.exec(
             select(SupplierMessage).where(
@@ -486,12 +416,6 @@ async def test_webhook_inbound_reply_matched_with_confirmation(
     item = await _item(db_session)
     submitted = await _submit_order(client, supplier, item)
     po_id = submitted["purchase_orders"][0]["id"]
-
-    async def _fake_send(**_kwargs):  # noqa: ANN003, ANN202
-        return "wamid.flow2"
-
-    monkeypatch.setattr(whatsapp_service, "send_text_message", _fake_send)
-    await client.post(f"{PO_PREFIX}/orders/{po_id}/send-whatsapp", headers=AUTH_HEADER)
 
     response = await client.post(
         "/api/v1/whatsapp/webhook",

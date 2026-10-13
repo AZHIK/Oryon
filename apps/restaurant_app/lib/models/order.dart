@@ -87,8 +87,9 @@ enum OrderType {
 /// Sales history must not change when the menu is edited, so the name and
 /// price are copied rather than referenced. [unitCost] is the same idea
 /// for production cost: the recipe cost at current grocery prices when the
-/// ticket closed. Null means unknown (no recipe and no cost on file) —
-/// profit figures fall back to live costs for those lines.
+/// ticket closed. Zero means unknown-but-frozen (no recipe and no cost on
+/// file — flagged estimated downstream); null is legacy rows synced before
+/// snapshots existed, which profit figures value at live costs.
 @immutable
 class OrderLine {
   const OrderLine({
@@ -246,7 +247,8 @@ class Order {
   /// screen does not have to restate what it already recorded.
   ///
   /// [unitCosts] snapshots each line's production cost (item id → per-unit
-  /// cost at sale time). Absent ids stay null — unknown, not zero.
+  /// cost at sale time). Every line should carry a snapshot (zero when
+  /// unknown); absent ids are legacy nulls valued at live costs.
   factory Order.fromCart({
     required String id,
     required Cart cart,

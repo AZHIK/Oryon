@@ -27,6 +27,7 @@ class StockMovementDto {
   final String movementType;
   final String? reason;
   final DateTime createdAt;
+  final Decimal? unitCost;
 
   StockMovementDto({
     required this.id,
@@ -37,6 +38,7 @@ class StockMovementDto {
     required this.movementType,
     this.reason,
     required this.createdAt,
+    this.unitCost,
   });
 
   factory StockMovementDto.fromJson(Map<String, dynamic> json) => StockMovementDto(
@@ -48,6 +50,9 @@ class StockMovementDto {
         movementType: json['movement_type'] as String,
         reason: json['reason'] as String?,
         createdAt: DateTime.parse(json['created_at'] as String),
+        unitCost: json['unit_cost'] == null
+            ? null
+            : Decimal.parse(json['unit_cost'].toString()),
       );
 }
 
@@ -581,12 +586,16 @@ class RunDto {
 }
 
 /// One item's recorded waste in a window: quantity and cost.
+///
+/// [costEstimated] is true when the backend fell back to the item's current
+/// cost for legacy movements without a frozen snapshot.
 class WasteLineDto {
   final String itemId;
   final String itemName;
   final String itemUnit;
   final Decimal quantityWasted;
   final Decimal costWasted;
+  final bool costEstimated;
 
   WasteLineDto({
     required this.itemId,
@@ -594,6 +603,7 @@ class WasteLineDto {
     required this.itemUnit,
     required this.quantityWasted,
     required this.costWasted,
+    this.costEstimated = false,
   });
 
   factory WasteLineDto.fromJson(Map<String, dynamic> json) => WasteLineDto(
@@ -602,6 +612,7 @@ class WasteLineDto {
         itemUnit: json['item_unit'] as String? ?? '',
         quantityWasted: Decimal.parse(json['quantity_wasted'].toString()),
         costWasted: Decimal.parse(json['cost_wasted'].toString()),
+        costEstimated: json['cost_estimated'] as bool? ?? false,
       );
 }
 
@@ -609,8 +620,13 @@ class WasteLineDto {
 class WasteSummaryDto {
   final List<WasteLineDto> lines;
   final Decimal totalCostWasted;
+  final bool estimated;
 
-  WasteSummaryDto({required this.lines, required this.totalCostWasted});
+  WasteSummaryDto({
+    required this.lines,
+    required this.totalCostWasted,
+    this.estimated = false,
+  });
 
   factory WasteSummaryDto.fromJson(Map<String, dynamic> json) =>
       WasteSummaryDto(
@@ -621,6 +637,7 @@ class WasteSummaryDto {
         totalCostWasted: Decimal.parse(
           json['total_cost_wasted'].toString(),
         ),
+        estimated: json['estimated'] as bool? ?? false,
       );
 }
 
@@ -752,32 +769,6 @@ class ProductPurchaseLineDto {
       );
 }
 
-/// One supplier+method bucket of payments (Purchase Payment Report).
-class PurchasePaymentLineDto {
-  final String supplierId;
-  final String supplierName;
-  final String? method;
-  final int paymentsCount;
-  final Decimal totalPaid;
-
-  PurchasePaymentLineDto({
-    required this.supplierId,
-    required this.supplierName,
-    this.method,
-    required this.paymentsCount,
-    required this.totalPaid,
-  });
-
-  factory PurchasePaymentLineDto.fromJson(Map<String, dynamic> json) =>
-      PurchasePaymentLineDto(
-        supplierId: json['supplier_id'] as String,
-        supplierName: json['supplier_name'] as String,
-        method: json['method'] as String?,
-        paymentsCount: json['payments_count'] as int,
-        totalPaid: Decimal.parse(json['total_paid'].toString()),
-      );
-}
-
 /// One manual correction (Stock Adjustment Report / Activity Log).
 class StockAdjustmentLineDto {
   final String id;
@@ -807,11 +798,13 @@ class StockAdjustmentLineDto {
       );
 }
 
-/// One received batch (Lot Report).
+/// One received batch (Lot Report): frozen receipt cost included.
 class LotLineDto {
   final String lotNo;
   final String itemName;
   final Decimal quantityReceived;
+  final Decimal unitCost;
+  final Decimal totalCost;
   final String? supplierName;
   final String? expiryDate;
 
@@ -819,36 +812,73 @@ class LotLineDto {
     required this.lotNo,
     required this.itemName,
     required this.quantityReceived,
+    Decimal? unitCost,
+    Decimal? totalCost,
     this.supplierName,
     this.expiryDate,
+  })  : unitCost = unitCost ?? Decimal.zero,
+        totalCost = totalCost ?? Decimal.zero;
+
+  factory LotLineDto.fromJson(Map<String, dynamic> json) {
+    Decimal _opt(Object? v) => v == null ? Decimal.zero : Decimal.parse(v.toString());
+    return LotLineDto(
+      lotNo: json['lot_no'] as String,
+      itemName: json['item_name'] as String,
+      quantityReceived:
+          Decimal.parse(json['quantity_received'].toString()),
+      unitCost: _opt(json['unit_cost']),
+      totalCost: _opt(json['total_cost']),
+      supplierName: json['supplier_name'] as String?,
+      expiryDate: json['expiry_date'] as String?,
+    );
+  }
+}
+
+/// One frozen receipt cost ("what did flour cost in March").
+class CostHistoryLineDto {
+  final String lotNo;
+  final String itemName;
+  final Decimal quantityReceived;
+  final Decimal unitCost;
+  final Decimal totalCost;
+  final String? supplierName;
+  final String receivedAt;
+
+  CostHistoryLineDto({
+    required this.lotNo,
+    required this.itemName,
+    required this.quantityReceived,
+    required this.unitCost,
+    required this.totalCost,
+    this.supplierName,
+    required this.receivedAt,
   });
 
-  factory LotLineDto.fromJson(Map<String, dynamic> json) => LotLineDto(
+  factory CostHistoryLineDto.fromJson(Map<String, dynamic> json) =>
+      CostHistoryLineDto(
         lotNo: json['lot_no'] as String,
         itemName: json['item_name'] as String,
         quantityReceived:
             Decimal.parse(json['quantity_received'].toString()),
+        unitCost: Decimal.parse(json['unit_cost'].toString()),
+        totalCost: Decimal.parse(json['total_cost'].toString()),
         supplierName: json['supplier_name'] as String?,
-        expiryDate: json['expiry_date'] as String?,
+        receivedAt: json['received_at'] as String,
       );
 }
 
-/// One supplier's purchase position (Supplier & Customer Report).
+/// One supplier's received purchase value (Supplier & Customer Report).
 class SupplierPurchaseLineDto {
   final String supplierId;
   final String supplierName;
   final int ordersCount;
-  final Decimal totalOrdered;
-  final Decimal totalPaid;
-  final Decimal balance;
+  final Decimal totalReceived;
 
   SupplierPurchaseLineDto({
     required this.supplierId,
     required this.supplierName,
     required this.ordersCount,
-    required this.totalOrdered,
-    required this.totalPaid,
-    required this.balance,
+    required this.totalReceived,
   });
 
   factory SupplierPurchaseLineDto.fromJson(Map<String, dynamic> json) =>
@@ -856,9 +886,7 @@ class SupplierPurchaseLineDto {
         supplierId: json['supplier_id'] as String,
         supplierName: json['supplier_name'] as String,
         ordersCount: json['orders_count'] as int,
-        totalOrdered: Decimal.parse(json['total_ordered'].toString()),
-        totalPaid: Decimal.parse(json['total_paid'].toString()),
-        balance: Decimal.parse(json['balance'].toString()),
+        totalReceived: Decimal.parse(json['total_received'].toString()),
       );
 }
 
@@ -1359,26 +1387,6 @@ class InventoryApiService {
     }
   }
 
-  /// Purchase Payment Report.
-  Future<List<PurchasePaymentLineDto>> fetchPurchasePayments({
-    required String businessId,
-    DateTime? from,
-    DateTime? to,
-  }) async {
-    try {
-      final response = await _dio.get(
-        InventoryApiPaths.purchasePayments(businessId),
-        queryParameters: _reportWindow(from, to),
-      );
-      return _lines(
-        response.data as Map<String, dynamic>,
-        PurchasePaymentLineDto.fromJson,
-      );
-    } on DioException catch (e) {
-      _rethrowAsInventoryError(e);
-    }
-  }
-
   /// Stock Adjustment Report (business-wide manual corrections).
   Future<List<StockAdjustmentLineDto>> fetchStockAdjustments({
     required String businessId,
@@ -1473,6 +1481,33 @@ class InventoryApiService {
       return _lines(
         response.data as Map<String, dynamic>,
         ActivityLogLineDto.fromJson,
+      );
+    } on DioException catch (e) {
+      _rethrowAsInventoryError(e);
+    }
+  }
+
+  /// Cost history: frozen receipt costs over time (read-only price record).
+  /// Requires `reports.view`.
+  Future<List<CostHistoryLineDto>> fetchCostHistory({
+    required String businessId,
+    DateTime? from,
+    DateTime? to,
+    String? itemId,
+    String? supplierId,
+  }) async {
+    try {
+      final response = await _dio.get(
+        InventoryApiPaths.costHistory(businessId),
+        queryParameters: {
+          ..._reportWindow(from, to),
+          if (itemId != null) 'item_id': itemId,
+          if (supplierId != null) 'supplier_id': supplierId,
+        },
+      );
+      return _lines(
+        response.data as Map<String, dynamic>,
+        CostHistoryLineDto.fromJson,
       );
     } on DioException catch (e) {
       _rethrowAsInventoryError(e);

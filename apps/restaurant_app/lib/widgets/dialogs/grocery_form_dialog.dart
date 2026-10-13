@@ -336,46 +336,6 @@ class _GroceryFormDialogState extends ConsumerState<GroceryFormDialog> {
         SectionLabel(AppStrings.stockSection),
         const SizedBox(height: Insets.md),
         _FieldPair(
-          left: LabeledFormField(
-            label: AppStrings.lowAlertLabel,
-            helper: AppStrings.lowAlertHelper,
-            child: TextFormField(
-              key: GroceryFormKeys.lowStockAlert,
-              controller: _lowStock,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.next,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: InputDecoration(hintText: AppStrings.quantityHint),
-              onChanged: notifier.setLowStockAlert,
-              validator: GroceryFormState.validateLowStockAlert,
-            ),
-          ),
-          right: LabeledFormField(
-            label: AppStrings.reorderQtyLabel,
-            helper: AppStrings.reorderQtyHelper,
-            child: TextFormField(
-              key: GroceryFormKeys.reorderQuantity,
-              controller: _reorderQuantity,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.next,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: InputDecoration(hintText: AppStrings.quantityHint),
-              onChanged: notifier.setReorderQuantity,
-              validator: GroceryFormState.validateReorderQuantity,
-            ),
-          ),
-        ),
-        const SizedBox(height: Insets.lg),
-        _SwitchTile(
-          key: GroceryFormKeys.allowNegativeStock,
-          title: AppStrings.allowNegativeLabel,
-          subtitleOn: AppStrings.allowNegativeOn,
-          subtitleOff: AppStrings.allowNegativeOff,
-          value: state.allowNegativeStock,
-          onChanged: notifier.setAllowNegativeStock,
-        ),
-        const SizedBox(height: Insets.lg),
-        _FieldPair(
           left: state.isEdit
               ? _ReadOnlyStock(value: state.stock, unit: state.unit)
               : LabeledFormField(
@@ -419,6 +379,46 @@ class _GroceryFormDialogState extends ConsumerState<GroceryFormDialog> {
               },
             ),
           ),
+        ),
+        const SizedBox(height: Insets.lg),
+        _FieldPair(
+          left: LabeledFormField(
+            label: AppStrings.lowAlertLabel,
+            helper: AppStrings.lowAlertHelper,
+            child: TextFormField(
+              key: GroceryFormKeys.lowStockAlert,
+              controller: _lowStock,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: InputDecoration(hintText: AppStrings.quantityHint),
+              onChanged: notifier.setLowStockAlert,
+              validator: GroceryFormState.validateLowStockAlert,
+            ),
+          ),
+          right: LabeledFormField(
+            label: AppStrings.reorderQtyLabel,
+            helper: AppStrings.reorderQtyHelper,
+            child: TextFormField(
+              key: GroceryFormKeys.reorderQuantity,
+              controller: _reorderQuantity,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: InputDecoration(hintText: AppStrings.quantityHint),
+              onChanged: notifier.setReorderQuantity,
+              validator: GroceryFormState.validateReorderQuantity,
+            ),
+          ),
+        ),
+        const SizedBox(height: Insets.lg),
+        _SwitchTile(
+          key: GroceryFormKeys.allowNegativeStock,
+          title: AppStrings.allowNegativeLabel,
+          subtitleOn: AppStrings.allowNegativeOn,
+          subtitleOff: AppStrings.allowNegativeOff,
+          value: state.allowNegativeStock,
+          onChanged: notifier.setAllowNegativeStock,
         ),
         const SizedBox(height: Insets.xl),
         SectionLabel(AppStrings.statusSection),

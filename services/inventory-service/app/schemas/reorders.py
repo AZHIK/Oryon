@@ -12,7 +12,7 @@ from app.models.reorders import ReorderStatus
 
 
 class ReorderCreate(BaseModel):
-    """Fields required to place a reorder.
+    """Fields required to place a reorder — qty-only.
 
     ``business_id`` comes from the URL path, same convention as
     ``ItemCreate``. ``store_id`` is required — receiving credits a specific
@@ -20,13 +20,14 @@ class ReorderCreate(BaseModel):
     denormalized server-side from the item's own ``unit_id`` (resolved to
     the referenced ``Unit.code``) at creation time (see
     ``app/models/reorders.py``'s module docstring), never client-supplied.
+    Cost is captured at receive time (``ReorderReceive.unit_cost``), never
+    here.
     """
 
     store_id: UUID
     item_id: UUID
     supplier_id: UUID
     quantity: Decimal
-    unit_cost: Decimal
     notes: str | None = None
     expected_at: datetime | None = None
 
@@ -37,10 +38,20 @@ class ReorderCreate(BaseModel):
             raise ValueError("Quantity must be a positive number")
         return v
 
+
+class ReorderReceive(BaseModel):
+    """Cost captured when a reorder's goods arrive.
+
+    ``unit_cost`` is optional: when supplied it revalues ``Item.unit_cost``
+    via weighted averaging; when omitted stock moves without revaluation.
+    """
+
+    unit_cost: Decimal | None = None
+
     @field_validator("unit_cost")
     @classmethod
-    def unit_cost_must_be_non_negative(cls, v: Decimal) -> Decimal:
-        if v < 0:
+    def unit_cost_must_be_non_negative(cls, v: Decimal | None) -> Decimal | None:
+        if v is not None and v < 0:
             raise ValueError("Unit cost must not be negative")
         return v
 
@@ -55,7 +66,6 @@ class ReorderRead(BaseModel):
     supplier_id: UUID
     quantity: Decimal
     unit: str
-    unit_cost: Decimal
     status: ReorderStatus
     notes: str | None
     ordered_at: datetime

@@ -1,4 +1,4 @@
-"""WhatsApp Business Cloud API endpoints — connection + send + webhooks.
+"""WhatsApp Business Cloud API endpoints — connection + webhooks.
 
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ PERMISSION MODEL                                                         │
@@ -7,7 +7,6 @@
 │   PUT    /whatsapp/connection        → PROCUREMENT_CREATE (store+verify)  │
 │   DELETE /whatsapp/connection        → PROCUREMENT_CREATE                 │
 │   POST   /whatsapp/connection/test   → PROCUREMENT_CREATE                │
-│   POST   /purchases/orders/{id}/send-whatsapp → PROCUREMENT_CREATE        │
 │   GET/POST /whatsapp/webhook         → NO JWT (Meta calls these; GET is    │
 │     guarded by the per-business verify token, POST by the optional       │
 │     X-Hub-Signature-256 app-secret check + verify-token scoping)          │
@@ -16,6 +15,11 @@
 PUT stores the operator-pasted credentials AND live-verifies them against
 Graph in the same call, so "Connect" either reports ``connected`` or the
 provider's own error — never a silent store of dead credentials.
+
+Staff send order messages via the wa.me deep link on the prepared payload
+(manual send); there is no Cloud API per-PO send and no PO send lifecycle.
+Incoming webhooks still advance message delivery states and store supplier
+replies.
 """
 
 from __future__ import annotations
@@ -31,24 +35,18 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.deps.auth import get_current_claims, require_business_permission
+from app.deps.auth import require_business_permission
 from app.models.whatsapp import WhatsAppConnection
 from app.schemas.whatsapp import (
     WhatsAppConnectionRead,
     WhatsAppConnectionUpsert,
-    WhatsAppSendRead,
     WhatsAppTestRead,
 )
 from app.services import whatsapp_service
-from app.services.whatsapp_service import (
-    CloudApiError,
-    WhatsAppNoNumberError,
-    WhatsAppNotConnectedError,
-)
+from app.services.whatsapp_service import CloudApiError
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/businesses/{business_id}/whatsapp", tags=["whatsapp"])
-po_send_router = APIRouter(prefix="/businesses/{business_id}/purchases", tags=["whatsapp"])
 webhook_router = APIRouter(prefix="/whatsapp", tags=["whatsapp-webhook"])
 
 
@@ -160,51 +158,6 @@ async def test_whatsapp_connection(
         display_phone_number=info.get("display_phone_number"),
         verified_name=info.get("verified_name"),
     )
-
-
-@po_send_router.post("/orders/{order_id}/send-whatsapp", response_model=WhatsAppSendRead)
-async def send_order_via_whatsapp(
-    business_id: UUID,
-    order_id: UUID,
-    session: Annotated[AsyncSession, Depends(get_db)],
-    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
-    _jwt_biz_id: Annotated[str, Depends(require_business_permission("procurement.create"))],
-) -> WhatsAppSendRead:
-    """Send the PO's prepared WhatsApp payload through the Cloud API.
-
-    Falls back to the manual wa.me flow in the app when this returns
-    409 (not connected) or 422 (supplier has no number).
-    """
-    _ = claims
-    try:
-        result = await whatsapp_service.send_order_message(
-            session, business_id=business_id, po_id=order_id
-        )
-        await session.commit()
-    except WhatsAppNotConnectedError as exc:
-        await session.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    except WhatsAppNoNumberError as exc:
-        await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
-    except LookupError as exc:
-        await session.rollback()
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except ValueError as exc:
-        await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
-    except CloudApiError as exc:
-        # The failure bookkeeping (message → failed, connection → error) is
-        # already flushed by the service — commit it, then report the 502.
-        await session.commit()
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
-        ) from exc
-    return WhatsAppSendRead(**result)
 
 
 # ── Webhooks (Meta → us; no JWT) ──────────────────────────────────────────

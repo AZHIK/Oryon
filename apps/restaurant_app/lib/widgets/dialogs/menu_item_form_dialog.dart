@@ -507,50 +507,6 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
         if (state.trackStock) ...[
           const SizedBox(height: Insets.lg),
           _FieldPair(
-            left: LabeledFormField(
-              label: AppStrings.lowAlertLabel,
-              helper: AppStrings.lowAlertHelper,
-              child: TextFormField(
-                key: MenuItemFormKeys.lowStockAlert,
-                controller: _lowStock,
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.next,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: InputDecoration(
-                  hintText: AppStrings.quantityHint,
-                ),
-                onChanged: notifier.setLowStockAlert,
-                validator: MenuItemFormState.validateLowStockAlert,
-              ),
-            ),
-            right: LabeledFormField(
-              label: AppStrings.reorderQtyLabel,
-              helper: AppStrings.reorderQtyHelper,
-              child: TextFormField(
-                key: MenuItemFormKeys.reorderQuantity,
-                controller: _reorderQuantity,
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.next,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: InputDecoration(
-                  hintText: AppStrings.quantityHint,
-                ),
-                onChanged: notifier.setReorderQuantity,
-                validator: MenuItemFormState.validateReorderQuantity,
-              ),
-            ),
-          ),
-          const SizedBox(height: Insets.lg),
-          _SwitchTile(
-            key: MenuItemFormKeys.allowNegativeStock,
-            title: AppStrings.allowNegativeLabel,
-            subtitleOn: AppStrings.allowNegativeOn,
-            subtitleOff: AppStrings.allowNegativeOff,
-            value: state.allowNegativeStock,
-            onChanged: notifier.setAllowNegativeStock,
-          ),
-          const SizedBox(height: Insets.lg),
-          _FieldPair(
             left: state.isEdit
                 ? _ReadOnlyStock(value: state.stock, unit: state.unit)
                 : LabeledFormField(
@@ -595,6 +551,50 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
                 },
               ),
             ),
+          ),
+          const SizedBox(height: Insets.lg),
+          _FieldPair(
+            left: LabeledFormField(
+              label: AppStrings.lowAlertLabel,
+              helper: AppStrings.lowAlertHelper,
+              child: TextFormField(
+                key: MenuItemFormKeys.lowStockAlert,
+                controller: _lowStock,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.next,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: InputDecoration(
+                  hintText: AppStrings.quantityHint,
+                ),
+                onChanged: notifier.setLowStockAlert,
+                validator: MenuItemFormState.validateLowStockAlert,
+              ),
+            ),
+            right: LabeledFormField(
+              label: AppStrings.reorderQtyLabel,
+              helper: AppStrings.reorderQtyHelper,
+              child: TextFormField(
+                key: MenuItemFormKeys.reorderQuantity,
+                controller: _reorderQuantity,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.next,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: InputDecoration(
+                  hintText: AppStrings.quantityHint,
+                ),
+                onChanged: notifier.setReorderQuantity,
+                validator: MenuItemFormState.validateReorderQuantity,
+              ),
+            ),
+          ),
+          const SizedBox(height: Insets.lg),
+          _SwitchTile(
+            key: MenuItemFormKeys.allowNegativeStock,
+            title: AppStrings.allowNegativeLabel,
+            subtitleOn: AppStrings.allowNegativeOn,
+            subtitleOff: AppStrings.allowNegativeOff,
+            value: state.allowNegativeStock,
+            onChanged: notifier.setAllowNegativeStock,
           ),
         ],
         const SizedBox(height: Insets.xl),

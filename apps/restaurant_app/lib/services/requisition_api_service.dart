@@ -80,37 +80,6 @@ class RequisitionApiService {
       _rethrow(e);
     }
   }
-
-  /// Manual staff transitions for one supplier PO. Shown right after the
-  /// wa.me deep link opens ("Did this send? [Mark as Sent]") and once a
-  /// supplier reply arrives ("Mark Confirmed"). No auto-detection.
-  Future<Map<String, dynamic>> markSent({
-    required String businessId,
-    required String orderId,
-  }) =>
-      _poAction(businessId: businessId, orderId: orderId, action: 'mark-sent');
-
-  Future<Map<String, dynamic>> markConfirmed({
-    required String businessId,
-    required String orderId,
-  }) =>
-      _poAction(
-          businessId: businessId, orderId: orderId, action: 'mark-confirmed');
-
-  Future<Map<String, dynamic>> _poAction({
-    required String businessId,
-    required String orderId,
-    required String action,
-  }) async {
-    try {
-      final response = await _dio.post(
-        InventoryApiPaths.purchaseOrderAction(businessId, orderId, action),
-      );
-      return response.data as Map<String, dynamic>;
-    } on DioException catch (e) {
-      _rethrow(e);
-    }
-  }
 }
 
 /// Builds [SubmittedRequisition] from a raw submit/fetch response, resolving

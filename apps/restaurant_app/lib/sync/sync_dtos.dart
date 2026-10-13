@@ -59,8 +59,10 @@ class PendingSaleLineItemDto {
   final Decimal unitPrice;
   final Decimal discountAmount;
 
-  /// Per-unit production cost snapshot at sale time. Null means unknown —
-  /// the backend stores null and reports fall back to live recipe costs.
+  /// Per-unit production cost snapshot at sale time. Zero means
+  /// unknown-but-frozen (flagged estimated downstream); null is legacy
+  /// rows only — the backend stores it and reports value those at live
+  /// recipe costs.
   final Decimal? unitCost;
 
   PendingSaleLineItemDto({

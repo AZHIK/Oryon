@@ -69,7 +69,8 @@ class RequisitionCartLine {
 }
 
 /// One supplier group of the submitted order (Option 2 UX: no PO numbers
-/// here — those live in the export view only).
+/// here — those live in the export view only). Qty-only: no money lives on
+/// the group — cost is captured per receipt when goods arrive.
 @immutable
 class RequisitionSupplierGroup {
   const RequisitionSupplierGroup({
@@ -78,7 +79,6 @@ class RequisitionSupplierGroup {
     required this.supplierId,
     required this.supplierName,
     required this.status,
-    required this.subtotal,
     required this.lines,
     this.deepLink,
     this.textPreview,
@@ -93,7 +93,6 @@ class RequisitionSupplierGroup {
   final String supplierId;
   final String supplierName;
   final String status;
-  final double subtotal;
   final List<RequisitionGroupLine> lines;
   final String? deepLink;
   final String? textPreview;
@@ -102,19 +101,13 @@ class RequisitionSupplierGroup {
   /// Backend lifecycle mapped to the staff-facing badge.
   String get badge {
     return switch (status) {
-      'sent' => 'Sent',
-      'confirmed' || 'fulfilled' || 'received' => 'Confirmed',
-      'partially_fulfilled' || 'partially_received' => 'Partial',
+      'fulfilled' => 'Fulfilled',
       'cancelled' => 'Cancelled',
-      _ => 'Not sent',
+      _ => 'Unfulfilled',
     };
   }
 
-  bool get isTerminal =>
-      status == 'confirmed' ||
-      status == 'fulfilled' ||
-      status == 'received' ||
-      status == 'cancelled';
+  bool get isTerminal => status == 'fulfilled' || status == 'cancelled';
 }
 
 @immutable
@@ -123,16 +116,12 @@ class RequisitionGroupLine {
     required this.name,
     required this.qty,
     required this.unit,
-    this.unitPrice,
-    this.lineTotal,
     this.priceUnconfirmed = false,
   });
 
   final String name;
   final String qty;
   final String unit;
-  final String? unitPrice;
-  final String? lineTotal;
   final bool priceUnconfirmed;
 }
 
@@ -155,8 +144,7 @@ class SubmittedRequisition {
   final DateTime? orderedAt;
   final DateTime? expectedAt;
 
-  double get total =>
-      groups.fold(0, (sum, g) => sum + g.subtotal);
+  int get totalLines => groups.fold(0, (sum, g) => sum + g.lines.length);
 
   factory SubmittedRequisition.fromJson(
     Map<String, dynamic> json,
@@ -171,13 +159,13 @@ class SubmittedRequisition {
       if (payload != null) payloadByPo[map['po_id'] as String] = payload;
     }
     final req = json['requisition'] as Map<String, dynamic>;
+    final flagged = ((json['price_unconfirmed_items'] as List?) ?? const [])
+        .map((e) => e.toString())
+        .toList();
     return SubmittedRequisition(
       id: req['id'] as String,
       rollupStatus: json['rollup_status'] as String? ?? 'Not sent',
-      priceUnconfirmedItems:
-          ((json['price_unconfirmed_items'] as List?) ?? const [])
-              .map((e) => e.toString())
-              .toList(),
+      priceUnconfirmedItems: flagged,
       orderedAt: req['created_at'] == null
           ? null
           : DateTime.tryParse(req['created_at'] as String),
@@ -190,6 +178,7 @@ class SubmittedRequisition {
             po as Map<String, dynamic>,
             supplierNames,
             payloadByPo[po['id'] as String],
+            flagged,
           ),
       ],
     );
@@ -199,6 +188,7 @@ class SubmittedRequisition {
     Map<String, dynamic> po,
     Map<String, String> supplierNames,
     Map<String, dynamic>? payload,
+    List<String> flaggedNames,
   ) {
     final supplierId = po['supplier_id'] as String;
     final structured =
@@ -210,16 +200,16 @@ class SubmittedRequisition {
       supplierId: supplierId,
       supplierName: supplierNames[supplierId] ?? 'Supplier',
       status: po['status'] as String? ?? 'payload_ready',
-      subtotal: double.tryParse(po['total_amount'].toString()) ?? 0,
       lines: [
         for (final e in items)
           RequisitionGroupLine(
             name: (e as Map)['name'].toString(),
             qty: e['qty'].toString(),
             unit: (e['unit'] ?? '').toString(),
-            unitPrice: e['unit_price']?.toString(),
-            lineTotal: e['line_total']?.toString(),
-            priceUnconfirmed: e['price_unconfirmed'] == true,
+            // The qty-only payload carries no prices; TBC marking comes
+            // from the order-level flagged names instead.
+            priceUnconfirmed:
+                flaggedNames.contains(e['name'].toString()),
           ),
       ],
       deepLink: payload?['deep_link'] as String?,

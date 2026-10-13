@@ -123,8 +123,9 @@ class _MetaCard extends StatelessWidget {
                     ? '—'
                     : '${order.expectedAt!.day}/${order.expectedAt!.month}/${order.expectedAt!.year}'),
             _MetaRow(
-                label: AppStrings.reqMetaTotal,
-                value: Fmt.money(order.total)),
+                label: AppStrings.linesColumn,
+                value:
+                    '${order.totalLines}'),
             _MetaRow(
                 label: AppStrings.reqMetaPoCount,
                 value: '${order.groups.length}'),
@@ -201,7 +202,7 @@ class _PoCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                Text(Fmt.money(group.subtotal),
+                Text('${group.lines.length} ${AppStrings.linesColumn.toLowerCase()}',
                     style: context.text.titleSmall),
               ],
             ),
@@ -219,19 +220,14 @@ class _PoCard extends StatelessWidget {
                         style: context.text.bodyMedium,
                       ),
                     ),
-                    Text(
-                      line.priceUnconfirmed
-                          ? 'TBC'
-                          : (line.lineTotal ?? ''),
-                      style: context.text.bodyMedium?.copyWith(
-                        color: line.priceUnconfirmed
-                            ? context.semantic.warning
-                            : null,
-                        fontWeight: line.priceUnconfirmed
-                            ? FontWeight.w700
-                            : null,
+                    if (line.priceUnconfirmed)
+                      Text(
+                        'TBC',
+                        style: context.text.bodyMedium?.copyWith(
+                          color: context.semantic.warning,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),

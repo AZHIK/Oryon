@@ -60,9 +60,6 @@ APP_TABLES = (
     "purchaseorderline",
     "goodsreceipt",
     "goodsreceiptline",
-    "purchasereturn",
-    "supplierinvoice",
-    "supplierpayment",
     "requisition",
     "requisitionline",
     "supplieritem",
@@ -198,8 +195,7 @@ async def _clean_tables() -> AsyncGenerator[None, None]:
                 "productioneventcomponent, stocklevel, "
                 "stockmovement, processedevent, reorder, supplier, "
                 "purchaseorder, purchaseorderline, goodsreceipt, "
-                "goodsreceiptline, purchasereturn, supplierinvoice, "
-                "supplierpayment, requisition, requisitionline, "
+                "goodsreceiptline, requisition, requisitionline, "
                 "supplieritem, suppliermessage, whatsappconnection "
                 "RESTART IDENTITY CASCADE"
             )

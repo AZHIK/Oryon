@@ -40,7 +40,6 @@ Map<String, dynamic> _orderJson(String id, String status) => {
   'po_number': 'PO-$id',
   'status': status,
   'invoice_status': 'unbilled',
-  'total_amount': '50.00',
   'notes': null,
   'ordered_at': '2026-09-20T10:00:00Z',
   'expected_at': null,
@@ -51,9 +50,8 @@ Map<String, dynamic> _orderJson(String id, String status) => {
       'purchase_order_id': id,
       'item_id': 'item-1',
       'quantity_ordered': '20.000',
-      'quantity_received': status == 'received' ? '20.000' : '0.000',
+      'quantity_received': status == 'fulfilled' ? '20.000' : '0.000',
       'unit': 'kg',
-      'unit_cost': '2.5000',
       'notes': null,
     },
   ],
@@ -92,7 +90,7 @@ class FakePurchaseApi extends PurchaseApiService {
     DateTime? expectedAt,
   }) async {
     createdSupplierIds.add(supplierId);
-    final created = _orderJson('new-${createdSupplierIds.length}', 'draft');
+    final created = _orderJson('new-${createdSupplierIds.length}', 'unfulfilled');
     orders = [...orders, created];
     return PurchaseOrderDto.fromJson(created);
   }
@@ -128,37 +126,33 @@ Future<void> pumpScreen(
 void main() {
   group('PurchaseOrderDto', () {
     test('parses backend payload including lines', () {
-      final dto = PurchaseOrderDto.fromJson(_orderJson('o1', 'approved'));
+      final dto = PurchaseOrderDto.fromJson(_orderJson('o1', 'unfulfilled'));
       expect(dto.poNumber, 'PO-o1');
-      expect(dto.status, 'approved');
+      expect(dto.status, 'unfulfilled');
       expect(dto.lines, hasLength(1));
       expect(dto.lines.first.outstanding, Decimal.parse('20.000'));
-      expect(dto.totalAmount, Decimal.parse('50.00'));
     });
 
     test('model maps status and open flag', () {
       final order = PurchaseOrder.fromDto(
-        PurchaseOrderDto.fromJson(_orderJson('o1', 'draft')),
+        PurchaseOrderDto.fromJson(_orderJson('o1', 'unfulfilled')),
       );
-      expect(order.status, PurchaseOrderStatus.draft);
+      expect(order.status, PurchaseOrderStatus.unfulfilled);
       expect(order.status.isOpen, isTrue);
-      expect(order.lines.first.lineTotal, 50.0);
+      expect(order.lines.first.outstanding, 20.0);
 
-      final received = PurchaseOrder.fromDto(
-        PurchaseOrderDto.fromJson(_orderJson('o2', 'received')),
+      final fulfilled = PurchaseOrder.fromDto(
+        PurchaseOrderDto.fromJson(_orderJson('o2', 'fulfilled')),
       );
-      expect(received.status.isOpen, isFalse);
+      expect(fulfilled.status.isOpen, isFalse);
     });
 
-    test('maps the requisition-split lifecycle, never unknown', () {
-      // Cart-created POs start at payload_ready — this is the regression
-      // guard for orders showing "Unknown" in the purchases list.
+    test('maps the two-step lifecycle, never unknown', () {
+      // Regression guard for orders showing "Unknown" in the list.
       final expected = {
-        'payload_ready': PurchaseOrderStatus.payloadReady,
-        'sent': PurchaseOrderStatus.sent,
-        'confirmed': PurchaseOrderStatus.confirmed,
-        'partially_fulfilled': PurchaseOrderStatus.partiallyFulfilled,
+        'unfulfilled': PurchaseOrderStatus.unfulfilled,
         'fulfilled': PurchaseOrderStatus.fulfilled,
+        'cancelled': PurchaseOrderStatus.cancelled,
       };
       expected.forEach((wire, status) {
         final order = PurchaseOrder.fromDto(
@@ -176,12 +170,10 @@ void main() {
       expect(strange.status.isOpen, isFalse);
     });
 
-    test('open flag covers in-flight requisition states only', () {
-      expect(PurchaseOrderStatus.payloadReady.isOpen, isTrue);
-      expect(PurchaseOrderStatus.sent.isOpen, isTrue);
-      expect(PurchaseOrderStatus.confirmed.isOpen, isTrue);
-      expect(PurchaseOrderStatus.partiallyFulfilled.isOpen, isTrue);
+    test('open flag covers unfulfilled orders only', () {
+      expect(PurchaseOrderStatus.unfulfilled.isOpen, isTrue);
       expect(PurchaseOrderStatus.fulfilled.isOpen, isFalse);
+      expect(PurchaseOrderStatus.cancelled.isOpen, isFalse);
     });
   });
 
@@ -193,7 +185,7 @@ void main() {
 
     test('fetches newest-first and refreshes after create', () async {
       final fake = FakePurchaseApi(
-        orders: [_orderJson('older', 'received'), _orderJson('newer', 'draft')],
+        orders: [_orderJson('older', 'fulfilled'), _orderJson('newer', 'unfulfilled')],
       );
       // Make ordering deterministic via ordered_at.
       fake.orders[1] = {
@@ -214,7 +206,6 @@ void main() {
               PurchaseOrderLineInput(
                 itemId: 'item-1',
                 quantityOrdered: Decimal.parse('5'),
-                unitCost: Decimal.parse('1'),
               ),
             ],
           );
@@ -246,7 +237,7 @@ void main() {
     });
 
     testWidgets('shows offline placeholder instead of data', (tester) async {
-      final fake = FakePurchaseApi(orders: [_orderJson('o1', 'draft')]);
+      final fake = FakePurchaseApi(orders: [_orderJson('o1', 'unfulfilled')]);
       final container = newTestContainer(
         extraOverrides: [
           purchaseApiServiceProvider.overrideWithValue(fake),
@@ -261,7 +252,7 @@ void main() {
     });
 
     testWidgets('lists orders when online', (tester) async {
-      final fake = FakePurchaseApi(orders: [_orderJson('o1', 'draft')]);
+      final fake = FakePurchaseApi(orders: [_orderJson('o1', 'unfulfilled')]);
       final container = _containerWithFake(fake);
       await pumpScreen(tester, container, const PurchasesScreen());
       expect(find.text('PO-o1'), findsOneWidget);
@@ -307,11 +298,12 @@ void main() {
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
       expect(find.text('New purchase order'), findsOneWidget);
-      // Single screen: supplier picker, item lines with quick-add, and
-      // total are all visible at once — no Continue step.
+      // Single screen: supplier picker, qty-only item lines with
+      // quick-add — no cost field, no Continue step.
       expect(find.text('Continue — add items'), findsNothing);
       expect(find.byTooltip('Add new item'), findsOneWidget);
-      expect(find.text('Order total'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Cost'), findsNothing);
+      expect(find.widgetWithText(TextField, 'Qty'), findsOneWidget);
       expect(find.text('Add item'), findsOneWidget);
 
       // Lines are editable before a supplier is picked: add a second row.
@@ -331,7 +323,6 @@ void main() {
       PurchaseOrderLineInput line(String item) => PurchaseOrderLineInput(
         itemId: item,
         quantityOrdered: Decimal.parse('1'),
-        unitCost: Decimal.parse('2'),
       );
       final groups = groupPurchaseLinesBySupplier([
         (input: line('a'), supplierId: 'sup-2'),
@@ -478,20 +469,16 @@ void main() {
       expect(find.byTooltip('Add new supplier'), findsNWidgets(2));
     });
 
-    testWidgets('order total updates instantly while typing', (tester) async {
+    testWidgets('lines are qty-only with no cost field', (tester) async {
       final container = dialogContainer(
         FakePurchaseApi(),
         suppliers: [supplier('sup-1', 'Acme Foods')],
         items: [flour],
       );
       await openDialog(tester, container);
-      expect(find.text('0.00'), findsOneWidget);
-      await tester.enterText(find.widgetWithText(TextField, 'Qty').at(0), '5');
-      await tester.pump();
-      await tester.enterText(find.widgetWithText(TextField, 'Cost').at(0), '2');
-      await tester.pump();
-      // No dropdown tap or other rebuild trigger — typing alone refreshes it.
-      expect(find.text('10.00'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Qty'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Cost'), findsNothing);
+      expect(find.textContaining('qty-only'), findsOneWidget);
     });
 
     testWidgets('no-supplier mode hides pickers and names Unknown supplier', (
@@ -531,7 +518,6 @@ void main() {
 
       await selectOption(tester, fieldLabel: 'Item', index: 0, option: 'Flour');
       await tester.enterText(find.widgetWithText(TextField, 'Qty').at(0), '5');
-      await tester.enterText(find.widgetWithText(TextField, 'Cost').at(0), '2');
       await selectOption(
         tester,
         fieldLabel: 'Line supplier',
@@ -541,7 +527,6 @@ void main() {
 
       await selectOption(tester, fieldLabel: 'Item', index: 1, option: 'Sugar');
       await tester.enterText(find.widgetWithText(TextField, 'Qty').at(1), '3');
-      await tester.enterText(find.widgetWithText(TextField, 'Cost').at(1), '4');
       await selectOption(
         tester,
         fieldLabel: 'Line supplier',
@@ -570,7 +555,6 @@ void main() {
       await tester.pumpAndSettle();
       await selectOption(tester, fieldLabel: 'Item', index: 0, option: 'Flour');
       await tester.enterText(find.widgetWithText(TextField, 'Qty').at(0), '5');
-      await tester.enterText(find.widgetWithText(TextField, 'Cost').at(0), '2');
       await tester.tap(find.text('Create order'));
       await tester.pumpAndSettle();
       expect(find.text('Each line needs a supplier'), findsOneWidget);
@@ -591,7 +575,6 @@ void main() {
       await tester.pumpAndSettle();
       await selectOption(tester, fieldLabel: 'Item', index: 0, option: 'Flour');
       await tester.enterText(find.widgetWithText(TextField, 'Qty').at(0), '5');
-      await tester.enterText(find.widgetWithText(TextField, 'Cost').at(0), '2');
       await tester.tap(find.text('Create order'));
       await tester.pumpAndSettle();
       expect(find.text('New purchase order'), findsNothing);

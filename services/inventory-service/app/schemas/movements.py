@@ -33,4 +33,7 @@ class StockMovementRead(BaseModel):
     actor_type: ActorType
     actor_id: UUID | None = None
     reason: str | None = None
+    # Frozen per-unit cost basis at event time. Null for legacy rows written
+    # before the snapshot existed — readers fall back to Item.unit_cost.
+    unit_cost: Decimal | None = None
     created_at: datetime

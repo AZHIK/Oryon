@@ -557,7 +557,7 @@ final _wasteColumns = <DataColumnSpec<WasteLineDto>>[
     label: AppStrings.costColumn,
     field: 'cost',
     numeric: true,
-    value: (r) => _money(r.costWasted),
+    value: (r) => r.costEstimated ? '${_money(r.costWasted)} (est.)' : _money(r.costWasted),
   ),
 ];
 
@@ -580,7 +580,9 @@ class WasteSection extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  AppStrings.costWasted(_money(summary!.totalCostWasted)),
+                  summary!.estimated
+                      ? '${AppStrings.costWasted(_money(summary.totalCostWasted))} — estimated (some rows predate frozen costs)'
+                      : AppStrings.costWasted(_money(summary.totalCostWasted)),
                   style: context.text.titleSmall?.copyWith(
                     color: context.semantic.warning,
                   ),
@@ -589,11 +591,17 @@ class WasteSection extends ConsumerWidget {
                 for (final line in lines)
                   _KeyValueRow(
                     label: line.itemName,
-                    value: AppStrings.wasteRow(
-                      Fmt.quantity(_d(line.quantityWasted)),
-                      line.itemUnit,
-                      _money(line.costWasted),
-                    ),
+                    value: line.costEstimated
+                        ? '${AppStrings.wasteRow(
+                            Fmt.quantity(_d(line.quantityWasted)),
+                            line.itemUnit,
+                            _money(line.costWasted),
+                          )} (est.)'
+                        : AppStrings.wasteRow(
+                            Fmt.quantity(_d(line.quantityWasted)),
+                            line.itemUnit,
+                            _money(line.costWasted),
+                          ),
                   ),
               ],
             ),
@@ -918,8 +926,9 @@ class ProfitLossSection extends ConsumerWidget {
         : summary.salesRevenue + summary.incomeTotal;
     // Frozen sale-time costs where the cache has them; live recipe costs
     // over item-mix where it doesn't (nothing synced for the window yet).
-    // Either way grocery price moves can no longer rewrite a frozen sale's
-    // history — only legacy rows without snapshots still ride live prices.
+    // New sales always freeze (zero when unknown), so only legacy rows
+    // without snapshots still ride live prices — `fallbackLines` sizes that
+    // tail.
     final snapshot = ref.watch(snapshotCogsProvider).valueOrNull;
     final useSnapshot = snapshot != null && snapshot.covered;
     Decimal cogs;
@@ -1029,8 +1038,12 @@ class ProfitLossSection extends ConsumerWidget {
                   label: 'Cost of goods sold (recipes × qty)',
                   amount: cogs,
                   note: cogsEstimated
-                      ? 'Estimated — some sales lack a recipe cost'
-                      : 'Units sold valued at recipe cost',
+                      ? (useSnapshot && snapshot.fallbackLines > 0
+                          ? 'Estimated — ${snapshot.fallbackLines} of ${snapshot.frozenLines + snapshot.fallbackLines} lines use live costs (legacy sales)'
+                          : 'Estimated — some sales lack a recipe cost')
+                      : (useSnapshot && snapshot.frozenLines > 0
+                          ? 'Frozen at sale time (${snapshot.frozenLines} lines)'
+                          : 'Units sold valued at recipe cost'),
                 ),
                 _PLTotal(
                   label: isGrossLoss
@@ -1345,33 +1358,6 @@ class ProductPurchasesSection extends ConsumerWidget {
   }
 }
 
-/// Purchase Payment Report — what was paid to suppliers.
-class PurchasePaymentsSection extends ConsumerWidget {
-  const PurchasePaymentsSection({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final lines = ref.watch(purchasePaymentsProvider).valueOrNull ?? const [];
-    return _Section(
-      title: 'Purchase Payment Report',
-      columns: const [],
-      rows: lines,
-      exportTitle: 'Purchase Payment Report',
-      body: lines.isEmpty
-          ? _EmptySection(hint: AppStrings.noExpenses)
-          : Column(
-              children: [
-                for (final line in lines)
-                  _KeyValueRow(
-                    label: line.supplierName,
-                    value: _money(line.totalPaid),
-                  ),
-              ],
-            ),
-    );
-  }
-}
-
 /// Purchase & Sale — purchases side-by-side with sales in the window.
 class PurchaseSaleSection extends ConsumerWidget {
   const PurchaseSaleSection({super.key});
@@ -1509,7 +1495,7 @@ class StockAdjustmentsSection extends ConsumerWidget {
   }
 }
 
-/// Lot Report — received batches.
+/// Lot Report — received batches with frozen receipt costs.
 class LotSection extends ConsumerWidget {
   const LotSection({super.key});
 
@@ -1528,7 +1514,8 @@ class LotSection extends ConsumerWidget {
                 for (final line in lines)
                   _KeyValueRow(
                     label: '${line.lotNo} · ${line.itemName}',
-                    value: Fmt.quantity(_d(line.quantityReceived)),
+                    value:
+                        '${Fmt.quantity(_d(line.quantityReceived))} · ${_money(line.totalCost)} (@ ${_money(line.unitCost)})',
                   ),
               ],
             ),
@@ -1608,7 +1595,7 @@ class SupplierCustomerSection extends ConsumerWidget {
                 for (final s in suppliers)
                   _KeyValueRow(
                     label: 'SUP · ${s.supplierName}',
-                    value: _money(s.totalOrdered),
+                    value: _money(s.totalReceived),
                   ),
                 for (final c in customers)
                   _KeyValueRow(

@@ -2,11 +2,12 @@
 ///
 /// Single screen: a supplier-mode selector on top (one supplier per order
 /// by default, per-item suppliers, or no supplier), item lines below (from
-/// live inventory or quick-add), notes, live total, then Create order.
-/// Lines can be added before a supplier is picked — validation runs on
-/// save. The backend validates again (sellable items, units) and assigns
-/// the PO number. Orders are created as drafts — submit/approve happen
-/// from the detail screen.
+/// live inventory or quick-add), notes, a line-count summary, then Create
+/// order. Lines are qty-only — cost is captured per receipt when goods
+/// arrive, never on the order. Lines can be added before a supplier is
+/// picked — validation runs on save. The backend validates again (sellable
+/// items, units) and assigns the PO number. Orders are created as drafts —
+/// submit/approve happen from the detail screen.
 ///
 /// Per-item mode groups lines by supplier and creates one order per
 /// supplier automatically; no-supplier mode saves under the shared
@@ -72,11 +73,9 @@ class _LineDraft {
   /// survive row rebuilds — e.g. when a quick-added item is selected and
   /// the dropdown needs a fresh `initialValue`.
   final quantity = TextEditingController();
-  final unitCost = TextEditingController();
 
   void dispose() {
     quantity.dispose();
-    unitCost.dispose();
   }
 }
 
@@ -120,10 +119,7 @@ class _PurchaseOrderDialogState extends ConsumerState<_PurchaseOrderDialog> {
   }
 
   Future<void> _quickAddItem(_LineDraft line) async {
-    final createdId = await showQuickAddItemDialog(
-      context,
-      initialCost: line.unitCost.text.isEmpty ? null : line.unitCost.text,
-    );
+    final createdId = await showQuickAddItemDialog(context);
     if (createdId != null && mounted) {
       setState(() => line.itemId = createdId);
     }
@@ -144,16 +140,6 @@ class _PurchaseOrderDialogState extends ConsumerState<_PurchaseOrderDialog> {
     if (created != null && mounted) {
       setState(() => line.supplierId = created.id);
     }
-  }
-
-  double _orderTotal() {
-    var total = 0.0;
-    for (final line in _lines) {
-      final qty = double.tryParse(line.quantity.text);
-      final cost = double.tryParse(line.unitCost.text);
-      if (qty != null && cost != null) total += qty * cost;
-    }
-    return total;
   }
 
   /// Finds the shared "Unknown supplier", creating it on first use so
@@ -182,12 +168,8 @@ class _PurchaseOrderDialogState extends ConsumerState<_PurchaseOrderDialog> {
     for (final line in _lines) {
       final itemId = line.itemId;
       final qty = Decimal.tryParse(line.quantity.text);
-      final cost = Decimal.tryParse(line.unitCost.text);
-      if (itemId == null ||
-          qty == null ||
-          cost == null ||
-          qty <= Decimal.zero) {
-        setState(() => _error = 'Each line needs an item, quantity and cost');
+      if (itemId == null || qty == null || qty <= Decimal.zero) {
+        setState(() => _error = 'Each line needs an item and quantity');
         return;
       }
       if (!items.containsKey(itemId)) {
@@ -198,7 +180,6 @@ class _PurchaseOrderDialogState extends ConsumerState<_PurchaseOrderDialog> {
         input: PurchaseOrderLineInput(
           itemId: itemId,
           quantityOrdered: qty,
-          unitCost: cost,
         ),
         supplierId: _mode == PurchaseSupplierMode.perItem
             ? line.supplierId
@@ -490,7 +471,7 @@ class _PurchaseOrderDialogState extends ConsumerState<_PurchaseOrderDialog> {
   }
 
   /// Summary card pinned below the form in the single-column body: line
-  /// count, total and any error. Save/cancel live in the dialog's actions.
+  /// count and any error. Save/cancel live in the dialog's actions.
   Widget _summaryCard(List<Supplier> suppliers) {
     final supplierName = suppliers
         .where((s) => s.id == _supplierId)
@@ -527,27 +508,10 @@ class _PurchaseOrderDialogState extends ConsumerState<_PurchaseOrderDialog> {
           ),
           const SizedBox(height: Insets.xs),
           Text(
-            '${_lines.length} ${_lines.length == 1 ? 'item' : 'items'}',
+            '${_lines.length} ${_lines.length == 1 ? 'item' : 'items'} · qty-only (cost is captured on receipt)',
             style: context.text.bodySmall?.copyWith(
               color: context.colors.onSurfaceVariant,
             ),
-          ),
-          const SizedBox(height: Insets.md),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Order total'),
-              Flexible(
-                child: Text(
-                  _orderTotal().toStringAsFixed(2),
-                  style: context.text.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.end,
-                ),
-              ),
-            ],
           ),
           if (_error != null) ...[
             const SizedBox(height: Insets.sm),
@@ -589,8 +553,8 @@ class _LineRow extends StatefulWidget {
   /// Null outside per-item mode, where no add-supplier button is shown.
   final Future<void> Function()? onNewSupplier;
 
-  /// Fires on every qty/cost keystroke so the parent can refresh live
-  /// totals — controller text alone never triggers a rebuild.
+  /// Fires on every qty keystroke so the parent can refresh the summary —
+  /// controller text alone never triggers a rebuild.
   final VoidCallback? onValuesChanged;
 
   @override
@@ -605,7 +569,7 @@ class _LineRowState extends State<_LineRow> {
       child: DropdownButtonFormField<String>(
         // Keyed on the selection so a quick-added item (chosen
         // outside the dropdown) refreshes the displayed value without
-        // wiping the qty/cost controllers owned by the draft.
+        // wiping the qty controller owned by the draft.
         key: ValueKey('item-${widget.draft.itemId}'),
         initialValue: widget.draft.itemId,
         isExpanded: true,
@@ -654,15 +618,6 @@ class _LineRowState extends State<_LineRow> {
         onChanged: (_) => notifyValuesChanged(),
       ),
     );
-    final costField = Expanded(
-      flex: 3,
-      child: TextField(
-        controller: widget.draft.unitCost,
-        decoration: const InputDecoration(labelText: 'Cost'),
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        onChanged: (_) => notifyValuesChanged(),
-      ),
-    );
     final trailing = widget.onRemove == null
         ? const <Widget>[]
         : <Widget>[
@@ -688,7 +643,7 @@ class _LineRowState extends State<_LineRow> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           // The supplier picker shares the item row when there is room;
-          // it needs a wider breakpoint than the item/qty/cost row alone.
+          // it needs a wider breakpoint than the item/qty row alone.
           final narrow =
               constraints.maxWidth < (widget.showSupplier ? 640 : 380);
           if (!narrow) {
@@ -698,8 +653,6 @@ class _LineRowState extends State<_LineRow> {
                 itemField,
                 addButton,
                 qtyField,
-                const SizedBox(width: Insets.sm),
-                costField,
                 if (widget.showSupplier) ...[
                   const SizedBox(width: Insets.sm),
                   supplierField,
@@ -709,7 +662,7 @@ class _LineRowState extends State<_LineRow> {
               ],
             );
           }
-          // Narrow phones: item picker on its own row, qty/cost below,
+          // Narrow phones: item picker on its own row, qty below,
           // supplier full-width last.
           return Column(
             children: [
@@ -722,8 +675,6 @@ class _LineRowState extends State<_LineRow> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   qtyField,
-                  const SizedBox(width: Insets.sm),
-                  costField,
                   ...trailing,
                 ],
               ),

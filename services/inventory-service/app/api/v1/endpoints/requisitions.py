@@ -8,8 +8,6 @@
 │   POST /requisitions/{id}/bulk-assign → PROCUREMENT_CREATE               │
 │   POST /requisitions/{id}/regenerate-payloads → PROCUREMENT_CREATE       │
 │   POST /supplier-items             → PROCUREMENT_CREATE (catalogue)       │
-│   POST /orders/{id}/mark-sent|mark-confirmed → PROCUREMENT_CREATE        │
-│     (manual staff transitions; no auto-detection in this pass)           │
 └──────────────────────────────────────────────────────────────────────────┘
 
 All writes are single-transaction API calls (online-only, same as
@@ -30,11 +28,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.database import get_db
 from app.deps.auth import get_current_claims, require_business_permission
-from app.models.purchases import PurchaseOrder, PurchaseOrderStatus
+from app.models.purchases import PurchaseOrder
 from app.models.requisition import (
-    MessageChannel,
-    MessageDirection,
-    MessageStatus,
     Requisition,
     RequisitionLine,
     SupplierItem,
@@ -63,7 +58,6 @@ router = APIRouter(prefix="/businesses/{business_id}/requisitions", tags=["requi
 catalogue_router = APIRouter(
     prefix="/businesses/{business_id}/supplier-items", tags=["supplier-items"]
 )
-po_actions_router = APIRouter(prefix="/businesses/{business_id}/purchases", tags=["purchases"])
 
 
 def _extract_actor_id(claims: dict[str, Any]) -> UUID | None:
@@ -332,66 +326,3 @@ async def upsert_supplier_item(
     await session.commit()
     await session.refresh(existing)
     return existing
-
-
-# ── Manual PO send-lifecycle transitions (staff-driven, no automation) ────
-
-_MANUAL_TRANSITIONS: dict[str, PurchaseOrderStatus] = {
-    "mark-sent": PurchaseOrderStatus.SENT,
-    "mark-confirmed": PurchaseOrderStatus.CONFIRMED,
-}
-
-
-@po_actions_router.post("/orders/{order_id}/{action}", response_model=dict)
-async def manual_po_transition(
-    business_id: UUID,
-    order_id: UUID,
-    action: str,
-    session: Annotated[AsyncSession, Depends(get_db)],
-    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
-    _jwt_biz_id: Annotated[str, Depends(require_business_permission("procurement.create"))],
-) -> dict:
-    """Manual staff transitions for requisition POs: mark-sent / mark-confirmed.
-
-    "Mark as Sent" is shown right after the wa.me deep link opens (delivery
-    can't be auto-detected); "Mark Confirmed" once a supplier reply arrives.
-    The linked SupplierMessage row is advanced to ``sent`` alongside the PO
-    (still a manual staff record — no WhatsApp API call).
-    """
-    if action not in _MANUAL_TRANSITIONS:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown PO action")
-    po = (
-        await session.exec(
-            select(PurchaseOrder).where(
-                PurchaseOrder.id == order_id, PurchaseOrder.business_id == business_id
-            )
-        )
-    ).one_or_none()
-    if po is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found"
-        )
-    po.status = _MANUAL_TRANSITIONS[action]
-    session.add(po)
-    if action == "mark-sent":
-        msgs = (
-            await session.exec(
-                select(SupplierMessage).where(
-                    SupplierMessage.po_id == po.id,
-                    SupplierMessage.channel == MessageChannel.WHATSAPP,
-                    SupplierMessage.direction == MessageDirection.OUTBOUND,
-                )
-            )
-        ).all()
-        from datetime import UTC as _UTC
-        from datetime import datetime as _dt
-
-        for m in msgs:
-            m.status = MessageStatus.SENT
-            m.sent_at = _dt.now(_UTC)
-            session.add(m)
-    await session.commit()
-    await session.refresh(po)
-    logger.info("purchase.manual_transition", order_id=str(po.id), action=action)
-    _ = claims
-    return {"id": str(po.id), "status": po.status.value, "po_number": po.po_number}

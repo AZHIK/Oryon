@@ -760,6 +760,16 @@ class StockMovement(SQLModel, table=True):
         nullable=False,
         sa_type=Numeric(precision=12, scale=3),
     )
+    # Frozen per-unit cost basis at event time (snapshot of Item.unit_cost
+    # when the movement was recorded, or the receipt's actual unit_cost for
+    # PURCHASE_RECEIVED legs). Null for rows written before the snapshot
+    # existed — reports fall back to the item's current unit_cost for those
+    # and flag the line estimated. Never updated: history must not move when
+    # later deliveries revalue Item.unit_cost.
+    unit_cost: Decimal | None = Field(
+        default=None,
+        sa_type=Numeric(precision=12, scale=4),
+    )
     movement_type: MovementType = Field(
         sa_column=Column(
             SAEnum(MovementType, values_callable=_enum_db_values, name="movementtype"),

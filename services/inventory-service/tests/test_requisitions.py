@@ -1,7 +1,7 @@
 """Tests for the requisition (unified multi-supplier order) flow.
 
-Unit: bulk-assign scopes/overwrite/price_unconfirmed, PO split grouping,
-payload generation (formatting, totals, URL-encoding, missing number),
+Unit: bulk-assign scopes/overwrite/price snapshots, PO split grouping,
+payload generation (qty-only formatting, URL-encoding, missing number),
 status rollup.
 Integration: cart → bulk-assign → per-item override → submit → POs → payloads,
 duplicate-submit idempotency, transaction rollback on validation failure.
@@ -23,11 +23,9 @@ from app.core.config import get_settings
 from app.models.inventory import Item, ItemType
 from app.models.purchases import PurchaseOrder
 from app.models.requisition import (
-    MessageStatus,
     Requisition,
     RequisitionLine,
     SupplierItem,
-    SupplierMessage,
 )
 from app.models.suppliers import Supplier
 from app.models.units import Unit
@@ -324,13 +322,13 @@ async def test_submit_splits_one_po_per_supplier(
     assert len(body["purchase_orders"]) == 2
     po_numbers = [po["po_number"] for po in body["purchase_orders"]]
     assert len(set(po_numbers)) == 2 and all(n.startswith("PO-") for n in po_numbers)
-    totals = {po["supplier_id"]: Decimal(po["total_amount"]) for po in body["purchase_orders"]}
-    assert totals[str(sup_a.id)] == Decimal("100.00")  # 20*2.5 + 10*5
-    assert totals[str(sup_b.id)] == Decimal("20.00")
+    # Qty-only POs — no money on the split headers.
+    assert all("total_amount" not in po for po in body["purchase_orders"])
+    assert all(po["status"] == "unfulfilled" for po in body["purchase_orders"])
     assert body["price_unconfirmed_items"] == []
     assert len(body["messages"]) == 2
     assert all(m["status"] == "ready" for m in body["messages"])
-    assert body["rollup_status"] == "Not sent"
+    assert body["rollup_status"] == "Unfulfilled"
 
 
 @pytest.mark.asyncio
@@ -373,8 +371,15 @@ async def test_submit_allows_unconfirmed_and_flags(
     body = resp.json()
     assert body["price_unconfirmed_items"] == ["Flour"]
     payload = body["messages"][0]["payload"]
-    assert payload["structured_data"]["items"][0]["price_unconfirmed"] is True
-    assert "price TBC" in payload["text_preview"]
+    # Qty-only payload — no prices, no totals.
+    assert payload["structured_data"]["items"][0] == {
+        "name": "Flour",
+        "qty": "3.000",
+        "unit": "kg",
+    }
+    assert "total" not in payload["structured_data"]
+    assert "TBC" not in payload["text_preview"]
+    assert "- Flour: 3.000 kg" in payload["text_preview"]
 
 
 @pytest.mark.asyncio
@@ -444,31 +449,18 @@ def _po(supplier_id: UUID) -> PurchaseOrder:
         store_id=STORE_ID,
         supplier_id=supplier_id,
         po_number="PO-0042",
-        total_amount=Decimal("0.00"),
     )
 
 
 @pytest.mark.asyncio
-async def test_payload_totals_rounding_and_url_encoding(db_session: AsyncSession) -> None:
+async def test_payload_qty_only_and_url_encoding(db_session: AsyncSession) -> None:
     sup = await _supplier(db_session, "Acme & Sons", "+255 700 000 001")
     payload = build_whatsapp_payload(
         po=_po(sup.id),
         supplier=sup,
         lines=[
-            {
-                "name": "Flour",
-                "qty": Decimal("2.5"),
-                "unit": "kg",
-                "unit_price": Decimal("3.333"),
-                "price_unconfirmed": False,
-            },
-            {
-                "name": "Sugar & Spice",
-                "qty": Decimal("1"),
-                "unit": "kg",
-                "unit_price": None,
-                "price_unconfirmed": True,
-            },
+            {"name": "Flour", "qty": Decimal("2.5"), "unit": "kg"},
+            {"name": "Sugar & Spice", "qty": Decimal("1"), "unit": "kg"},
         ],
         restaurant_name="Mama's Kitchen",
         order_date="2026-09-28",
@@ -476,10 +468,14 @@ async def test_payload_totals_rounding_and_url_encoding(db_session: AsyncSession
         notes="Call on arrival",
     )
     assert payload is not None
-    # 2.5 × 3.333 = 8.3325 → 8.33; unconfirmed line excluded from total.
-    assert payload["structured_data"]["total"] == "8.33"
-    assert payload["structured_data"]["items"][0]["line_total"] == "8.33"
-    assert "price TBC" in payload["text_preview"]
+    # Qty-only — no money anywhere in the payload.
+    assert payload["structured_data"]["items"] == [
+        {"name": "Flour", "qty": "2.5", "unit": "kg"},
+        {"name": "Sugar & Spice", "qty": "1", "unit": "kg"},
+    ]
+    assert "total" not in payload["structured_data"]
+    assert "- Flour: 2.5 kg" in payload["text_preview"]
+    assert "- Sugar & Spice: 1 kg" in payload["text_preview"]
     assert payload["deep_link"].startswith("https://wa.me/255700000001?text=")
     assert "%26" in payload["deep_link"]  # '&' encoded
     assert " " not in payload["deep_link"].split("?text=")[1][:20]
@@ -508,15 +504,7 @@ async def test_payload_phone_fallback(db_session: AsyncSession) -> None:
     payload = build_whatsapp_payload(
         po=_po(sup.id),
         supplier=sup,
-        lines=[
-            {
-                "name": "Flour",
-                "qty": Decimal("1"),
-                "unit": "kg",
-                "unit_price": Decimal("2"),
-                "price_unconfirmed": False,
-            }
-        ],
+        lines=[{"name": "Flour", "qty": Decimal("1"), "unit": "kg"}],
         restaurant_name="R",
         order_date="2026-09-28",
         delivery_requested_date=None,
@@ -530,11 +518,10 @@ async def test_payload_phone_fallback(db_session: AsyncSession) -> None:
 
 
 def test_rollup_statuses() -> None:
-    assert rollup_requisition_status([]) == "Not sent"
-    assert rollup_requisition_status(["payload_ready", "draft"]) == "Not sent"
-    assert rollup_requisition_status(["sent", "payload_ready"]) == "Sent"
-    assert rollup_requisition_status(["confirmed", "sent"]) == "Partially Confirmed"
-    assert rollup_requisition_status(["confirmed", "fulfilled"]) == "Confirmed"
+    assert rollup_requisition_status([]) == "Unfulfilled"
+    assert rollup_requisition_status(["unfulfilled"]) == "Unfulfilled"
+    assert rollup_requisition_status(["fulfilled", "unfulfilled"]) == "Unfulfilled"
+    assert rollup_requisition_status(["fulfilled", "fulfilled"]) == "Fulfilled"
     assert rollup_requisition_status(["cancelled", "cancelled"]) == "Cancelled"
 
 
@@ -542,9 +529,11 @@ def test_rollup_statuses() -> None:
 
 
 @pytest.mark.asyncio
-async def test_full_journey_bulk_override_submit_payloads_mark_sent(
+async def test_full_journey_submit_then_receive_fulfills(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
+    """Requisition POs are receivable immediately — submit, then receive
+    each PO's lines with actual costs until fulfilled."""
     flour, sugar, rice = (
         await _item(db_session, "Flour"),
         await _item(db_session, "Sugar"),
@@ -557,7 +546,6 @@ async def test_full_journey_bulk_override_submit_payloads_mark_sent(
     await _price(db_session, sup_a, flour, Decimal("2.0000"))
     await _price(db_session, sup_a, sugar, Decimal("5.0000"))
     await _price(db_session, sup_b, rice, Decimal("4.0000"))
-    # Same item both suppliers handles the bulk-then-override path at submit.
     resp = await client.post(
         REQ_PREFIX,
         json=_submit_payload(
@@ -572,26 +560,45 @@ async def test_full_journey_bulk_override_submit_payloads_mark_sent(
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert len(body["purchase_orders"]) == 2
+    assert all(po["status"] == "unfulfilled" for po in body["purchase_orders"])
     assert len(body["messages"]) == 2
     for msg in body["messages"]:
         assert "wa.me" in msg["payload"]["deep_link"]
 
+    # The manual mark-sent/mark-confirmed transitions are gone.
     first_po = body["purchase_orders"][0]
-    sent = await client.post(f"{PO_PREFIX}/orders/{first_po['id']}/mark-sent", headers=AUTH_HEADER)
-    assert sent.status_code == 200, sent.text
-    assert sent.json()["status"] == "sent"
-    msgs = (
-        await db_session.exec(
-            select(SupplierMessage).where(SupplierMessage.po_id == UUID(first_po["id"]))
+    for action in ("mark-sent", "mark-confirmed"):
+        resp = await client.post(
+            f"{PO_PREFIX}/orders/{first_po['id']}/{action}", headers=AUTH_HEADER
         )
-    ).all()
-    assert all(m.status == MessageStatus.SENT for m in msgs)
+        assert resp.status_code == 404, action
 
-    confirmed = await client.post(
-        f"{PO_PREFIX}/orders/{first_po['id']}/mark-confirmed", headers=AUTH_HEADER
-    )
-    assert confirmed.status_code == 200
-    assert confirmed.json()["status"] == "confirmed"
+    # Receive every line of every PO → all fulfilled → rollup Fulfilled.
+    for po in body["purchase_orders"]:
+        detail = (
+            await client.get(f"{PO_PREFIX}/orders/{po['id']}", headers=AUTH_HEADER)
+        ).json()
+        lines = [
+            {
+                "purchase_order_line_id": line["id"],
+                "quantity_received": line["quantity_ordered"],
+                "unit_cost": "2.0000",
+            }
+            for line in detail["lines"]
+        ]
+        resp = await client.post(
+            f"{PO_PREFIX}/orders/{po['id']}/receive",
+            json={"lines": lines},
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 200, resp.text
+
+    fetched = (
+        await client.get(
+            f"{REQ_PREFIX}/{body['requisition']['id']}", headers=AUTH_HEADER
+        )
+    ).json()
+    assert fetched["rollup_status"] == "Fulfilled"
 
 
 @pytest.mark.asyncio

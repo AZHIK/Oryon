@@ -17,8 +17,7 @@ import '../../utils/dialog_helper.dart';
 import '../../utils/formatters.dart';
 import '../../widgets/data_page/status_badge.dart';
 
-/// Detail for one purchase order: lines, status actions, GRN receiving,
-/// returns, invoices, and payments.
+/// Detail for one purchase order: lines, receive, and cancel.
 ///
 /// Online-only like the list screen: without connectivity the detail shows
 /// the offline placeholder (its numbers drive stock and money).
@@ -180,26 +179,16 @@ class _DetailBody extends ConsumerWidget {
     final supplier = ref.watch(supplierByIdProvider(order.supplierId));
     final canCreate =
         ref.watch(hasPermissionProvider(AppPermissions.procurementCreate));
-    final canApprove =
-        ref.watch(hasPermissionProvider(AppPermissions.procurementApprove));
     final canReceive =
         ref.watch(hasPermissionProvider(AppPermissions.procurementReceive));
     final tone = switch (order.status) {
-      PurchaseOrderStatus.draft => StatusTone.neutral,
-      PurchaseOrderStatus.submitted => StatusTone.warning,
-      PurchaseOrderStatus.approved => StatusTone.warning,
-      PurchaseOrderStatus.partiallyReceived => StatusTone.warning,
-      PurchaseOrderStatus.received => StatusTone.positive,
-      PurchaseOrderStatus.cancelled => StatusTone.neutral,
-      // Requisition-split lifecycle: action still needed until fulfilled.
-      PurchaseOrderStatus.payloadReady => StatusTone.warning,
-      PurchaseOrderStatus.sent => StatusTone.warning,
-      PurchaseOrderStatus.confirmed => StatusTone.warning,
-      PurchaseOrderStatus.partiallyFulfilled => StatusTone.warning,
+      PurchaseOrderStatus.unfulfilled => StatusTone.warning,
       PurchaseOrderStatus.fulfilled => StatusTone.positive,
+      PurchaseOrderStatus.cancelled => StatusTone.neutral,
       PurchaseOrderStatus.unknown => StatusTone.neutral,
     };
     final notifier = ref.read(purchasesProvider.notifier);
+    final hasReceipts = order.lines.any((l) => l.quantityReceived > 0);
 
     return ListView(
       padding: const EdgeInsets.all(Insets.lg),
@@ -225,7 +214,7 @@ class _DetailBody extends ConsumerWidget {
         ),
         const SizedBox(height: Insets.sm),
         Text(
-          '${Fmt.money(order.totalAmount)} · ${Fmt.relativeDateTime(order.orderedAt)}',
+          Fmt.relativeDateTime(order.orderedAt),
           style: context.text.bodyMedium?.copyWith(
             fontWeight: FontWeight.w600,
             color: context.colors.primary,
@@ -246,44 +235,14 @@ class _DetailBody extends ConsumerWidget {
           spacing: Insets.sm,
           runSpacing: Insets.sm,
           children: [
-            if (order.status == PurchaseOrderStatus.draft && canCreate)
-              FilledButton.tonal(
-                onPressed: () => onAction(
-                  () => notifier.submit(order.id),
-                  AppStrings.orderSubmittedMessage,
-                  (e) => AppStrings.transitionFailed('submit', e),
-                ),
-                child: Text(AppStrings.submitAction),
-              ),
-            if (order.status == PurchaseOrderStatus.submitted && canApprove)
-              FilledButton(
-                onPressed: () => onAction(
-                  () => notifier.approve(order.id),
-                  AppStrings.orderApprovedMessage,
-                  (e) => AppStrings.transitionFailed('approve', e),
-                ),
-                child: Text(AppStrings.approveAction),
-              ),
-            if ((order.status == PurchaseOrderStatus.approved ||
-                    order.status == PurchaseOrderStatus.partiallyReceived) &&
-                canReceive)
+            if (order.status == PurchaseOrderStatus.unfulfilled && canReceive)
               FilledButton.icon(
                 onPressed: () => _showReceive(context, ref),
                 icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
                 label: Text(AppStrings.receiveAction),
               ),
-            if ((order.status == PurchaseOrderStatus.approved ||
-                    order.status == PurchaseOrderStatus.partiallyReceived ||
-                    order.status == PurchaseOrderStatus.received) &&
-                canReceive)
-              OutlinedButton(
-                onPressed: () => _showReturn(context, ref),
-                child: Text(AppStrings.returnAction),
-              ),
-            if (order.status.isOpen &&
-                order.status != PurchaseOrderStatus.partiallyReceived &&
-                order.status != PurchaseOrderStatus.partiallyFulfilled &&
-                order.status != PurchaseOrderStatus.received &&
+            if (order.status == PurchaseOrderStatus.unfulfilled &&
+                !hasReceipts &&
                 canCreate)
               TextButton(
                 onPressed: () => onAction(
@@ -293,32 +252,12 @@ class _DetailBody extends ConsumerWidget {
                 ),
                 child: Text(AppStrings.cancel),
               ),
-            if (canApprove &&
-                (order.status == PurchaseOrderStatus.approved ||
-                    order.status == PurchaseOrderStatus.partiallyReceived ||
-                    order.status == PurchaseOrderStatus.received))
-              OutlinedButton(
-                onPressed: () => _showInvoice(context, ref),
-                child: Text(AppStrings.invoiceAction),
-              ),
           ],
         ),
         const SizedBox(height: Insets.xl),
         Text('Lines (${order.lines.length})', style: context.text.titleMedium),
         const SizedBox(height: Insets.md),
         ...order.lines.map((line) => _LineTile(line: line)),
-        if (order.invoices.isNotEmpty) ...[
-          const SizedBox(height: Insets.xl),
-          Text('Invoices (${order.invoices.length})',
-              style: context.text.titleMedium),
-          const SizedBox(height: Insets.md),
-          ...order.invoices.map((inv) => _InvoiceTile(
-                invoice: inv,
-                onPay: canApprove && inv.remaining > Decimal.zero
-                    ? () => _showPay(context, ref, inv)
-                    : null,
-              )),
-        ],
       ],
     );
   }
@@ -327,31 +266,6 @@ class _DetailBody extends ConsumerWidget {
     return showAppDialog(
       context: context,
       builder: (_) => _ReceiveDialog(order: order, onDone: onChanged),
-    );
-  }
-
-  Future<void> _showReturn(BuildContext context, WidgetRef ref) {
-    return showAppDialog(
-      context: context,
-      builder: (_) => _ReturnDialog(order: order, onDone: onChanged),
-    );
-  }
-
-  Future<void> _showInvoice(BuildContext context, WidgetRef ref) {
-    return showAppDialog(
-      context: context,
-      builder: (_) => _InvoiceDialog(order: order, onDone: onChanged),
-    );
-  }
-
-  Future<void> _showPay(
-    BuildContext context,
-    WidgetRef ref,
-    SupplierInvoiceDto invoice,
-  ) {
-    return showAppDialog(
-      context: context,
-      builder: (_) => _PayDialog(invoice: invoice, onDone: onChanged),
     );
   }
 }
@@ -392,58 +306,6 @@ class _LineTile extends ConsumerWidget {
               ],
             ),
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(Fmt.money(line.unitCost),
-                  style: context.text.bodySmall?.copyWith(
-                      color: context.colors.onSurfaceVariant)),
-              Text(Fmt.money(line.lineTotal),
-                  style: context.text.bodyMedium
-                      ?.copyWith(fontWeight: FontWeight.w600)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InvoiceTile extends StatelessWidget {
-  const _InvoiceTile({required this.invoice, this.onPay});
-
-  final SupplierInvoiceDto invoice;
-  final VoidCallback? onPay;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: Insets.sm),
-      padding: const EdgeInsets.all(Insets.md),
-      decoration: BoxDecoration(
-        border: Border.all(color: context.semantic.hairline),
-        borderRadius: BorderRadius.circular(Insets.md),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(invoice.invoiceNumber,
-                    style: context.text.bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
-                const SizedBox(height: Insets.xs),
-                Text(
-                  '${Fmt.money(invoice.amountPaid.toDouble())} of ${Fmt.money(invoice.amountTotal.toDouble())} paid · ${invoice.status}',
-                  style: context.text.bodySmall?.copyWith(
-                      color: context.colors.onSurfaceVariant),
-                ),
-              ],
-            ),
-          ),
-          if (onPay != null)
-            FilledButton.tonal(onPressed: onPay, child: Text(AppStrings.payAction)),
         ],
       ),
     );
@@ -461,18 +323,56 @@ class _ReceiveDialog extends ConsumerStatefulWidget {
 }
 
 class _ReceiveDialogState extends ConsumerState<_ReceiveDialog> {
-  late final Map<String, String> _qtyByLine = {
-    for (final line in widget.order.lines)
-      if (line.outstanding > 0) line.id: line.outstanding.toString(),
-  };
+  /// Lines that still have something outstanding — fully received lines are
+  /// shown read-only below the editable ones.
+  late final List<PurchaseOrderLine> _openLines;
+  late final Map<String, TextEditingController> _qtyControllers;
+  late final Map<String, TextEditingController> _costControllers;
   bool _saving = false;
   String? _error;
 
+  @override
+  void initState() {
+    super.initState();
+    _openLines = [
+      for (final line in widget.order.lines)
+        if (line.outstanding > 0) line,
+    ];
+    _qtyControllers = {
+      for (final line in _openLines)
+        line.id: TextEditingController(text: line.outstanding.toString()),
+    };
+    _costControllers = {
+      for (final line in _openLines)
+        line.id: TextEditingController(text: _initialCostFor(line.itemId)),
+    };
+  }
+
+  /// Actual price per receipt line — cost enters the system here, never on
+  /// the order. Prefilled from the item's known cost basis when available.
+  String _initialCostFor(String itemId) {
+    final items = ref.read(inventoryItemsListProvider);
+    final item = items.where((i) => i.id == itemId).firstOrNull;
+    if (item == null || item.unitCost <= 0) return '';
+    return item.unitCost.toString();
+  }
+
+  @override
+  void dispose() {
+    for (final c in _qtyControllers.values) {
+      c.dispose();
+    }
+    for (final c in _costControllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
   Future<void> _save() async {
     final inputs = <GoodsReceiptLineInput>[];
-    for (final line in widget.order.lines) {
-      final raw = _qtyByLine[line.id];
-      if (raw == null || raw.trim().isEmpty) continue;
+    for (final line in _openLines) {
+      final raw = _qtyControllers[line.id]!.text;
+      if (raw.trim().isEmpty) continue;
       final qty = Decimal.tryParse(raw);
       if (qty == null || qty <= Decimal.zero) {
         setState(() => _error = 'Quantities must be positive numbers');
@@ -482,9 +382,15 @@ class _ReceiveDialogState extends ConsumerState<_ReceiveDialog> {
         setState(() => _error = 'Cannot receive more than outstanding');
         return;
       }
+      final cost = Decimal.tryParse(_costControllers[line.id]!.text);
+      if (cost == null || cost < Decimal.zero) {
+        setState(() => _error = 'Enter the actual unit cost for each line');
+        return;
+      }
       inputs.add(GoodsReceiptLineInput(
         purchaseOrderLineId: line.id,
         quantityReceived: qty,
+        unitCost: cost,
       ));
     }
     if (inputs.isEmpty) {
@@ -521,35 +427,38 @@ class _ReceiveDialogState extends ConsumerState<_ReceiveDialog> {
   Widget build(BuildContext context) {
     final items = ref.watch(inventoryItemsListProvider);
     final names = {for (final i in items) i.id: i.name};
+    final form = context.formFactor;
+
+    // Wide working surface on desktop/tablet, full-width sheet on phones.
+    final screen = MediaQuery.sizeOf(context);
+    final available = screen.width - (form.isMobile ? 64 : 96);
+    final width = (form.isDesktop
+            ? 880.0
+            : (form.isTablet ? 720.0 : 480.0))
+        .clamp(300.0, available);
+    final height = (screen.height - 200.0).clamp(420.0, 720.0);
+
+    final closedLines = [
+      for (final line in widget.order.lines)
+        if (line.outstanding <= 0) line,
+    ];
+
     return AlertDialog(
       title: Text(AppStrings.receiveTitle),
+      insetPadding: form.isMobile
+          ? const EdgeInsets.symmetric(horizontal: 16, vertical: 24)
+          : const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      contentPadding: const EdgeInsets.fromLTRB(
+        Insets.xl,
+        Insets.lg,
+        Insets.xl,
+        Insets.sm,
+      ),
       content: SizedBox(
-        width: 400,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final line in widget.order.lines)
-                if (line.outstanding > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: Insets.sm),
-                    child: TextField(
-                      decoration: InputDecoration(
-                        labelText:
-                            '${names[line.itemId] ?? line.itemId} (max ${Fmt.quantity(line.outstanding)} ${line.unit})',
-                      ),
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true),
-                      controller: TextEditingController(text: _qtyByLine[line.id]),
-                      onChanged: (v) => _qtyByLine[line.id] = v,
-                    ),
-                  ),
-              if (_error != null)
-                Text(_error!,
-                    style: TextStyle(color: context.colors.error)),
-            ],
-          ),
-        ),
+        width: width,
+        child: form.isMobile
+            ? _dialogBody(names, closedLines)
+            : SizedBox(height: height, child: _dialogBody(names, closedLines)),
       ),
       actions: [
         TextButton(
@@ -569,300 +478,206 @@ class _ReceiveDialogState extends ConsumerState<_ReceiveDialog> {
       ],
     );
   }
-}
 
-class _ReturnDialog extends ConsumerStatefulWidget {
-  const _ReturnDialog({required this.order, required this.onDone});
-
-  final PurchaseOrder order;
-  final Future<void> Function() onDone;
-
-  @override
-  ConsumerState<_ReturnDialog> createState() => _ReturnDialogState();
-}
-
-class _ReturnDialogState extends ConsumerState<_ReturnDialog> {
-  String? _lineId;
-  String _qty = '';
-  String _reason = '';
-  bool _saving = false;
-  String? _error;
-
-  Future<void> _save() async {
-    final lineId = _lineId;
-    final qty = Decimal.tryParse(_qty);
-    if (lineId == null || qty == null || qty <= Decimal.zero) {
-      setState(() => _error = 'Choose a line and a positive quantity');
-      return;
-    }
-    final line = widget.order.lines.firstWhere((l) => l.id == lineId);
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await ref.read(purchasesProvider.notifier).returnStock(
-            itemId: line.itemId,
-            quantity: qty,
-            purchaseOrderId: widget.order.id,
-            reason: _reason.isEmpty ? null : _reason,
-          );
-      await widget.onDone();
-      if (!mounted) return;
-      Navigator.of(context).pop();
-      messenger.showSnackBar(
-        SnackBar(content: Text(AppStrings.returnRecordedMessage)),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _error =
-            e is PurchaseApiException ? e.message : AppStrings.returnFailed(e);
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final items = ref.watch(inventoryItemsListProvider);
-    final names = {for (final i in items) i.id: i.name};
-    return AlertDialog(
-      title: Text(AppStrings.returnTitle),
-      content: SizedBox(
-        width: 400,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            DropdownButtonFormField<String>(
-              initialValue: _lineId,
-              decoration: const InputDecoration(labelText: 'Line'),
-              items: [
-                for (final line in widget.order.lines)
-                  DropdownMenuItem(
-                    value: line.id,
-                    child: Text(
-                      '${names[line.itemId] ?? line.itemId} — received ${Fmt.quantity(line.quantityReceived)}',
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-              ],
-              onChanged: (v) => setState(() => _lineId = v),
-            ),
+  Widget _dialogBody(
+    Map<String, String> names,
+    List<PurchaseOrderLine> closedLines,
+  ) {
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final line in _openLines) _ReceiveLineCard(
+            line: line,
+            itemName: names[line.itemId] ?? line.itemId,
+            qtyController: _qtyControllers[line.id]!,
+            costController: _costControllers[line.id]!,
+          ),
+          if (closedLines.isNotEmpty) ...[
             const SizedBox(height: Insets.sm),
-            TextField(
-              decoration: const InputDecoration(labelText: 'Quantity'),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              onChanged: (v) => _qty = v,
-            ),
-            const SizedBox(height: Insets.sm),
-            TextField(
-              decoration: const InputDecoration(labelText: 'Reason (optional)'),
-              onChanged: (v) => _reason = v,
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: Insets.sm),
-              Text(_error!, style: TextStyle(color: context.colors.error)),
-            ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(),
-          child: Text(AppStrings.cancel),
-        ),
-        FilledButton(
-          onPressed: _saving ? null : _save,
-          child: Text(AppStrings.returnAction),
-        ),
-      ],
-    );
-  }
-}
-
-class _InvoiceDialog extends ConsumerStatefulWidget {
-  const _InvoiceDialog({required this.order, required this.onDone});
-
-  final PurchaseOrder order;
-  final Future<void> Function() onDone;
-
-  @override
-  ConsumerState<_InvoiceDialog> createState() => _InvoiceDialogState();
-}
-
-class _InvoiceDialogState extends ConsumerState<_InvoiceDialog> {
-  String _number = '';
-  String _total = '';
-  bool _saving = false;
-  String? _error;
-
-  Future<void> _save() async {
-    if (_number.trim().isEmpty) {
-      setState(() => _error = 'Enter the supplier invoice number');
-      return;
-    }
-    final total =
-        _total.trim().isEmpty ? null : Decimal.tryParse(_total.trim());
-    if (_total.trim().isNotEmpty && total == null) {
-      setState(() => _error = 'Total must be a number');
-      return;
-    }
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await ref.read(purchasesProvider.notifier).invoice(
-            orderId: widget.order.id,
-            invoiceNumber: _number.trim(),
-            amountTotal: total,
-          );
-      await widget.onDone();
-      if (!mounted) return;
-      Navigator.of(context).pop();
-      messenger.showSnackBar(
-        SnackBar(content: Text(AppStrings.invoiceSavedMessage)),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _error =
-            e is PurchaseApiException ? e.message : AppStrings.invoiceFailed(e);
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(AppStrings.invoiceTitle),
-      content: SizedBox(
-        width: 400,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              decoration:
-                  const InputDecoration(labelText: 'Supplier invoice number'),
-              onChanged: (v) => _number = v,
-            ),
-            const SizedBox(height: Insets.sm),
-            TextField(
-              decoration: const InputDecoration(
-                  labelText: 'Total (blank = received value)'),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              onChanged: (v) => _total = v,
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: Insets.sm),
-              Text(_error!, style: TextStyle(color: context.colors.error)),
-            ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(),
-          child: Text(AppStrings.cancel),
-        ),
-        FilledButton(
-          onPressed: _saving ? null : _save,
-          child: Text(AppStrings.invoiceAction),
-        ),
-      ],
-    );
-  }
-}
-
-class _PayDialog extends ConsumerStatefulWidget {
-  const _PayDialog({required this.invoice, required this.onDone});
-
-  final SupplierInvoiceDto invoice;
-  final Future<void> Function() onDone;
-
-  @override
-  ConsumerState<_PayDialog> createState() => _PayDialogState();
-}
-
-class _PayDialogState extends ConsumerState<_PayDialog> {
-  String _amount = '';
-  bool _saving = false;
-  String? _error;
-
-  Future<void> _save() async {
-    final amount = Decimal.tryParse(_amount);
-    if (amount == null || amount <= Decimal.zero) {
-      setState(() => _error = 'Enter a positive amount');
-      return;
-    }
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await ref.read(purchasesProvider.notifier).pay(
-            invoiceId: widget.invoice.id,
-            amount: amount,
-          );
-      await widget.onDone();
-      if (!mounted) return;
-      Navigator.of(context).pop();
-      messenger.showSnackBar(
-        SnackBar(content: Text(AppStrings.paymentSavedMessage)),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _error =
-            e is PurchaseApiException ? e.message : AppStrings.paymentFailed(e);
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(AppStrings.payTitle),
-      content: SizedBox(
-        width: 400,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
             Text(
-              'Remaining: ${Fmt.money(widget.invoice.remaining.toDouble())}',
-              style: context.text.bodyMedium,
+              'Already fully received',
+              style: context.text.labelMedium?.copyWith(
+                color: context.colors.onSurfaceVariant,
+              ),
             ),
-            const SizedBox(height: Insets.sm),
-            TextField(
-              decoration: const InputDecoration(labelText: 'Amount'),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              onChanged: (v) => _amount = v,
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: Insets.sm),
-              Text(_error!, style: TextStyle(color: context.colors.error)),
-            ],
+            const SizedBox(height: Insets.xs),
+            for (final line in closedLines)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: Insets.xs),
+                child: Text(
+                  '${names[line.itemId] ?? line.itemId} — '
+                  '${Fmt.quantity(line.quantityOrdered)} ${line.unit} received',
+                  style: context.text.bodySmall?.copyWith(
+                    color: context.colors.onSurfaceVariant,
+                  ),
+                ),
+              ),
           ],
-        ),
+          if (_error != null) ...[
+            const SizedBox(height: Insets.sm),
+            Text(_error!,
+                style: TextStyle(color: context.colors.error)),
+          ],
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(),
-          child: Text(AppStrings.cancel),
+    );
+  }
+}
+
+/// One line of the receive dialog: ordered / received / outstanding figures
+/// with a progress bar on top, then the qty + actual-cost inputs below.
+class _ReceiveLineCard extends StatelessWidget {
+  const _ReceiveLineCard({
+    required this.line,
+    required this.itemName,
+    required this.qtyController,
+    required this.costController,
+  });
+
+  final PurchaseOrderLine line;
+  final String itemName;
+  final TextEditingController qtyController;
+  final TextEditingController costController;
+
+  @override
+  Widget build(BuildContext context) {
+    final ordered = line.quantityOrdered;
+    final received = line.quantityReceived;
+    final outstanding = line.outstanding;
+    final progress =
+        ordered <= 0 ? 0.0 : (received / ordered).clamp(0.0, 1.0);
+    return Container(
+      margin: const EdgeInsets.only(bottom: Insets.md),
+      padding: const EdgeInsets.all(Insets.lg),
+      decoration: BoxDecoration(
+        color: context.colors.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(Radii.md),
+        border: Border.all(color: context.semantic.hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            itemName,
+            style: context.text.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: Insets.sm),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(Radii.pill),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: context.colors.surfaceContainerHighest,
+            ),
+          ),
+          const SizedBox(height: Insets.sm),
+          Row(
+            children: [
+              Expanded(
+                child: _Stat(
+                  label: 'Ordered',
+                  value: '${Fmt.quantity(ordered)} ${line.unit}',
+                ),
+              ),
+              Expanded(
+                child: _Stat(
+                  label: 'Received',
+                  value: '${Fmt.quantity(received)} ${line.unit}',
+                  highlight: true,
+                ),
+              ),
+              Expanded(
+                child: _Stat(
+                  label: 'Outstanding',
+                  value: '${Fmt.quantity(outstanding)} ${line.unit}',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: Insets.md),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final sideBySide = constraints.maxWidth >= 420;
+              final qtyField = TextField(
+                controller: qtyController,
+                decoration: const InputDecoration(
+                  labelText: 'Qty received',
+                  helperText: 'Max outstanding',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+              );
+              final costField = TextField(
+                controller: costController,
+                decoration: const InputDecoration(
+                  labelText: 'Unit cost (actual)',
+                  helperText: 'Price on this delivery',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+              );
+              if (!sideBySide) {
+                return Column(
+                  children: [
+                    qtyField,
+                    const SizedBox(height: Insets.sm),
+                    costField,
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: qtyField),
+                  const SizedBox(width: Insets.md),
+                  Expanded(child: costField),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  const _Stat({
+    required this.label,
+    required this.value,
+    this.highlight = false,
+  });
+
+  final String label;
+  final String value;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: context.text.labelSmall?.copyWith(
+            color: context.colors.onSurfaceVariant,
+          ),
         ),
-        FilledButton(
-          onPressed: _saving ? null : _save,
-          child: Text(AppStrings.payAction),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: context.text.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: highlight ? context.colors.primary : null,
+          ),
+          overflow: TextOverflow.ellipsis,
         ),
       ],
     );

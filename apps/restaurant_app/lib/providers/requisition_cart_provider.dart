@@ -282,30 +282,6 @@ Supplier? findPreferredSupplier(
   return null;
 }
 
-/// Per-supplier action state for the submitted order screen. Each card's
-/// loading/action state is independent — one supplier's slow interaction
-/// never blocks the others.
-class SupplierCardStates extends Notifier<Map<String, bool>> {
-  @override
-  Map<String, bool> build() => const {};
-
-  bool isBusy(String poId) => state[poId] ?? false;
-
-  Future<void> run(String poId, Future<void> Function() action) async {
-    if (isBusy(poId)) return;
-    state = {...state, poId: true};
-    try {
-      await action();
-    } finally {
-      state = {...state, poId: false};
-    }
-  }
-}
-
-final supplierCardStatesProvider =
-    NotifierProvider<SupplierCardStates, Map<String, bool>>(
-        SupplierCardStates.new);
-
 final requisitionApiServiceProvider = Provider<RequisitionApiService>(
   (ref) =>
       RequisitionApiService(dio: ref.watch(inventoryServiceDioProvider)),

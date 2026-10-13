@@ -57,7 +57,11 @@ def _enum_db_values(enum_class: type[PyEnum]) -> list[str]:
 
 
 class Reorder(SQLModel, table=True):
-    """A purchase order placed with a supplier to restock an item."""
+    """A purchase order placed with a supplier to restock an item.
+
+    Qty-only: cost is captured at receive time (optional ``unit_cost`` on
+    the receive call) and flows into ``Item.unit_cost`` via weighted
+    averaging — never stored on the reorder itself."""
 
     id: UUID = Field(
         default_factory=uuid4,
@@ -100,10 +104,6 @@ class Reorder(SQLModel, table=True):
     # measure is edited afterward (same reasoning `OrderLine` in pos-service
     # freezes price at time of sale).
     unit: str = Field(nullable=False, max_length=16)
-    unit_cost: Decimal = Field(
-        nullable=False,
-        sa_type=Numeric(precision=12, scale=4),
-    )
     status: ReorderStatus = Field(
         default=ReorderStatus.PENDING,
         sa_column=Column(

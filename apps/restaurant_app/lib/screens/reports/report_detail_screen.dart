@@ -46,8 +46,6 @@ class ReportDetailScreen extends ConsumerWidget {
         return ref.read(financeSummaryProvider.notifier).refresh();
       case 'sell-payments':
         return ref.read(sellPaymentsProvider.notifier).refresh();
-      case 'purchase-payments':
-        return ref.read(purchasePaymentsProvider.notifier).refresh();
       case 'product-sell':
         return ref.read(itemMixProvider.notifier).refresh();
       case 'purchase-sale':
@@ -102,8 +100,6 @@ class ReportDetailScreen extends ConsumerWidget {
         return const ExpenseSection();
       case 'sell-payments':
         return const SellPaymentsSection();
-      case 'purchase-payments':
-        return const PurchasePaymentsSection();
       case 'product-sell':
         return const ItemMixSection();
       case 'items':

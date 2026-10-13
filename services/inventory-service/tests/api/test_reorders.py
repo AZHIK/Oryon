@@ -138,7 +138,6 @@ async def _create_reorder(
         supplier_id=supplier.id,
         quantity=quantity,
         unit="kg",
-        unit_cost=Decimal("2.5000"),
         status=status,
         ordered_at=datetime.now(UTC),
     )
@@ -154,7 +153,6 @@ def _reorder_payload(item: Item, supplier: Supplier, **overrides) -> dict:
         "item_id": str(item.id),
         "supplier_id": str(supplier.id),
         "quantity": "20.000",
-        "unit_cost": "2.5000",
     }
     payload.update(overrides)
     return payload
@@ -322,7 +320,6 @@ async def test_list_is_business_scoped(client: AsyncClient, db_session: AsyncSes
         supplier_id=other_supplier.id,
         quantity=Decimal("1"),
         unit="kg",
-        unit_cost=Decimal("1"),
         ordered_at=datetime.now(UTC),
     )
     db_session.add(other_reorder)
@@ -370,6 +367,54 @@ async def test_receive_reorder_increases_stock_and_records_movement(
     assert movement.movement_type.value == "purchase_received"
     assert movement.reference_type == "reorder"
     assert movement.quantity_delta == Decimal("20.000")
+
+
+@pytest.mark.asyncio
+async def test_receive_reorder_with_unit_cost_revalues_item(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Cost enters at receive time: opening 10 @ 1.0 + 20 @ 3.0 → 2.3333."""
+    item = await _create_item(db_session)
+    item.unit_cost = Decimal("1.0000")
+    db_session.add(item)
+    await db_session.commit()
+    db_session.add(
+        StockLevel(item_id=item.id, store_id=STORE_ID, current_quantity=Decimal("10.000"))
+    )
+    await db_session.commit()
+    supplier = await _create_supplier(db_session)
+    reorder = await _create_reorder(db_session, item, supplier, quantity=Decimal("20.000"))
+
+    resp = await client.post(
+        f"{API_PREFIX}/{reorder.id}/receive",
+        json={"unit_cost": "3.0000"},
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "received"
+    assert "unit_cost" not in resp.json()
+
+    await db_session.refresh(item)
+    assert item.unit_cost == Decimal("2.3333")
+
+
+@pytest.mark.asyncio
+async def test_receive_reorder_without_cost_leaves_item_cost_untouched(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Omitting unit_cost moves stock without revaluing the item."""
+    item = await _create_item(db_session)
+    item.unit_cost = Decimal("1.0000")
+    db_session.add(item)
+    await db_session.commit()
+    supplier = await _create_supplier(db_session)
+    reorder = await _create_reorder(db_session, item, supplier, quantity=Decimal("5.000"))
+
+    resp = await client.post(f"{API_PREFIX}/{reorder.id}/receive", headers=AUTH_HEADER)
+    assert resp.status_code == 200, resp.text
+
+    await db_session.refresh(item)
+    assert item.unit_cost == Decimal("1.0000")
 
 
 @pytest.mark.asyncio

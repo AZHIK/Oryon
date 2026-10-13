@@ -1,9 +1,10 @@
 """Integration tests for the purchases module endpoints.
 
-Covers the full lifecycle: draft PO → submit → approve → partial GRN →
-full GRN (asserts the stock engine ran + weighted-average costing), returns,
-invoices/payments, supplier statement, status-transition guards, and route
-permissions. Mirrors ``test_reorders.py``'s shape.
+Two-step flow only: create an (unfulfilled, qty-only) PO → receive GRNs
+with per-line actual costs (asserts the stock engine ran + weighted-average
+costing) → fulfilled once quantities are met, else still unfulfilled.
+Cancel is allowed only before anything is received. The old submit/approve,
+returns, invoices/payments, and statement routes are gone (404).
 """
 
 from __future__ import annotations
@@ -55,7 +56,6 @@ Miohh2E1Z9T1bGnvke8mHGpvQ4WurtmexOjz+KzVooCAkKzxIYKf
 
 ALL_PURCHASE_PERMS = [
     "procurement.create",
-    "procurement.approve",
     "procurement.view",
     "procurement.receive",
 ]
@@ -132,7 +132,6 @@ def _order_payload(
         {
             "item_id": str(item.id),
             "quantity_ordered": "20.000",
-            "unit_cost": "2.5000",
         }
     ]
     if second_item is not None:
@@ -140,7 +139,6 @@ def _order_payload(
             {
                 "item_id": str(second_item.id),
                 "quantity_ordered": "10.000",
-                "unit_cost": "5.0000",
             }
         )
     payload = {
@@ -152,26 +150,35 @@ def _order_payload(
     return payload
 
 
-async def _create_approved_order(
-    client: AsyncClient,
-    item: Item,
-    supplier: Supplier,
-    second_item: Item | None = None,
-) -> dict:
-    """Drive a PO through draft → submitted → approved via the API."""
+def _receive_payload(line_id: str, qty: str, unit_cost: str = "2.5000") -> dict:
+    """One-line GRN body — cost rides on the receipt, never the PO."""
+    return {
+        "lines": [
+            {
+                "purchase_order_line_id": line_id,
+                "quantity_received": qty,
+                "unit_cost": unit_cost,
+            }
+        ]
+    }
+
+
+async def _create_order(client: AsyncClient, item: Item, supplier: Supplier) -> dict:
+    """Create a PO via the API (no handshake — created unfulfilled)."""
     resp = await client.post(
         f"{API_PREFIX}/orders",
-        json=_order_payload(item, supplier, second_item),
+        json=_order_payload(item, supplier),
         headers=AUTH_HEADER,
     )
     assert resp.status_code == 201, resp.text
-    order = resp.json()
-    for action in ("submit", "approve"):
-        resp = await client.post(
-            f"{API_PREFIX}/orders/{order['id']}/{action}", headers=AUTH_HEADER
-        )
-        assert resp.status_code == 200, resp.text
     return resp.json()
+
+
+async def _line_id(client: AsyncClient, order_id: str) -> str:
+    detail = (
+        await client.get(f"{API_PREFIX}/orders/{order_id}", headers=AUTH_HEADER)
+    ).json()
+    return detail["lines"][0]["id"]
 
 
 async def _stock_level(session: AsyncSession, item: Item) -> Decimal:
@@ -203,16 +210,19 @@ async def test_create_multi_line_order(
     )
     assert resp.status_code == 201, resp.text
     data = resp.json()
-    assert data["status"] == "draft"
+    assert data["status"] == "unfulfilled"
     assert data["po_number"].startswith("PO-")
-    # 20*2.5 + 10*5.0 = 100.00
-    assert Decimal(data["total_amount"]) == Decimal("100.00")
+    # Qty-only PO — no money on the header.
+    assert "total_amount" not in data
+    assert "invoice_status" not in data
 
     detail = (
         await client.get(f"{API_PREFIX}/orders/{data['id']}", headers=AUTH_HEADER)
     ).json()
     assert len(detail["lines"]) == 2
     assert {line["unit"] for line in detail["lines"]} == {"kg"}
+    assert all("unit_cost" not in line for line in detail["lines"])
+    assert detail["receipts"] == []
 
 
 @pytest.mark.asyncio
@@ -267,105 +277,39 @@ async def test_create_order_unknown_supplier_404s(
     assert resp.status_code == 404
 
 
-# ── Lifecycle guards ───────────────────────────────────────────────────────
+# ── Receiving (core: stock + costing + fulfilled/unfulfilled) ───────────────
 
 
 @pytest.mark.asyncio
-async def test_submit_approve_and_double_transition_guards(
-    client: AsyncClient, db_session: AsyncSession
-) -> None:
-    item = await _create_item(db_session)
-    supplier = await _create_supplier(db_session)
-    order = (
-        await client.post(
-            f"{API_PREFIX}/orders",
-            json=_order_payload(item, supplier),
-            headers=AUTH_HEADER,
-        )
-    ).json()
-
-    # Approve before submit is rejected.
-    resp = await client.post(
-        f"{API_PREFIX}/orders/{order['id']}/approve", headers=AUTH_HEADER
-    )
-    assert resp.status_code == 409
-
-    resp = await client.post(
-        f"{API_PREFIX}/orders/{order['id']}/submit", headers=AUTH_HEADER
-    )
-    assert resp.json()["status"] == "submitted"
-
-    # Double submit is rejected.
-    resp = await client.post(
-        f"{API_PREFIX}/orders/{order['id']}/submit", headers=AUTH_HEADER
-    )
-    assert resp.status_code == 409
-
-    resp = await client.post(
-        f"{API_PREFIX}/orders/{order['id']}/approve", headers=AUTH_HEADER
-    )
-    assert resp.json()["status"] == "approved"
-
-
-@pytest.mark.asyncio
-async def test_receive_before_approval_rejected(
-    client: AsyncClient, db_session: AsyncSession
-) -> None:
-    item = await _create_item(db_session)
-    supplier = await _create_supplier(db_session)
-    order = (
-        await client.post(
-            f"{API_PREFIX}/orders",
-            json=_order_payload(item, supplier),
-            headers=AUTH_HEADER,
-        )
-    ).json()
-    line_id = (
-        await client.get(f"{API_PREFIX}/orders/{order['id']}", headers=AUTH_HEADER)
-    ).json()["lines"][0]["id"]
-
-    resp = await client.post(
-        f"{API_PREFIX}/orders/{order['id']}/receive",
-        json={"lines": [{"purchase_order_line_id": line_id, "quantity_received": "5.000"}]},
-        headers=AUTH_HEADER,
-    )
-    assert resp.status_code == 409
-
-
-# ── Receiving (core: stock + costing) ──────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_partial_then_full_receive_updates_stock_and_cost(
+async def test_partial_receive_stays_unfulfilled_full_receive_fulfills(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
     item = await _create_item(db_session, unit_cost=Decimal("2.0000"))
     supplier = await _create_supplier(db_session)
-    order = await _create_approved_order(client, item, supplier)
-    line_id = (
-        await client.get(f"{API_PREFIX}/orders/{order['id']}", headers=AUTH_HEADER)
-    ).json()["lines"][0]["id"]
+    order = await _create_order(client, item, supplier)
+    line_id = await _line_id(client, order["id"])
 
     # Partial: 8 of 20 @ 2.5000 over opening 0 @ 2.0000 → avg 2.5000.
     resp = await client.post(
         f"{API_PREFIX}/orders/{order['id']}/receive",
-        json={"lines": [{"purchase_order_line_id": line_id, "quantity_received": "8.000"}]},
+        json=_receive_payload(line_id, "8.000"),
         headers=AUTH_HEADER,
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["grn_number"].startswith("GRN-")
+    assert Decimal(resp.json()["lines"][0]["unit_cost"]) == Decimal("2.5000")
 
     detail = (
         await client.get(f"{API_PREFIX}/orders/{order['id']}", headers=AUTH_HEADER)
     ).json()
-    assert detail["status"] == "partially_received"
+    assert detail["status"] == "unfulfilled"
     assert Decimal(detail["lines"][0]["quantity_received"]) == Decimal("8.000")
     assert await _stock_level(db_session, item) == Decimal("8.000")
 
-    # Remainder: 12 @ 2.5000 over 8 @ 2.5000 → avg stays 2.5000.
+    # Remainder: 12 @ 2.5000 over 8 @ 2.5000 → avg stays 2.5000, fulfilled.
     resp = await client.post(
         f"{API_PREFIX}/orders/{order['id']}/receive",
-        json={"lines": [{"purchase_order_line_id": line_id, "quantity_received": "12.000"}]},
+        json=_receive_payload(line_id, "12.000"),
         headers=AUTH_HEADER,
     )
     assert resp.status_code == 200, resp.text
@@ -373,7 +317,8 @@ async def test_partial_then_full_receive_updates_stock_and_cost(
     detail = (
         await client.get(f"{API_PREFIX}/orders/{order['id']}", headers=AUTH_HEADER)
     ).json()
-    assert detail["status"] == "received"
+    assert detail["status"] == "fulfilled"
+    assert detail["received_at"] is not None
     assert len(detail["receipts"]) == 2
     assert await _stock_level(db_session, item) == Decimal("20.000")
 
@@ -390,26 +335,46 @@ async def test_partial_then_full_receive_updates_stock_and_cost(
 
 
 @pytest.mark.asyncio
+async def test_fulfilled_order_cannot_be_received_again(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    item = await _create_item(db_session)
+    supplier = await _create_supplier(db_session)
+    order = await _create_order(client, item, supplier)
+    line_id = await _line_id(client, order["id"])
+
+    resp = await client.post(
+        f"{API_PREFIX}/orders/{order['id']}/receive",
+        json=_receive_payload(line_id, "20.000"),
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = await client.post(
+        f"{API_PREFIX}/orders/{order['id']}/receive",
+        json=_receive_payload(line_id, "1.000"),
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
 async def test_weighted_average_cost_blends_with_existing_stock(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    # Opening 10 @ 1.0000, receive 10 @ 3.0000 → (10 + 30)/20 = 2.0000.
+    # Opening 10 @ 1.0000, receive 10 @ 2.5000 → (10 + 25)/20 = 1.7500.
     item = await _create_item(db_session, unit_cost=Decimal("1.0000"))
     db_session.add(
         StockLevel(item_id=item.id, store_id=STORE_ID, current_quantity=Decimal("10.000"))
     )
     await db_session.commit()
     supplier = await _create_supplier(db_session)
-    order = await _create_approved_order(client, item, supplier)
-    line_id = (
-        await client.get(f"{API_PREFIX}/orders/{order['id']}", headers=AUTH_HEADER)
-    ).json()["lines"][0]["id"]
+    order = await _create_order(client, item, supplier)
+    line_id = await _line_id(client, order["id"])
 
-    # Line cost is 2.5000 per payload; override expectation accordingly:
-    # (10*1.0 + 10*2.5)/20 = 1.7500.
     resp = await client.post(
         f"{API_PREFIX}/orders/{order['id']}/receive",
-        json={"lines": [{"purchase_order_line_id": line_id, "quantity_received": "10.000"}]},
+        json=_receive_payload(line_id, "10.000"),
         headers=AUTH_HEADER,
     )
     assert resp.status_code == 200, resp.text
@@ -423,14 +388,12 @@ async def test_over_receive_rejected(
 ) -> None:
     item = await _create_item(db_session)
     supplier = await _create_supplier(db_session)
-    order = await _create_approved_order(client, item, supplier)
-    line_id = (
-        await client.get(f"{API_PREFIX}/orders/{order['id']}", headers=AUTH_HEADER)
-    ).json()["lines"][0]["id"]
+    order = await _create_order(client, item, supplier)
+    line_id = await _line_id(client, order["id"])
 
     resp = await client.post(
         f"{API_PREFIX}/orders/{order['id']}/receive",
-        json={"lines": [{"purchase_order_line_id": line_id, "quantity_received": "21.000"}]},
+        json=_receive_payload(line_id, "21.000"),
         headers=AUTH_HEADER,
     )
     assert resp.status_code == 409
@@ -438,168 +401,126 @@ async def test_over_receive_rejected(
 
 
 @pytest.mark.asyncio
-async def test_cancel_after_receive_rejected(
+async def test_receive_requires_unit_cost(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
+    """Cost rides on the receipt: a GRN line without unit_cost is rejected."""
     item = await _create_item(db_session)
     supplier = await _create_supplier(db_session)
-    order = await _create_approved_order(client, item, supplier)
-    line_id = (
-        await client.get(f"{API_PREFIX}/orders/{order['id']}", headers=AUTH_HEADER)
-    ).json()["lines"][0]["id"]
+    order = await _create_order(client, item, supplier)
+    line_id = await _line_id(client, order["id"])
+
     resp = await client.post(
         f"{API_PREFIX}/orders/{order['id']}/receive",
         json={"lines": [{"purchase_order_line_id": line_id, "quantity_received": "5.000"}]},
         headers=AUTH_HEADER,
     )
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 422
 
+    resp = await client.post(
+        f"{API_PREFIX}/orders/{order['id']}/receive",
+        json=_receive_payload(line_id, "5.000", unit_cost="-1.0000"),
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 422
+
+
+# ── Cancel ───────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_cancel_unreceived_order(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    item = await _create_item(db_session)
+    supplier = await _create_supplier(db_session)
+    order = await _create_order(client, item, supplier)
+
+    resp = await client.post(
+        f"{API_PREFIX}/orders/{order['id']}/cancel", headers=AUTH_HEADER
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "cancelled"
+
+    # Cancelled orders cannot be received.
+    line_id = await _line_id(client, order["id"])
+    resp = await client.post(
+        f"{API_PREFIX}/orders/{order['id']}/receive",
+        json=_receive_payload(line_id, "5.000"),
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 409
+
+    # Double cancel is rejected.
     resp = await client.post(
         f"{API_PREFIX}/orders/{order['id']}/cancel", headers=AUTH_HEADER
     )
     assert resp.status_code == 409
 
 
-# ── Returns ────────────────────────────────────────────────────────────────
-
-
 @pytest.mark.asyncio
-async def test_return_decrements_stock_and_over_return_rejected(
+async def test_cancel_after_receive_or_fulfill_rejected(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
     item = await _create_item(db_session)
     supplier = await _create_supplier(db_session)
-    order = await _create_approved_order(client, item, supplier)
-    line_id = (
-        await client.get(f"{API_PREFIX}/orders/{order['id']}", headers=AUTH_HEADER)
-    ).json()["lines"][0]["id"]
+    order = await _create_order(client, item, supplier)
+    line_id = await _line_id(client, order["id"])
+
+    # Partial receipt → cancel rejected.
     resp = await client.post(
         f"{API_PREFIX}/orders/{order['id']}/receive",
-        json={"lines": [{"purchase_order_line_id": line_id, "quantity_received": "20.000"}]},
+        json=_receive_payload(line_id, "5.000"),
         headers=AUTH_HEADER,
     )
     assert resp.status_code == 200, resp.text
-
     resp = await client.post(
-        f"{API_PREFIX}/returns",
-        json={
-            "item_id": str(item.id),
-            "quantity": "4.000",
-            "purchase_order_id": order["id"],
-            "reason": "damaged in transit",
-        },
-        headers=AUTH_HEADER,
-    )
-    assert resp.status_code == 201, resp.text
-    assert await _stock_level(db_session, item) == Decimal("16.000")
-
-    # Only 16 returnable now; 17 is rejected.
-    resp = await client.post(
-        f"{API_PREFIX}/returns",
-        json={"item_id": str(item.id), "quantity": "17.000", "purchase_order_id": order["id"]},
-        headers=AUTH_HEADER,
+        f"{API_PREFIX}/orders/{order['id']}/cancel", headers=AUTH_HEADER
     )
     assert resp.status_code == 409
-    assert await _stock_level(db_session, item) == Decimal("16.000")
 
-
-# ── Invoices, payments, statement ──────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_invoice_payment_lifecycle_and_statement(
-    client: AsyncClient, db_session: AsyncSession
-) -> None:
-    item = await _create_item(db_session)
-    supplier = await _create_supplier(db_session)
-    order = await _create_approved_order(client, item, supplier)
-    line_id = (
-        await client.get(f"{API_PREFIX}/orders/{order['id']}", headers=AUTH_HEADER)
-    ).json()["lines"][0]["id"]
+    # Full receipt (fulfilled) → cancel rejected.
     resp = await client.post(
         f"{API_PREFIX}/orders/{order['id']}/receive",
-        json={"lines": [{"purchase_order_line_id": line_id, "quantity_received": "20.000"}]},
+        json=_receive_payload(line_id, "15.000"),
         headers=AUTH_HEADER,
     )
     assert resp.status_code == 200, resp.text
-
-    # Default invoice total = received value: 20 * 2.5 = 50.00.
     resp = await client.post(
-        f"{API_PREFIX}/invoices",
-        json={"purchase_order_id": order["id"], "invoice_number": "SUP-001"},
-        headers=AUTH_HEADER,
+        f"{API_PREFIX}/orders/{order['id']}/cancel", headers=AUTH_HEADER
     )
-    assert resp.status_code == 201, resp.text
-    invoice = resp.json()
-    assert Decimal(invoice["amount_total"]) == Decimal("50.00")
-    assert invoice["status"] == "unpaid"
+    assert resp.status_code == 409
 
-    # Partial payment → partial; PO mirrors it.
-    resp = await client.post(
-        f"{API_PREFIX}/invoices/{invoice['id']}/payments",
-        json={"amount": "20.00", "method": "mpesa"},
-        headers=AUTH_HEADER,
-    )
-    assert resp.status_code == 201, resp.text
 
-    detail = (
-        await client.get(f"{API_PREFIX}/orders/{order['id']}", headers=AUTH_HEADER)
-    ).json()
-    assert detail["invoices"][0]["status"] == "partial"
-    assert detail["invoice_status"] == "partial"
+# ── Removed routes ─────────────────────────────────────────────────────────
 
-    # Overpay is rejected.
-    resp = await client.post(
-        f"{API_PREFIX}/invoices/{invoice['id']}/payments",
-        json={"amount": "31.00"},
-        headers=AUTH_HEADER,
-    )
-    assert resp.status_code == 422
 
-    # Pay the rest → paid everywhere.
-    resp = await client.post(
-        f"{API_PREFIX}/invoices/{invoice['id']}/payments",
-        json={"amount": "30.00"},
-        headers=AUTH_HEADER,
-    )
-    assert resp.status_code == 201, resp.text
-    detail = (
-        await client.get(f"{API_PREFIX}/orders/{order['id']}", headers=AUTH_HEADER)
-    ).json()
-    assert detail["invoice_status"] == "paid"
+@pytest.mark.asyncio
+async def test_removed_routes_are_gone(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """submit/approve, returns, invoices, payments, and statements are gone."""
+    item = await _create_item(db_session)
+    supplier = await _create_supplier(db_session)
+    order = await _create_order(client, item, supplier)
 
-    # Statement shows the settled invoice with zero balance…
-    stmt = (
-        await client.get(
-            f"{API_PREFIX}/suppliers/{supplier.id}/statement", headers=AUTH_HEADER
-        )
-    ).json()
-    assert Decimal(stmt["outstanding_balance"]) == Decimal("0.00")
-
-    # …and a second open order + unpaid invoice contribute to the balance.
-    second_item = await _create_item(db_session, name="Rice")
-    order2 = await _create_approved_order(client, second_item, supplier)
-    line2 = (
-        await client.get(f"{API_PREFIX}/orders/{order2['id']}", headers=AUTH_HEADER)
-    ).json()["lines"][0]["id"]
-    await client.post(
-        f"{API_PREFIX}/orders/{order2['id']}/receive",
-        json={"lines": [{"purchase_order_line_id": line2, "quantity_received": "10.000"}]},
-        headers=AUTH_HEADER,
-    )
-    await client.post(
-        f"{API_PREFIX}/invoices",
-        json={"purchase_order_id": order2["id"], "invoice_number": "SUP-002"},
-        headers=AUTH_HEADER,
-    )
-    stmt = (
-        await client.get(
-            f"{API_PREFIX}/suppliers/{supplier.id}/statement", headers=AUTH_HEADER
-        )
-    ).json()
-    # 10 * 2.5 = 25.00 outstanding; order2 fully received so no open orders.
-    assert Decimal(stmt["outstanding_balance"]) == Decimal("25.00")
-    assert stmt["unpaid_invoices"][0]["invoice_number"] == "SUP-002"
+    for method, path, body in [
+        ("POST", f"{API_PREFIX}/orders/{order['id']}/submit", None),
+        ("POST", f"{API_PREFIX}/orders/{order['id']}/approve", None),
+        ("POST", f"{API_PREFIX}/returns", {"item_id": str(item.id), "quantity": "1.000"}),
+        (
+            "POST",
+            f"{API_PREFIX}/invoices",
+            {"purchase_order_id": order["id"], "invoice_number": "SUP-001"},
+        ),
+        (
+            "GET",
+            f"{API_PREFIX}/suppliers/{supplier.id}/statement",
+            None,
+        ),
+    ]:
+        resp = await client.request(method, path, json=body, headers=AUTH_HEADER)
+        assert resp.status_code == 404, f"{method} {path} should be gone"
 
 
 # ── List & permissions ─────────────────────────────────────────────────────
@@ -611,22 +532,18 @@ async def test_list_filters_by_status(
 ) -> None:
     item = await _create_item(db_session)
     supplier = await _create_supplier(db_session)
-    await _create_approved_order(client, item, supplier)
-    draft = (
-        await client.post(
-            f"{API_PREFIX}/orders",
-            json=_order_payload(item, supplier),
-            headers=AUTH_HEADER,
-        )
-    ).json()
+    await _create_order(client, item, supplier)
 
     resp = await client.get(
-        f"{API_PREFIX}/orders?status=draft", headers=AUTH_HEADER
+        f"{API_PREFIX}/orders?status=unfulfilled", headers=AUTH_HEADER
     )
     assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["total"] == 1
-    assert body["items"][0]["id"] == draft["id"]
+    assert resp.json()["total"] == 1
+
+    resp = await client.get(
+        f"{API_PREFIX}/orders?status=fulfilled", headers=AUTH_HEADER
+    )
+    assert resp.json()["total"] == 0
 
 
 @pytest.mark.asyncio

@@ -68,12 +68,6 @@ const List<ReportMeta> allReports = [
     icon: Icons.payments_outlined,
   ),
   ReportMeta(
-    id: 'purchase-payments',
-    title: 'Purchase Payment Report',
-    subtitle: 'What was paid to suppliers, by method',
-    icon: Icons.price_check_outlined,
-  ),
-  ReportMeta(
     id: 'product-sell',
     title: 'Product Sell Report',
     subtitle: 'Quantity and revenue per product sold',

@@ -106,7 +106,7 @@ Future<void> pumpDetail(
 
 void main() {
   group('ReportsScreen menu', () {
-    testWidgets('lists all twenty reports', (tester) async {
+    testWidgets('lists all nineteen reports', (tester) async {
       await pumpReportsMenu(tester);
 
       // The lazy list only builds visible rows, so drag through the
@@ -122,7 +122,7 @@ void main() {
         await tester.pumpAndSettle();
       }
       expect(seen, hasLength(allReports.length));
-      expect(allReports, hasLength(20));
+      expect(allReports, hasLength(19));
     });
   });
 

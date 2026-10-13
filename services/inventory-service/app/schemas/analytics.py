@@ -14,18 +14,27 @@ from pydantic import BaseModel
 
 
 class WasteLine(BaseModel):
-    """One item's recorded waste in the window — quantity and cost."""
+    """One item's recorded waste in the window — quantity and cost.
+
+    ``cost_wasted`` uses each movement's frozen ``unit_cost`` where present
+    (period-appropriate basis); legacy rows without a snapshot fall back to
+    the item's current ``unit_cost`` and set ``cost_estimated``.
+    """
 
     item_id: UUID
     item_name: str
     item_unit: str
     quantity_wasted: Decimal
     cost_wasted: Decimal
+    cost_estimated: bool = False
 
 
 class WasteSummaryResponse(BaseModel):
     lines: list[WasteLine]
     total_cost_wasted: Decimal
+    # True when any line used the current-cost fallback (legacy rows or
+    # items with no basis on file) — history is then soft, not frozen.
+    estimated: bool = False
 
 
 class IngredientConsumption(BaseModel):
@@ -68,7 +77,8 @@ class StockValuationResponse(BaseModel):
 class ProductPurchaseLine(BaseModel):
     """One item+supplier bucket of purchasing.
 
-    Maps to the on-screen **Product Purchase Report**.
+    Maps to the on-screen **Product Purchase Report**. Ordered qty comes
+    from the (qty-only) PO; received qty and cost come from GRN actuals.
     """
 
     item_id: UUID
@@ -86,25 +96,26 @@ class ProductPurchaseResponse(BaseModel):
     total_cost: Decimal
 
 
-# ── Purchase payment report: what was paid to suppliers ───────────────────
+# ── Supplier purchases: received value per supplier ──────────────────────
 
 
-class PurchasePaymentLine(BaseModel):
-    """One supplier (+method) bucket of supplier payments.
+class SupplierPurchaseLine(BaseModel):
+    """One supplier's received purchase value.
 
-    Maps to the on-screen **Purchase Payment Report**.
+    Supplier leg of the **Supplier & Customer Report** (the customer-spend
+    leg lives in POS Service's ``customer-spend`` report). POs are qty-only
+    with no payables ledger, so ``total_received`` is the received value
+    (Σ receipt qty × receipt unit_cost), not an order-time estimate.
     """
 
     supplier_id: UUID
     supplier_name: str
-    method: str | None = None
-    payments_count: int
-    total_paid: Decimal
+    orders_count: int
+    total_received: Decimal
 
 
-class PurchasePaymentResponse(BaseModel):
-    lines: list[PurchasePaymentLine]
-    total_paid: Decimal
+class SupplierPurchaseResponse(BaseModel):
+    lines: list[SupplierPurchaseLine]
 
 
 # ── Stock adjustment report: manual corrections business-wide ─────────────
@@ -141,7 +152,8 @@ class LotLine(BaseModel):
 
     Maps to the on-screen **Lot Report**. ``lot_no`` defaults to the GRN
     number; per-batch ``lot_no``/``expiry_date`` on the receipt line are
-    surfaced when present (see ``p8q9r0s1t2u3`` migration).
+    surfaced when present (see ``p8q9r0s1t2u3`` migration). ``unit_cost`` is
+    the frozen receipt cost for the lot; ``total_cost`` is qty × cost.
     """
 
     goods_receipt_id: UUID
@@ -149,6 +161,8 @@ class LotLine(BaseModel):
     item_id: UUID
     item_name: str
     quantity_received: Decimal
+    unit_cost: Decimal
+    total_cost: Decimal
     supplier_name: str | None = None
     expiry_date: str | None = None
     received_at: str
@@ -173,34 +187,14 @@ class ExpiryLine(BaseModel):
     item_id: UUID
     item_name: str
     quantity_received: Decimal
+    unit_cost: Decimal
+    total_cost: Decimal
     expiry_date: str
     received_at: str
 
 
 class ExpiryReportResponse(BaseModel):
     lines: list[ExpiryLine]
-
-
-# ── Supplier & customer: supplier-purchases leg ───────────────────────────
-
-
-class SupplierPurchaseLine(BaseModel):
-    """One supplier's purchase + payment position.
-
-    Supplier leg of the **Supplier & Customer Report** (the customer-spend
-    leg lives in POS Service's ``customer-spend`` report).
-    """
-
-    supplier_id: UUID
-    supplier_name: str
-    orders_count: int
-    total_ordered: Decimal
-    total_paid: Decimal
-    balance: Decimal
-
-
-class SupplierPurchaseResponse(BaseModel):
-    lines: list[SupplierPurchaseLine]
 
 
 # ── Activity log: recent stock movements as the audit trail ────────────────
@@ -227,3 +221,30 @@ class ActivityLogLine(BaseModel):
 class ActivityLogResponse(BaseModel):
     lines: list[ActivityLogLine]
     total: int
+
+
+# ── Cost history: immutable receipt lots as the price record ─────────────
+
+
+class CostHistoryLine(BaseModel):
+    """One receipt lot's frozen cost — the answer to "what did X cost in March".
+
+    Sourced from the append-only ``GoodsReceiptLine`` rows (never overwritten,
+    unlike ``Item.unit_cost`` / ``SupplierItem.price``), so historical P&L can
+    be reconstructed from scratch.
+    """
+
+    goods_receipt_id: UUID
+    grn_number: str
+    lot_no: str
+    item_id: UUID
+    item_name: str
+    supplier_name: str | None = None
+    quantity_received: Decimal
+    unit_cost: Decimal
+    total_cost: Decimal
+    received_at: str
+
+
+class CostHistoryResponse(BaseModel):
+    lines: list[CostHistoryLine]

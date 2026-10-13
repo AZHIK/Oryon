@@ -41,7 +41,6 @@ final purchasesQueryProvider = NotifierProvider<TableQueryNotifier, TableQuery>(
 abstract final class PurchaseSort {
   static const poNumber = 'poNumber';
   static const orderedAt = 'orderedAt';
-  static const totalAmount = 'totalAmount';
 }
 
 /// A purchase order enriched with its supplier name for display, search,
@@ -79,8 +78,6 @@ final _purchasesSliceProvider = Provider<PageSlice<PurchaseOrderRow>>((ref) {
   var sorted = [...rows]
     ..sort((a, b) => switch (query.sortField) {
       PurchaseSort.poNumber => a.order.poNumber.compareTo(b.order.poNumber),
-      PurchaseSort.totalAmount =>
-        b.order.totalAmount.compareTo(a.order.totalAmount),
       _ => b.order.orderedAt.compareTo(a.order.orderedAt),
     });
   if (query.sortField != null && !query.ascending) {
@@ -143,17 +140,11 @@ class _PurchasesDataPage extends ConsumerWidget {
     final all = ref.watch(purchasesListProvider);
     final canCreate =
         ref.watch(hasPermissionProvider(AppPermissions.procurementCreate));
-    final canApprove =
-        ref.watch(hasPermissionProvider(AppPermissions.procurementApprove));
     final statuses = ref.watch(purchaseStatusFilterProvider);
 
     final open = all.where((o) => o.status.isOpen).length;
-    double onOrderValue = 0;
-    for (final o in all.where((o) => o.status.isOpen)) {
-      onOrderValue += o.totalAmount;
-    }
     final received =
-        all.where((o) => o.status == PurchaseOrderStatus.received).length;
+        all.where((o) => o.status == PurchaseOrderStatus.fulfilled).length;
 
     return DataPageScaffold(
       title: AppStrings.purchasesTitle,
@@ -192,12 +183,6 @@ class _PurchasesDataPage extends ConsumerWidget {
           accent: context.semantic.warning,
         ),
         SummaryMetricCard(
-          label: AppStrings.onOrderValueMetric,
-          value: Fmt.moneyCompact(onOrderValue),
-          trend: AppStrings.totalValueMetric,
-          icon: Icons.attach_money_rounded,
-        ),
-        SummaryMetricCard(
           label: AppStrings.receivedMetric,
           value: '$received',
           trend: AppStrings.stockAdded,
@@ -219,7 +204,6 @@ class _PurchasesDataPage extends ConsumerWidget {
         sortOptions: [
           SortOption(label: AppStrings.poNumberColumn, field: PurchaseSort.poNumber),
           SortOption(label: AppStrings.orderedColumn, field: PurchaseSort.orderedAt),
-          SortOption(label: AppStrings.totalColumn, field: PurchaseSort.totalAmount),
         ],
         sortField: query.sortField,
         sortAscending: query.ascending,
@@ -234,7 +218,7 @@ class _PurchasesDataPage extends ConsumerWidget {
         onPageChanged: notifier.setPage,
         onRowTap: (row) =>
             context.push(AppRoute.purchaseDetail(row.order.id)),
-        rowActions: _actions(ref, canCreate: canCreate, canApprove: canApprove),
+        rowActions: _actions(ref, canCreate: canCreate),
       ),
     );
   }
@@ -242,7 +226,6 @@ class _PurchasesDataPage extends ConsumerWidget {
   List<DataRowAction<PurchaseOrderRow>> _actions(
     WidgetRef ref, {
     required bool canCreate,
-    required bool canApprove,
   }) =>
       [
         DataRowAction(
@@ -251,20 +234,6 @@ class _PurchasesDataPage extends ConsumerWidget {
           onSelected: (context, row) =>
               context.push(AppRoute.purchaseDetail(row.order.id)),
         ),
-        if (canCreate)
-          DataRowAction(
-            label: AppStrings.submitAction,
-            icon: Icons.send_outlined,
-            onSelected: (context, row) =>
-                _transition(context, ref, row, 'submit'),
-          ),
-        if (canApprove)
-          DataRowAction(
-            label: AppStrings.approveAction,
-            icon: Icons.check_rounded,
-            onSelected: (context, row) =>
-                _transition(context, ref, row, 'approve'),
-          ),
         if (canCreate)
           DataRowAction(
             label: AppStrings.cancel,
@@ -285,16 +254,6 @@ class _PurchasesDataPage extends ConsumerWidget {
     try {
       final notifier = ref.read(purchasesProvider.notifier);
       switch (action) {
-        case 'submit':
-          await notifier.submit(row.order.id);
-          messenger.showSnackBar(
-            SnackBar(content: Text(AppStrings.orderSubmittedMessage)),
-          );
-        case 'approve':
-          await notifier.approve(row.order.id);
-          messenger.showSnackBar(
-            SnackBar(content: Text(AppStrings.orderApprovedMessage)),
-          );
         case 'cancel':
           await notifier.cancel(row.order.id);
           messenger.showSnackBar(
@@ -450,12 +409,6 @@ List<DataColumnSpec<PurchaseOrderRow>> get _columns =>
         field: 'lines',
         flex: 2,
         value: (row) => '${row.order.lines.length}',
-      ),
-      DataColumnSpec(
-        label: AppStrings.totalColumn,
-        field: PurchaseSort.totalAmount,
-        flex: 3,
-        value: (row) => Fmt.money(row.order.totalAmount),
       ),
       DataColumnSpec(
         label: AppStrings.orderedColumn,

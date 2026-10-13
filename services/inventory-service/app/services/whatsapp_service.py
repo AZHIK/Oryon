@@ -1,25 +1,15 @@
-"""WhatsApp Business Cloud API — connection management, send, webhooks.
+"""WhatsApp Business Cloud API — connection management and webhooks.
 
-This is the "future WhatsApp API pass" from ``REQUISITIONS.md`` made real:
+Per-business credentials live in ``whatsappconnection`` (one row per
+business). The access token is stored plaintext in this pass — same MVP
+tradeoff as ``internal_service_token`` — move to a secret manager before
+multi-tenant prod.
 
-* Per-business credentials live in ``whatsappconnection`` (one row per
-  business). The access token is stored plaintext in this pass — same MVP
-  tradeoff as ``internal_service_token`` — move to a secret manager before
-  multi-tenant prod.
-* Outbound: ``send_order_message`` POSTs the PO's ``text_preview`` to
-  ``{graph}/{version}/{phone_number_id}/messages`` and advances the
-  ``SupplierMessage`` ``ready → sent`` (plus the PO to ``SENT``), storing
-  the provider ``wamid``. Never called from the submit transaction — only
-  from the explicit send endpoint (staff tap).
-* Inbound: ``apply_status_callbacks`` moves ``sent → delivered → read``
-  (or ``failed`` with provider detail) by ``wamid``; ``record_inbound_reply``
-  stores supplier replies and flags confirmation keywords (EN + SW) so the
-  UI can prompt "Mark Confirmed" — the PO itself is never auto-advanced.
-
-Business-initiated note: Meta requires template messages outside the 24h
-customer-service window. This pass sends the PO as a ``text`` message
-(which delivers inside the window and in practice for the_numbers staff
-message daily); a template follow-up can reuse ``structured_data`` 1:1.
+Staff send order messages via the wa.me deep link on the prepared payload
+(manual send). Inbound: ``apply_status_callbacks`` moves ``sent →
+delivered → read`` (or ``failed`` with provider detail) by ``wamid``;
+``record_inbound_reply`` stores supplier replies and flags confirmation
+keywords (EN + SW) for display — the PO itself is never auto-advanced.
 """
 
 from __future__ import annotations
@@ -39,7 +29,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import get_settings
-from app.models.purchases import PurchaseOrder, PurchaseOrderStatus
+from app.models.purchases import PurchaseOrder
 from app.models.requisition import (
     MessageDirection,
     MessageStatus,
@@ -90,51 +80,6 @@ def mask_token(token: str) -> str:
 
 def generate_verify_token() -> str:
     return secrets.token_urlsafe(24)
-
-
-async def send_text_message(
-    *,
-    phone_number_id: str,
-    access_token: str,
-    to: str,
-    body: str,
-    client: httpx.AsyncClient | None = None,
-) -> str:
-    """POST one text message; return the provider ``wamid``.
-
-    ``client`` is injectable so tests can pass a ``MockTransport`` client.
-    """
-    url = f"{graph_base()}/{phone_number_id}/messages"
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "text",
-        "text": {"body": body, "preview_url": False},
-    }
-    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-    owns_client = client is None
-    if client is None:
-        client = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
-    try:
-        response = await client.post(url, json=payload, headers=headers)
-    finally:
-        if owns_client:
-            await client.aclose()
-    if response.status_code >= 400:
-        detail: Any = None
-        try:
-            detail = response.json().get("error", {}).get("message")
-        except Exception:  # noqa: BLE001 — provider body is best-effort
-            detail = None
-        raise CloudApiError(
-            detail or f"WhatsApp API rejected the send (HTTP {response.status_code})",
-            status_code=response.status_code,
-        )
-    try:
-        wamid = response.json()["messages"][0]["id"]
-    except (KeyError, IndexError, TypeError, ValueError) as exc:
-        raise CloudApiError("WhatsApp API returned an unexpected response") from exc
-    return str(wamid)
 
 
 async def fetch_phone_number(
@@ -254,111 +199,6 @@ def connection_public_view(connection: WhatsAppConnection) -> dict[str, Any]:
         "last_checked_at": connection.last_checked_at.isoformat()
         if connection.last_checked_at
         else None,
-    }
-
-
-async def send_order_message(
-    session: AsyncSession,
-    *,
-    business_id: UUID,
-    po_id: UUID,
-    client: httpx.AsyncClient | None = None,
-) -> dict[str, Any]:
-    """Send the PO's ready WhatsApp payload through the Cloud API.
-
-    Advances the message ``ready → sent`` and the PO to ``SENT`` (mirroring
-    the manual mark-sent transition), storing the provider ``wamid`` for
-    webhook joins. Raises ``WhatsAppNotConnectedError`` /
-    ``WhatsAppNoNumberError`` / ``CloudApiError`` on the unhappy paths.
-    """
-    po = (
-        await session.exec(
-            select(PurchaseOrder).where(
-                PurchaseOrder.id == po_id, PurchaseOrder.business_id == business_id
-            )
-        )
-    ).one_or_none()
-    if po is None:
-        raise LookupError("Purchase order not found")
-
-    connection = await get_connection(session, business_id=business_id)
-    if (
-        connection is None
-        or not connection.access_token
-        or connection.status != WhatsAppConnectionStatus.CONNECTED
-    ):
-        raise WhatsAppNotConnectedError(
-            "WhatsApp is not connected for this business — connect it in Settings first."
-        )
-
-    message = (
-        await session.exec(
-            select(SupplierMessage)
-            .where(
-                SupplierMessage.po_id == po.id,
-                SupplierMessage.direction == MessageDirection.OUTBOUND,
-            )
-            .order_by(desc(SupplierMessage.created_at))
-        )
-    ).first()
-    if message is None:
-        raise LookupError("No WhatsApp message prepared for this order")
-    if message.status not in (MessageStatus.READY, MessageStatus.FAILED):
-        return {
-            "message_id": str(message.id),
-            "provider_message_id": message.provider_message_id,
-            "status": message.status.value,
-            "already_sent": True,
-        }
-
-    supplier = (
-        await session.exec(select(Supplier).where(Supplier.id == po.supplier_id))
-    ).one_or_none()
-    if supplier is None:
-        raise LookupError("Supplier not found")
-    recipient = normalize_recipient(supplier.whatsapp_number or supplier.phone)
-    if recipient is None:
-        raise WhatsAppNoNumberError(
-            "This supplier has no WhatsApp number — use the manual send instead."
-        )
-
-    body = (message.payload or {}).get("text_preview") or ""
-    if not body:
-        raise ValueError("The prepared WhatsApp message has no text to send")
-
-    try:
-        wamid = await send_text_message(
-            phone_number_id=connection.phone_number_id,
-            access_token=connection.access_token,
-            to=recipient,
-            body=body,
-            client=client,
-        )
-    except CloudApiError as exc:
-        message.status = MessageStatus.FAILED
-        message.last_error = str(exc)
-        connection.status = WhatsAppConnectionStatus.ERROR
-        connection.last_error = str(exc)
-        session.add(message)
-        session.add(connection)
-        await session.flush()
-        raise
-
-    now = datetime.now(UTC)
-    message.status = MessageStatus.SENT
-    message.provider_message_id = wamid
-    message.last_error = None
-    message.sent_at = now
-    po.status = PurchaseOrderStatus.SENT
-    session.add(message)
-    session.add(po)
-    await session.flush()
-    logger.info("whatsapp.sent", po_id=str(po.id), wamid=wamid)
-    return {
-        "message_id": str(message.id),
-        "provider_message_id": wamid,
-        "status": MessageStatus.SENT.value,
-        "already_sent": False,
     }
 
 

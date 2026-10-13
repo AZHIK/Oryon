@@ -1,4 +1,4 @@
-"""Schemas for WhatsApp Business connection + Cloud API send."""
+"""Schemas for the WhatsApp Business connection."""
 
 from __future__ import annotations
 
@@ -39,10 +39,3 @@ class WhatsAppTestRead(BaseModel):
     display_phone_number: str | None = None
     verified_name: str | None = None
     last_error: str | None = None
-
-
-class WhatsAppSendRead(BaseModel):
-    message_id: str
-    provider_message_id: str | None = None
-    status: str
-    already_sent: bool = False
