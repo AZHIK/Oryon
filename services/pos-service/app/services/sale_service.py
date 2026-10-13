@@ -279,6 +279,11 @@ async def _create_sale_internal(
             unit_price=li_input.unit_price.quantize(Decimal("0.01")),
             discount_amount=li_input.discount_amount.quantize(Decimal("0.01")),
             line_total=line_total,
+            unit_cost=(
+                li_input.unit_cost.quantize(Decimal("0.0001"))
+                if li_input.unit_cost is not None
+                else None
+            ),
         )
         session.add(line_item)
 

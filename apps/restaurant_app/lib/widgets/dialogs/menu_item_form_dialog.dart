@@ -5,9 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../constants/app_strings.dart';
+import '../../models/inventory_item.dart';
 import '../../providers/categories_provider.dart';
+import '../../providers/inventory_provider.dart';
 import '../../providers/menu_item_form_provider.dart';
+import '../../providers/production_provider.dart';
 import '../../providers/units_provider.dart';
+import '../../services/inventory_api_service.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/breakpoints.dart';
 import '../../utils/formatters.dart';
@@ -25,11 +29,15 @@ import '../selectable_option_card.dart';
 /// to edit, omit it to add. There is no route: the form layers over the
 /// list, and closing it returns to the same scroll position, filter and
 /// page.
-Future<void> showMenuItemFormDialog(
+///
+/// Returns the saved item, or null when dismissed without saving — callers
+/// embedding a menu-item pick (e.g. the recipe form's sellable field) use
+/// this to select whoever was just added.
+Future<InventoryItem?> showMenuItemFormDialog(
   BuildContext context, {
   String? existingItemId,
 }) {
-  return showResponsiveFormDialog<void>(
+  return showResponsiveFormDialog<InventoryItem>(
     context,
     builder: (_) => MenuItemFormDialog(itemId: existingItemId),
   );
@@ -51,6 +59,7 @@ abstract final class MenuItemFormKeys {
   static const unit = Key('menuItemForm.unit');
   static const cancel = Key('menuItemForm.cancel');
   static const submit = Key('menuItemForm.submit');
+  static const costSource = Key('menuItemForm.costSource');
 }
 
 /// The menu-item form itself. Prefer [showMenuItemFormDialog].
@@ -90,6 +99,10 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
   bool _seeded = false;
   bool _saving = false;
 
+  /// Backend id of the item under edit, for matching its recipe. Null when
+  /// adding — a new item has no recipe to derive from yet.
+  String? _catalogItemId;
+
   AutoDisposeFamilyNotifierProvider<MenuItemFormNotifier, MenuItemFormState, String?>
   get _provider => menuItemFormProvider(widget.itemId);
 
@@ -116,6 +129,25 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
     _reorderQuantity.text = state.reorderQuantity;
     _stock.text = state.stock;
     _description.text = state.description;
+
+    if (widget.itemId != null) {
+      for (final item in ref.read(inventoryItemsListProvider)) {
+        if (item.id == widget.itemId) _catalogItemId = item.catalogItemId;
+      }
+      // Auto is the default when a complete recipe already prices this
+      // item — the number on screen then tracks grocery prices.
+      final catalogId = _catalogItemId;
+      if (catalogId != null) {
+        final hasCompleteRecipe = ref
+            .read(recipesCatalogListProvider)
+            .any((r) => r.sellableItemId == catalogId && r.costComplete);
+        if (hasCompleteRecipe) {
+          ref
+              .read(_provider.notifier)
+              .setCostSource(ItemCostSource.auto);
+        }
+      }
+    }
   }
 
   @override
@@ -134,18 +166,44 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final isEdit = ref.read(_provider).isEdit;
+    final form = ref.read(_provider);
+    final isEdit = form.isEdit;
     final messenger = ScaffoldMessenger.of(context);
+
+    // Auto never takes a typed cost: a complete recipe snapshots its
+    // current cost per unit, anything less stores unknown (zero — the
+    // codebase's "no cost on file" sentinel, read as estimated).
+    final isAuto = form.costSource == ItemCostSource.auto;
+    String? unitCostOverride;
+    var autoComplete = false;
+    if (isAuto) {
+      final recipe = _recipeFor(ref.read(recipesCatalogListProvider));
+      autoComplete = recipe != null && recipe.costComplete;
+      unitCostOverride =
+          autoComplete ? recipe.costPerUnit.toString() : "0";
+    }
+    // An auto item with no complete recipe yet can never be active: it
+    // saves archived until a recipe prices it.
+    final forceInactive = isAuto && !autoComplete;
 
     setState(() => _saving = true);
     try {
-      final item = await ref.read(_provider.notifier).save();
+      final item = await ref
+          .read(_provider.notifier)
+          .save(
+            unitCostOverride: unitCostOverride,
+            forceArchived: forceInactive ? true : null,
+          );
       if (!mounted) return;
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(item);
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            isEdit ? '${item.name} updated' : '${item.name} added to inventory',
+            isEdit
+                ? '${item.name} updated'
+                : forceInactive
+                ? AppStrings.menuItemAddedInactive(item.name)
+                : '${item.name} added to inventory',
           ),
         ),
       );
@@ -186,6 +244,17 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
     );
   }
 
+  /// The recipe pricing the item under edit, if any — matched by backend id.
+  /// Null when adding: a new item has no recipe to derive from yet.
+  RecipeDto? _recipeFor(List<RecipeDto> recipes) {
+    final catalogId = _catalogItemId;
+    if (catalogId == null) return null;
+    for (final recipe in recipes) {
+      if (recipe.sellableItemId == catalogId) return recipe;
+    }
+    return null;
+  }
+
   Widget _wideBody(MenuItemFormState state) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -223,6 +292,36 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
   Widget _fields(MenuItemFormState state) {
     final notifier = ref.read(_provider.notifier);
     final categories = ref.watch(categoriesListProvider);
+    // The recipe pricing this item in auto mode. Watched, so a recipe
+    // saved moments ago (or a refresh landing mid-dialog) swaps the cost
+    // box in without reopening the form.
+    final autoRecipe = _recipeFor(ref.watch(recipesCatalogListProvider));
+    final isAuto = state.costSource == ItemCostSource.auto;
+    final autoComplete = autoRecipe?.costComplete ?? false;
+    // Mirrors `_save`'s forcing rule so the toggle never promises an
+    // active state the save won't keep.
+    final forceInactiveNotice = isAuto && !autoComplete;
+    // The till price is always required — auto defers only the unit cost.
+    final priceField = LabeledFormField(
+      label: AppStrings.sellingPrice,
+      isRequired: true,
+      helper: AppStrings.priceRequiredTill,
+      child: TextFormField(
+        key: MenuItemFormKeys.sellingPrice,
+        controller: _sellingPrice,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        textInputAction: TextInputAction.next,
+        inputFormatters: [
+          FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+        ],
+        decoration: InputDecoration(
+          hintText: AppStrings.moneyHint,
+          prefixText: Fmt.currencySymbol,
+        ),
+        onChanged: notifier.setSellingPrice,
+        validator: MenuItemFormState.validateSellingPrice,
+      ),
+    );
     final initialCategory =
         state.categoryId.isNotEmpty &&
             categories.any((c) => c.id == state.categoryId)
@@ -317,51 +416,81 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
         const SizedBox(height: Insets.xl),
         SectionLabel(AppStrings.pricingSection),
         const SizedBox(height: Insets.md),
-        _FieldPair(
-          left: LabeledFormField(
-            label: AppStrings.unitCostLabel,
-            isRequired: true,
-            child: TextFormField(
-              key: MenuItemFormKeys.unitCost,
-              controller: _unitCost,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              textInputAction: TextInputAction.next,
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
-              ],
-              decoration: InputDecoration(
-                hintText: AppStrings.moneyHint,
-                prefixText: Fmt.currencySymbol,
-              ),
-              onChanged: notifier.setUnitCost,
-              validator: MenuItemFormState.validateUnitCost,
-            ),
-          ),
-          right: LabeledFormField(
-            label: AppStrings.sellingPrice,
-            isRequired: true,
-            helper: AppStrings.priceRequiredTill,
-            child: TextFormField(
-              key: MenuItemFormKeys.sellingPrice,
-              controller: _sellingPrice,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              textInputAction: TextInputAction.next,
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
-              ],
-              decoration: InputDecoration(
-                hintText: AppStrings.moneyHint,
-                prefixText: Fmt.currencySymbol,
-              ),
-              onChanged: notifier.setSellingPrice,
-              validator: MenuItemFormState.validateSellingPrice,
-            ),
+        Text(
+          AppStrings.costSourceLabel,
+          style: context.text.bodySmall?.copyWith(
+            color: context.colors.onSurfaceVariant,
           ),
         ),
+        const SizedBox(height: Insets.xs),
+        SegmentedButton<ItemCostSource>(
+          key: MenuItemFormKeys.costSource,
+          segments: [
+            ButtonSegment(
+              value: ItemCostSource.auto,
+              label: Text(AppStrings.costSourceAuto),
+              icon: const Icon(Icons.soup_kitchen_outlined, size: 16),
+            ),
+            ButtonSegment(
+              value: ItemCostSource.manual,
+              label: Text(AppStrings.costSourceManual),
+              icon: const Icon(Icons.edit_outlined, size: 16),
+            ),
+          ],
+          selected: {state.costSource},
+          showSelectedIcon: false,
+          onSelectionChanged: (selected) =>
+              notifier.setCostSource(selected.first),
+        ),
+        if (isAuto && autoComplete) ...[
+          const SizedBox(height: Insets.sm),
+          Text(
+            AppStrings.costAutoHelper(autoRecipe!.components.length),
+            style: context.text.bodySmall?.copyWith(
+              color: context.colors.onSurfaceVariant,
+            ),
+          ),
+        ] else if (isAuto) ...[
+          const SizedBox(height: Insets.sm),
+          Text(
+            autoRecipe == null
+                ? AppStrings.costNoRecipeHint
+                : AppStrings.costAutoIncompleteHint,
+            style: context.text.bodySmall?.copyWith(
+              color: context.semantic.warning,
+            ),
+          ),
+        ],
+        const SizedBox(height: Insets.lg),
+        // Auto derives the cost, so no cost field at all in that state —
+        // the price takes the full width. Manual keeps the cost+price pair.
+        if (isAuto)
+          priceField
+        else
+          _FieldPair(
+            left: LabeledFormField(
+              label: AppStrings.unitCostLabel,
+              isRequired: true,
+              child: TextFormField(
+                key: MenuItemFormKeys.unitCost,
+                controller: _unitCost,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                textInputAction: TextInputAction.next,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d*\.?\d{0,2}')),
+                ],
+                decoration: InputDecoration(
+                  hintText: AppStrings.moneyHint,
+                  prefixText: Fmt.currencySymbol,
+                ),
+                onChanged: notifier.setUnitCost,
+                validator: MenuItemFormState.validateUnitCost,
+              ),
+            ),
+            right: priceField,
+          ),
         const SizedBox(height: Insets.xl),
         SectionLabel(AppStrings.stockSection),
         const SizedBox(height: Insets.md),
@@ -471,7 +600,10 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
         const SizedBox(height: Insets.xl),
         SectionLabel(AppStrings.statusSection),
         const SizedBox(height: Insets.md),
-        SelectableOptionGrid(
+        if (forceInactiveNotice)
+          const _InactiveNotice()
+        else
+          SelectableOptionGrid(
           perRow: 2,
           children: [
             SelectableOptionCard(
@@ -666,6 +798,62 @@ class _SwitchTile extends StatelessWidget {
           style: context.text.bodySmall?.copyWith(
             color: colors.onSurfaceVariant,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Replaces the Active/Archived toggle while auto mode can't activate the
+/// item yet — a toggle there would promise a state the save won't keep.
+/// Mirrors `_SwitchTile`'s surface so the section keeps its shape.
+class _InactiveNotice extends StatelessWidget {
+  const _InactiveNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+
+    return Material(
+      color: colors.surfaceContainerLowest,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.md),
+        side: BorderSide(color: context.semantic.hairline),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Insets.lg,
+          vertical: Insets.md,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.archive_outlined,
+              size: 20,
+              color: colors.onSurfaceVariant,
+            ),
+            const SizedBox(width: Insets.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    AppStrings.inactiveUntilReadyTitle,
+                    style: context.text.bodyMedium,
+                  ),
+                  const SizedBox(height: Insets.xs),
+                  Text(
+                    AppStrings.inactiveUntilReadyBody,
+                    style: context.text.bodySmall?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

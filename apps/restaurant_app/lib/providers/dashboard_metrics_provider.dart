@@ -137,6 +137,14 @@ final dashboardMetricsProvider = Provider<DashboardMetrics>((ref) {
   double cogsOf(Order order) {
     var cogs = 0.0;
     for (final line in order.lines) {
+      // Frozen sale-time cost first — live prices must not rewrite a
+      // closed ticket's history. Falls back to live recipe/fallback costs
+      // for legacy lines synced before snapshots existed.
+      final snapshot = line.unitCost;
+      if (snapshot != null) {
+        cogs += snapshot * line.quantity;
+        continue;
+      }
       final unit =
           recipeCost[line.itemId] ?? fallbackCost[line.itemId] ?? 0.0;
       cogs += unit * line.quantity;

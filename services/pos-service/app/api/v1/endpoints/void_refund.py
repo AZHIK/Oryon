@@ -100,6 +100,7 @@ async def void_or_refund(
                 unit_price=li.unit_price,
                 discount_amount=li.discount_amount,
                 line_total=li.line_total,
+                unit_cost=li.unit_cost,
             )
             for li in line_items
         ],

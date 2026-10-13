@@ -25,6 +25,7 @@ CachedItem _item(String id, String name) => CachedItem(
       updatedAtServer: DateTime(2026),
       lastSeenAt: DateTime(2026),
       lastSyncedAt: DateTime(2026),
+      supplierId: '',
     );
 
 void main() {
@@ -139,6 +140,32 @@ void main() {
     test('a sale with no customer attributed maps to a null customerId', () {
       final order = orderFromCachedRow(sale: sale, lines: lines, itemsById: itemsById);
       expect(order.customerId, null);
+    });
+
+    test('a line without a snapshot maps to a null unitCost', () {
+      final order = orderFromCachedRow(sale: sale, lines: lines, itemsById: itemsById);
+      expect(order.lines.single.unitCost, null);
+    });
+
+    test('a line snapshot carries through onto the mapped OrderLine', () {
+      final snapshotted = [
+        CachedSaleLineItem(
+          id: 'line-1',
+          saleId: 'sale-server-1',
+          itemId: 'item-1',
+          quantity: Decimal.fromInt(2),
+          unitPrice: Decimal.parse('10.00'),
+          discountAmount: Decimal.zero,
+          lineTotal: Decimal.parse('20.00'),
+          unitCost: Decimal.parse('3.50'),
+        ),
+      ];
+      final order = orderFromCachedRow(
+        sale: sale,
+        lines: snapshotted,
+        itemsById: itemsById,
+      );
+      expect(order.lines.single.unitCost, 3.5);
     });
 
     test('customerId carries through onto the mapped Order', () {

@@ -66,6 +66,10 @@ class SaleLineItemDto {
   final Decimal discountAmount;
   final Decimal lineTotal;
 
+  /// Sale-time production cost snapshot. Null for sales synced before
+  /// snapshots existed.
+  final Decimal? unitCost;
+
   SaleLineItemDto({
     required this.id,
     required this.saleId,
@@ -74,6 +78,7 @@ class SaleLineItemDto {
     required this.unitPrice,
     required this.discountAmount,
     required this.lineTotal,
+    this.unitCost,
   });
 }
 

@@ -501,3 +501,102 @@ class TestGetSaleByClientIdEndpoint:
             headers=headers,
         )
         assert resp.status_code == 403
+
+
+class TestLineItemUnitCost:
+    """unit_cost snapshot on sale line items — frozen history for profit."""
+
+    async def test_sync_with_unit_cost_stores_and_returns_it(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ) -> None:
+        business_id = uuid4()
+        item_id = uuid4()
+        body = await _create_sale(
+            client,
+            business_id,
+            db_session,
+            line_items=[
+                {
+                    "item_id": str(item_id),
+                    "quantity": "2",
+                    "unit_price": "10.00",
+                    "unit_cost": "3.50",
+                },
+            ],
+        )
+        assert body["results"][0]["status"] == "created"
+
+        line = (
+            await db_session.exec(
+                select(SaleLineItem).where(SaleLineItem.item_id == item_id)
+            )
+        ).one()
+        assert line.unit_cost == Decimal("3.5000")
+
+        headers = _auth_header(business_id=business_id)
+        resp = await client.get(
+            BY_CLIENT_URL.format(
+                business_id=business_id,
+                client_sale_id=body["results"][0]["client_sale_id"],
+            ),
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["line_items"][0]["unit_cost"] == "3.5000"
+
+    async def test_sync_without_unit_cost_stays_null(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ) -> None:
+        """Older clients omit the snapshot — reports fall back to live costs."""
+        business_id = uuid4()
+        item_id = uuid4()
+        body = await _create_sale(
+            client,
+            business_id,
+            db_session,
+            line_items=[
+                {"item_id": str(item_id), "quantity": "1", "unit_price": "10.00"},
+            ],
+        )
+        assert body["results"][0]["status"] == "created"
+
+        line = (
+            await db_session.exec(
+                select(SaleLineItem).where(SaleLineItem.item_id == item_id)
+            )
+        ).one()
+        assert line.unit_cost is None
+
+    async def test_sync_negative_unit_cost_rejected(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ) -> None:
+        """Schema-level violation — the whole batch 422s like any other
+        malformed line item (per-sale "failed" is for service-level errors
+        such as unknown customers, not Pydantic violations)."""
+        business_id = uuid4()
+        headers = _auth_header(business_id=business_id)
+        resp = await client.post(
+            SYNC_URL.format(business_id=business_id),
+            json={
+                "sales": [
+                    {
+                        "client_sale_id": str(uuid4()),
+                        "status": "completed",
+                        "store_id": str(uuid4()),
+                        "line_items": [
+                            {
+                                "item_id": str(uuid4()),
+                                "quantity": "1",
+                                "unit_price": "10.00",
+                                "unit_cost": "-1.00",
+                            },
+                        ],
+                        "discount_amount": "0",
+                        "payment_method": "cash",
+                        "occurred_at": datetime.now(UTC).isoformat(),
+                    },
+                ],
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 422

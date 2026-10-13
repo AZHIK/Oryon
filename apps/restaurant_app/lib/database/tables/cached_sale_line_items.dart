@@ -35,6 +35,12 @@ class CachedSaleLineItems extends Table {
   /// Server-computed `quantity*unitPrice - discountAmount`.
   TextColumn get lineTotal => text().map(const DecimalConverter())();
 
+  /// Per-unit production cost snapshot at sale time. Null for sales synced
+  /// before snapshots existed — profit figures fall back to live recipe
+  /// costs for those rows.
+  TextColumn get unitCost =>
+      text().map(const DecimalConverter()).nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }

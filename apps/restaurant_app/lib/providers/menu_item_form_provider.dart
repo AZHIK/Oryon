@@ -6,6 +6,14 @@ import '../constants/app_limits.dart';
 import '../constants/app_strings.dart';
 import 'inventory_provider.dart';
 
+/// Where the menu-item form takes the unit cost from.
+///
+/// `auto` snapshots the linked recipe's current cost per unit at save time;
+/// every display and report already re-derives that recipe cost live (see
+/// `lib/utils/cogs.dart`), so the number on screen keeps tracking grocery
+/// prices. `manual` keeps today's behaviour: the typed value is the cost.
+enum ItemCostSource { auto, manual }
+
 /// Everything the menu-item form is holding, mid-edit.
 ///
 /// Menu items always carry a till price. Stock tracking is the one switch:
@@ -31,6 +39,7 @@ class MenuItemFormState {
     required this.stock,
     required this.unit,
     required this.isArchived,
+    this.costSource = ItemCostSource.manual,
     this.description = '',
     this.image,
     this.imageCleared = false,
@@ -39,7 +48,8 @@ class MenuItemFormState {
   });
 
   /// Blank form for a new menu item: untracked prepared dish until the
-  /// cook says otherwise.
+  /// cook says otherwise. Manual cost — a new item has no recipe to
+  /// derive from yet.
   factory MenuItemFormState.blank() => const MenuItemFormState(
     isEdit: false,
     name: '',
@@ -83,6 +93,10 @@ class MenuItemFormState {
   /// Required: a menu item with no price would silently vanish from the POS
   /// menu instead of reading as "not for sale yet".
   final String sellingPrice;
+
+  /// Auto snapshots the recipe cost at save; manual stores the typed value.
+  /// Displayed costs always re-derive live — this only decides the write.
+  final ItemCostSource costSource;
 
   final bool trackStock;
   final String lowStockAlert;
@@ -159,7 +173,13 @@ class MenuItemFormState {
   bool get canSave =>
       validateName(name) == null &&
       validateCategory(categoryId) == null &&
-      validateUnitCost(unitCost) == null &&
+      // Auto never asks for a cost: a complete recipe snapshots at save,
+      // anything less saves unknown (zero — the codebase's "no cost on
+      // file" sentinel, read as estimated everywhere). Manual keeps the
+      // required typed field.
+      (costSource == ItemCostSource.manual
+          ? validateUnitCost(unitCost) == null
+          : true) &&
       validateSellingPrice(sellingPrice) == null &&
       (!trackStock ||
           (validateLowStockAlert(lowStockAlert) == null &&
@@ -177,6 +197,7 @@ class MenuItemFormState {
     String? stock,
     String? unit,
     bool? isArchived,
+    ItemCostSource? costSource,
     String? description,
     ItemImage? image,
     String? reorderQuantity,
@@ -195,6 +216,7 @@ class MenuItemFormState {
       stock: stock ?? this.stock,
       unit: unit ?? this.unit,
       isArchived: isArchived ?? this.isArchived,
+      costSource: costSource ?? this.costSource,
       description: description ?? this.description,
       image: clearImage ? null : (image ?? this.image),
       imageCleared: clearImage ? true : (image != null ? false : imageCleared),
@@ -242,6 +264,9 @@ class MenuItemFormNotifier
 
   void setTrackStock(bool value) => state = state.copyWith(trackStock: value);
 
+  void setCostSource(ItemCostSource value) =>
+      state = state.copyWith(costSource: value);
+
   void setImage(String name, Uint8List bytes) => state = state.copyWith(
     image: ItemImage(name: name, bytes: bytes),
   );
@@ -249,7 +274,20 @@ class MenuItemFormNotifier
   void clearImage() => state = state.copyWith(clearImage: true);
 
   /// Writes the form back to the inventory list and returns what was saved.
-  Future<InventoryItem> save() async {
+  ///
+  /// [unitCostOverride] carries auto mode: the recipe's computed cost per
+  /// unit, stored as the item's fallback cost. Displays and reports keep
+  /// re-deriving the live recipe cost (see `lib/utils/cogs.dart`), so the
+  /// number on screen tracks grocery prices while this column stays a
+  /// fallback for items whose recipe is removed or incomplete.
+  ///
+  /// [forceArchived] pins the item inactive regardless of the status
+  /// toggle — the dialog passes true when auto mode has no complete
+  /// recipe yet, so a dish that can't be costed can never reach the till.
+  Future<InventoryItem> save({
+    String? unitCostOverride,
+    bool? forceArchived,
+  }) async {
     final inventory = ref.read(inventoryItemsProvider.notifier);
 
     InventoryItem? existing;
@@ -260,7 +298,8 @@ class MenuItemFormNotifier
     }
 
     final name = state.name.trim();
-    final unitCost = double.tryParse(state.unitCost.trim()) ?? 0;
+    final unitCost =
+        double.tryParse((unitCostOverride ?? state.unitCost).trim()) ?? 0;
     final reorderLevel = double.tryParse(state.lowStockAlert.trim()) ?? 0;
     final reorderQuantity = double.tryParse(state.reorderQuantity.trim()) ?? 0;
     final sku = state.sku.trim();
@@ -278,7 +317,7 @@ class MenuItemFormNotifier
             allowNegativeStock: state.allowNegativeStock,
             unit: state.unit,
             trackStock: state.trackStock,
-            isArchived: state.isArchived,
+            isArchived: forceArchived ?? state.isArchived,
             description: state.description.trim(),
             image: state.image,
             clearImage: state.image == null,
@@ -301,7 +340,7 @@ class MenuItemFormNotifier
             unitCost: unitCost,
             unit: state.unit,
             trackStock: state.trackStock,
-            isArchived: state.isArchived,
+            isArchived: forceArchived ?? state.isArchived,
             description: state.description.trim(),
             image: state.image,
             sellingPrice: sellingPrice,

@@ -9,15 +9,20 @@ library;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:decimal/decimal.dart';
+import 'package:drift/drift.dart';
 
 import '../services/inventory_api_service.dart';
 import '../constants/app_durations.dart';
 import '../constants/app_strings.dart';
 import '../services/pos_reports_api_service.dart';
+import '../utils/cogs.dart';
+import 'database_providers.dart';
 import 'inventory_api_provider.dart';
 import 'inventory_provider.dart';
 import 'permissions_provider.dart';
 import 'pos_api_provider.dart';
+import 'production_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Shared date window
@@ -134,6 +139,107 @@ final itemMixProvider =
     AsyncNotifierProvider<ItemMixNotifier, List<ItemMixLineDto>>(
       ItemMixNotifier.new,
     );
+
+// ---------------------------------------------------------------------------
+// Snapshot COGS (frozen sale-time costs)
+// ---------------------------------------------------------------------------
+
+/// Frozen sale-time production costs for the current report window.
+///
+/// Sums cached sale lines of completed sales in the window: each line's
+/// snapshot when present, otherwise the live recipe/fallback cost for its
+/// item (legacy rows synced before snapshots existed, or lines whose cost
+/// was unknown at sale time) — same fallback semantics as `CogsIndex`, so
+/// a window mixing both reads exact where frozen, estimated where derived.
+/// `covered` is false when the cache holds no usable lines in the window
+/// (nothing synced yet) — the caller then falls back to live costs over
+/// item-mix rather than reporting zero.
+@immutable
+class SnapshotCogs {
+  const SnapshotCogs({
+    required this.cogs,
+    required this.estimated,
+    required this.covered,
+  });
+
+  final Decimal cogs;
+  final bool estimated;
+  final bool covered;
+
+  static final uncovered = SnapshotCogs(
+    cogs: Decimal.zero,
+    estimated: false,
+    covered: false,
+  );
+}
+
+final snapshotCogsProvider = FutureProvider<SnapshotCogs>((ref) async {
+  final businessId = ref.watch(currentBusinessIdProvider);
+  final filter = ref.watch(reportsDateFilterProvider);
+  if (businessId == null) return SnapshotCogs.uncovered;
+
+  final db = ref.watch(appDatabaseProvider);
+  final sales =
+      await (db.select(db.cachedSales)
+            ..where((s) {
+              var expr = s.businessId.equals(businessId) &
+                  s.status.equals('completed');
+              if (filter.from != null) {
+                expr =
+                    expr &
+                    s.occurredAt.isBiggerOrEqualValue(filter.from!);
+              }
+              if (filter.to != null) {
+                expr =
+                    expr & s.occurredAt.isSmallerOrEqualValue(filter.to!);
+              }
+              return expr;
+            }))
+          .get();
+  if (sales.isEmpty) return SnapshotCogs.uncovered;
+
+  final lines =
+      await (db.select(db.cachedSaleLineItems)..where(
+            (l) => l.saleId.isIn(sales.map((s) => s.id)),
+          ))
+          .get();
+  // Sales cached with no lines (a line pull that never completed) carry
+  // no cost information at all — live costs over item-mix stay closer to
+  // the truth than a partial snapshot sum.
+  if (lines.isEmpty) return SnapshotCogs.uncovered;
+
+  final recipes = ref.watch(recipesCatalogListProvider);
+  final items = ref.watch(inventoryItemsListProvider);
+  final index = CogsIndex(
+    recipeCost: {for (final r in recipes) r.sellableItemId: r.costPerUnit},
+    recipeComplete: {
+      for (final r in recipes) r.sellableItemId: r.costComplete,
+    },
+    fallbackCost: {
+      for (final i in items)
+        if (i.catalogItemId != null)
+          i.catalogItemId!: Decimal.parse(i.unitCost.toString()),
+    },
+  );
+
+  var cogs = Decimal.zero;
+  var estimated = false;
+  for (final line in lines) {
+    final snap = line.unitCost;
+    if (snap != null) {
+      cogs += snap * line.quantity;
+    } else {
+      final unit = index.unitCostFor(line.itemId);
+      if (unit.cost != Decimal.zero) {
+        cogs += unit.cost * line.quantity;
+      } else if (line.quantity != Decimal.zero) {
+        estimated = true;
+      }
+      if (unit.estimated) estimated = true;
+    }
+  }
+  return SnapshotCogs(cogs: cogs, estimated: estimated, covered: true);
+});
 
 /// An item-mix line with its catalog name resolved. The backend returns ids
 /// (Inventory Service owns names); this join is display-only — the numbers

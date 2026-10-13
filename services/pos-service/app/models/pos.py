@@ -348,6 +348,15 @@ class SaleLineItem(SQLModel, table=True):
         nullable=False,
         sa_type=Numeric(precision=12, scale=2),
     )
+    # Production-cost snapshot captured at sale time (per-unit cost of the
+    # item when it was sold). Nullable: sales synced by older clients carry
+    # no snapshot, and reports fall back to live recipe costs for those.
+    # Frozen on write like ``unit_price`` — grocery price changes must
+    # never rewrite history, so profit stays accurate per sale.
+    unit_cost: Decimal | None = Field(
+        default=None,
+        sa_type=Numeric(precision=12, scale=4),
+    )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         sa_type=DateTime(timezone=True),

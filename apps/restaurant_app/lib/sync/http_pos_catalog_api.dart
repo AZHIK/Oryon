@@ -108,6 +108,9 @@ class HttpPosCatalogApi extends PosCatalogApi {
         unitPrice: Decimal.parse(line['unit_price'].toString()),
         discountAmount: Decimal.parse(line['discount_amount'].toString()),
         lineTotal: Decimal.parse(line['line_total'].toString()),
+        unitCost: line['unit_cost'] != null
+            ? Decimal.parse(line['unit_cost'].toString())
+            : null,
       );
 }
 

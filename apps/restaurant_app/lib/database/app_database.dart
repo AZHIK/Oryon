@@ -198,7 +198,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.connection);
 
   @override
-  int get schemaVersion => 13;
+  int get schemaVersion => 14;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -305,6 +305,20 @@ class AppDatabase extends _$AppDatabase {
       }
       if (from < 13) {
         await m.addColumn(cachedItems, cachedItems.supplierId);
+      }
+      if (from < 14) {
+        // v13→v14: sale-time production-cost snapshots. Nullable, so
+        // existing rows (and sales synced by older clients) read as
+        // unknown rather than zero — profit figures fall back to live
+        // recipe costs for those.
+        await m.addColumn(
+          pendingSaleLineItems,
+          pendingSaleLineItems.unitCost,
+        );
+        await m.addColumn(
+          cachedSaleLineItems,
+          cachedSaleLineItems.unitCost,
+        );
       }
     },
     beforeOpen: (details) async {

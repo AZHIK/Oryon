@@ -338,6 +338,7 @@ def _sale_to_read(sale: Sale, line_items: list[SaleLineItem]) -> SaleRead:
                 unit_price=li.unit_price,
                 discount_amount=li.discount_amount,
                 line_total=li.line_total,
+                unit_cost=li.unit_cost,
             )
             for li in line_items
         ],

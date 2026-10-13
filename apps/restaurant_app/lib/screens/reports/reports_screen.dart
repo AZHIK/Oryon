@@ -916,29 +916,42 @@ class ProfitLossSection extends ConsumerWidget {
     final revenue = summary == null
         ? Decimal.zero
         : summary.salesRevenue + summary.incomeTotal;
-    // Recipe cost per sellable at current raw prices; fallback is the
-    // item's own unit cost (bought-and-resold lines).
-    final recipeCost = <String, Decimal>{
-      for (final r in recipes) r.sellableItemId: r.costPerUnit,
-    };
-    final recipeComplete = <String, bool>{
-      for (final r in recipes) r.sellableItemId: r.costComplete,
-    };
-    final fallbackCost = <String, Decimal>{
-      for (final i in items)
-        if (i.catalogItemId != null)
-          i.catalogItemId!: Decimal.parse(i.unitCost.toString()),
-    };
-    final index = CogsIndex(
-      recipeCost: recipeCost,
-      recipeComplete: recipeComplete,
-      fallbackCost: fallbackCost,
-    );
-    final cogsResult = index.cogsForQuantities({
-      for (final line in itemMix) line.itemId: line.quantity,
-    });
-    final cogs = cogsResult.cogs;
-    final cogsEstimated = cogsResult.estimated;
+    // Frozen sale-time costs where the cache has them; live recipe costs
+    // over item-mix where it doesn't (nothing synced for the window yet).
+    // Either way grocery price moves can no longer rewrite a frozen sale's
+    // history — only legacy rows without snapshots still ride live prices.
+    final snapshot = ref.watch(snapshotCogsProvider).valueOrNull;
+    final useSnapshot = snapshot != null && snapshot.covered;
+    Decimal cogs;
+    bool cogsEstimated;
+    if (useSnapshot) {
+      cogs = snapshot.cogs;
+      cogsEstimated = snapshot.estimated;
+    } else {
+      // Recipe cost per sellable at current raw prices; fallback is the
+      // item's own unit cost (bought-and-resold lines).
+      final recipeCost = <String, Decimal>{
+        for (final r in recipes) r.sellableItemId: r.costPerUnit,
+      };
+      final recipeComplete = <String, bool>{
+        for (final r in recipes) r.sellableItemId: r.costComplete,
+      };
+      final fallbackCost = <String, Decimal>{
+        for (final i in items)
+          if (i.catalogItemId != null)
+            i.catalogItemId!: Decimal.parse(i.unitCost.toString()),
+      };
+      final index = CogsIndex(
+        recipeCost: recipeCost,
+        recipeComplete: recipeComplete,
+        fallbackCost: fallbackCost,
+      );
+      final cogsResult = index.cogsForQuantities({
+        for (final line in itemMix) line.itemId: line.quantity,
+      });
+      cogs = cogsResult.cogs;
+      cogsEstimated = cogsResult.estimated;
+    }
     var purchaseCost = Decimal.zero;
     for (final p in purchases) {
       purchaseCost += p.totalCost;

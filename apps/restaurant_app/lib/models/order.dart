@@ -85,7 +85,10 @@ enum OrderType {
 /// A denormalised snapshot of a menu item at the time of sale.
 ///
 /// Sales history must not change when the menu is edited, so the name and
-/// price are copied rather than referenced.
+/// price are copied rather than referenced. [unitCost] is the same idea
+/// for production cost: the recipe cost at current grocery prices when the
+/// ticket closed. Null means unknown (no recipe and no cost on file) —
+/// profit figures fall back to live costs for those lines.
 @immutable
 class OrderLine {
   const OrderLine({
@@ -95,6 +98,7 @@ class OrderLine {
     required this.unitPrice,
     required this.quantity,
     this.note,
+    this.unitCost,
   });
 
   final String itemId;
@@ -103,8 +107,13 @@ class OrderLine {
   final double unitPrice;
   final int quantity;
   final String? note;
+  final double? unitCost;
 
   double get lineTotal => unitPrice * quantity;
+
+  /// This line's production cost at sale time, or null when unknown.
+  double? get lineCost =>
+      unitCost == null ? null : unitCost! * quantity;
 }
 
 /// A completed sale.
@@ -235,6 +244,9 @@ class Order {
   ///
   /// The tender defaults to whatever the cart was paid with, so the payment
   /// screen does not have to restate what it already recorded.
+  ///
+  /// [unitCosts] snapshots each line's production cost (item id → per-unit
+  /// cost at sale time). Absent ids stay null — unknown, not zero.
   factory Order.fromCart({
     required String id,
     required Cart cart,
@@ -247,6 +259,7 @@ class Order {
     OrderStatus status = OrderStatus.paid,
     String? customerId,
     String? courierId,
+    Map<String, double>? unitCosts,
   }) {
     return Order(
       id: id,
@@ -270,6 +283,7 @@ class Order {
             unitPrice: line.item.price,
             quantity: line.quantity,
             note: line.note,
+            unitCost: unitCosts?[line.item.id],
           ),
       ],
     );

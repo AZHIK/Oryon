@@ -2384,6 +2384,15 @@ class $PendingSaleLineItemsTable extends PendingSaleLineItems
         $PendingSaleLineItemsTable.$converterdiscountAmount,
       );
   @override
+  late final GeneratedColumnWithTypeConverter<Decimal?, String> unitCost =
+      GeneratedColumn<String>(
+        'unit_cost',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      ).withConverter<Decimal?>($PendingSaleLineItemsTable.$converterunitCostn);
+  @override
   List<GeneratedColumn> get $columns => [
     id,
     pendingSaleId,
@@ -2391,6 +2400,7 @@ class $PendingSaleLineItemsTable extends PendingSaleLineItems
     quantity,
     unitPrice,
     discountAmount,
+    unitCost,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2466,6 +2476,12 @@ class $PendingSaleLineItemsTable extends PendingSaleLineItems
               data['${effectivePrefix}discount_amount'],
             )!,
           ),
+      unitCost: $PendingSaleLineItemsTable.$converterunitCostn.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}unit_cost'],
+        ),
+      ),
     );
   }
 
@@ -2480,6 +2496,10 @@ class $PendingSaleLineItemsTable extends PendingSaleLineItems
       const DecimalConverter();
   static TypeConverter<Decimal, String> $converterdiscountAmount =
       const DecimalConverter();
+  static TypeConverter<Decimal, String> $converterunitCost =
+      const DecimalConverter();
+  static TypeConverter<Decimal?, String?> $converterunitCostn =
+      NullAwareTypeConverter.wrap($converterunitCost);
 }
 
 class PendingSaleLineItem extends DataClass
@@ -2503,6 +2523,11 @@ class PendingSaleLineItem extends DataClass
 
   /// Discount applied to this line.
   final Decimal discountAmount;
+
+  /// Per-unit production cost snapshot at sale time. Null means unknown
+  /// (no recipe, nothing on file) — synced as JSON null and stored
+  /// server-side for frozen profit history.
+  final Decimal? unitCost;
   const PendingSaleLineItem({
     required this.id,
     required this.pendingSaleId,
@@ -2510,6 +2535,7 @@ class PendingSaleLineItem extends DataClass
     required this.quantity,
     required this.unitPrice,
     required this.discountAmount,
+    this.unitCost,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2534,6 +2560,11 @@ class PendingSaleLineItem extends DataClass
         ),
       );
     }
+    if (!nullToAbsent || unitCost != null) {
+      map['unit_cost'] = Variable<String>(
+        $PendingSaleLineItemsTable.$converterunitCostn.toSql(unitCost),
+      );
+    }
     return map;
   }
 
@@ -2545,6 +2576,9 @@ class PendingSaleLineItem extends DataClass
       quantity: Value(quantity),
       unitPrice: Value(unitPrice),
       discountAmount: Value(discountAmount),
+      unitCost: unitCost == null && nullToAbsent
+          ? const Value.absent()
+          : Value(unitCost),
     );
   }
 
@@ -2560,6 +2594,7 @@ class PendingSaleLineItem extends DataClass
       quantity: serializer.fromJson<Decimal>(json['quantity']),
       unitPrice: serializer.fromJson<Decimal>(json['unitPrice']),
       discountAmount: serializer.fromJson<Decimal>(json['discountAmount']),
+      unitCost: serializer.fromJson<Decimal?>(json['unitCost']),
     );
   }
   @override
@@ -2572,6 +2607,7 @@ class PendingSaleLineItem extends DataClass
       'quantity': serializer.toJson<Decimal>(quantity),
       'unitPrice': serializer.toJson<Decimal>(unitPrice),
       'discountAmount': serializer.toJson<Decimal>(discountAmount),
+      'unitCost': serializer.toJson<Decimal?>(unitCost),
     };
   }
 
@@ -2582,6 +2618,7 @@ class PendingSaleLineItem extends DataClass
     Decimal? quantity,
     Decimal? unitPrice,
     Decimal? discountAmount,
+    Value<Decimal?> unitCost = const Value.absent(),
   }) => PendingSaleLineItem(
     id: id ?? this.id,
     pendingSaleId: pendingSaleId ?? this.pendingSaleId,
@@ -2589,6 +2626,7 @@ class PendingSaleLineItem extends DataClass
     quantity: quantity ?? this.quantity,
     unitPrice: unitPrice ?? this.unitPrice,
     discountAmount: discountAmount ?? this.discountAmount,
+    unitCost: unitCost.present ? unitCost.value : this.unitCost,
   );
   PendingSaleLineItem copyWithCompanion(PendingSaleLineItemsCompanion data) {
     return PendingSaleLineItem(
@@ -2602,6 +2640,7 @@ class PendingSaleLineItem extends DataClass
       discountAmount: data.discountAmount.present
           ? data.discountAmount.value
           : this.discountAmount,
+      unitCost: data.unitCost.present ? data.unitCost.value : this.unitCost,
     );
   }
 
@@ -2613,7 +2652,8 @@ class PendingSaleLineItem extends DataClass
           ..write('itemId: $itemId, ')
           ..write('quantity: $quantity, ')
           ..write('unitPrice: $unitPrice, ')
-          ..write('discountAmount: $discountAmount')
+          ..write('discountAmount: $discountAmount, ')
+          ..write('unitCost: $unitCost')
           ..write(')'))
         .toString();
   }
@@ -2626,6 +2666,7 @@ class PendingSaleLineItem extends DataClass
     quantity,
     unitPrice,
     discountAmount,
+    unitCost,
   );
   @override
   bool operator ==(Object other) =>
@@ -2636,7 +2677,8 @@ class PendingSaleLineItem extends DataClass
           other.itemId == this.itemId &&
           other.quantity == this.quantity &&
           other.unitPrice == this.unitPrice &&
-          other.discountAmount == this.discountAmount);
+          other.discountAmount == this.discountAmount &&
+          other.unitCost == this.unitCost);
 }
 
 class PendingSaleLineItemsCompanion
@@ -2647,6 +2689,7 @@ class PendingSaleLineItemsCompanion
   final Value<Decimal> quantity;
   final Value<Decimal> unitPrice;
   final Value<Decimal> discountAmount;
+  final Value<Decimal?> unitCost;
   const PendingSaleLineItemsCompanion({
     this.id = const Value.absent(),
     this.pendingSaleId = const Value.absent(),
@@ -2654,6 +2697,7 @@ class PendingSaleLineItemsCompanion
     this.quantity = const Value.absent(),
     this.unitPrice = const Value.absent(),
     this.discountAmount = const Value.absent(),
+    this.unitCost = const Value.absent(),
   });
   PendingSaleLineItemsCompanion.insert({
     this.id = const Value.absent(),
@@ -2662,6 +2706,7 @@ class PendingSaleLineItemsCompanion
     required Decimal quantity,
     required Decimal unitPrice,
     this.discountAmount = const Value.absent(),
+    this.unitCost = const Value.absent(),
   }) : pendingSaleId = Value(pendingSaleId),
        itemId = Value(itemId),
        quantity = Value(quantity),
@@ -2673,6 +2718,7 @@ class PendingSaleLineItemsCompanion
     Expression<String>? quantity,
     Expression<String>? unitPrice,
     Expression<String>? discountAmount,
+    Expression<String>? unitCost,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -2681,6 +2727,7 @@ class PendingSaleLineItemsCompanion
       if (quantity != null) 'quantity': quantity,
       if (unitPrice != null) 'unit_price': unitPrice,
       if (discountAmount != null) 'discount_amount': discountAmount,
+      if (unitCost != null) 'unit_cost': unitCost,
     });
   }
 
@@ -2691,6 +2738,7 @@ class PendingSaleLineItemsCompanion
     Value<Decimal>? quantity,
     Value<Decimal>? unitPrice,
     Value<Decimal>? discountAmount,
+    Value<Decimal?>? unitCost,
   }) {
     return PendingSaleLineItemsCompanion(
       id: id ?? this.id,
@@ -2699,6 +2747,7 @@ class PendingSaleLineItemsCompanion
       quantity: quantity ?? this.quantity,
       unitPrice: unitPrice ?? this.unitPrice,
       discountAmount: discountAmount ?? this.discountAmount,
+      unitCost: unitCost ?? this.unitCost,
     );
   }
 
@@ -2731,6 +2780,11 @@ class PendingSaleLineItemsCompanion
         ),
       );
     }
+    if (unitCost.present) {
+      map['unit_cost'] = Variable<String>(
+        $PendingSaleLineItemsTable.$converterunitCostn.toSql(unitCost.value),
+      );
+    }
     return map;
   }
 
@@ -2742,7 +2796,8 @@ class PendingSaleLineItemsCompanion
           ..write('itemId: $itemId, ')
           ..write('quantity: $quantity, ')
           ..write('unitPrice: $unitPrice, ')
-          ..write('discountAmount: $discountAmount')
+          ..write('discountAmount: $discountAmount, ')
+          ..write('unitCost: $unitCost')
           ..write(')'))
         .toString();
   }
@@ -6484,6 +6539,15 @@ class $CachedSaleLineItemsTable extends CachedSaleLineItems
         requiredDuringInsert: true,
       ).withConverter<Decimal>($CachedSaleLineItemsTable.$converterlineTotal);
   @override
+  late final GeneratedColumnWithTypeConverter<Decimal?, String> unitCost =
+      GeneratedColumn<String>(
+        'unit_cost',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      ).withConverter<Decimal?>($CachedSaleLineItemsTable.$converterunitCostn);
+  @override
   List<GeneratedColumn> get $columns => [
     id,
     saleId,
@@ -6492,6 +6556,7 @@ class $CachedSaleLineItemsTable extends CachedSaleLineItems
     unitPrice,
     discountAmount,
     lineTotal,
+    unitCost,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -6572,6 +6637,12 @@ class $CachedSaleLineItemsTable extends CachedSaleLineItems
           data['${effectivePrefix}line_total'],
         )!,
       ),
+      unitCost: $CachedSaleLineItemsTable.$converterunitCostn.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}unit_cost'],
+        ),
+      ),
     );
   }
 
@@ -6588,6 +6659,10 @@ class $CachedSaleLineItemsTable extends CachedSaleLineItems
       const DecimalConverter();
   static TypeConverter<Decimal, String> $converterlineTotal =
       const DecimalConverter();
+  static TypeConverter<Decimal, String> $converterunitCost =
+      const DecimalConverter();
+  static TypeConverter<Decimal?, String?> $converterunitCostn =
+      NullAwareTypeConverter.wrap($converterunitCost);
 }
 
 class CachedSaleLineItem extends DataClass
@@ -6609,6 +6684,11 @@ class CachedSaleLineItem extends DataClass
 
   /// Server-computed `quantity*unitPrice - discountAmount`.
   final Decimal lineTotal;
+
+  /// Per-unit production cost snapshot at sale time. Null for sales synced
+  /// before snapshots existed — profit figures fall back to live recipe
+  /// costs for those rows.
+  final Decimal? unitCost;
   const CachedSaleLineItem({
     required this.id,
     required this.saleId,
@@ -6617,6 +6697,7 @@ class CachedSaleLineItem extends DataClass
     required this.unitPrice,
     required this.discountAmount,
     required this.lineTotal,
+    this.unitCost,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -6646,6 +6727,11 @@ class CachedSaleLineItem extends DataClass
         $CachedSaleLineItemsTable.$converterlineTotal.toSql(lineTotal),
       );
     }
+    if (!nullToAbsent || unitCost != null) {
+      map['unit_cost'] = Variable<String>(
+        $CachedSaleLineItemsTable.$converterunitCostn.toSql(unitCost),
+      );
+    }
     return map;
   }
 
@@ -6658,6 +6744,9 @@ class CachedSaleLineItem extends DataClass
       unitPrice: Value(unitPrice),
       discountAmount: Value(discountAmount),
       lineTotal: Value(lineTotal),
+      unitCost: unitCost == null && nullToAbsent
+          ? const Value.absent()
+          : Value(unitCost),
     );
   }
 
@@ -6674,6 +6763,7 @@ class CachedSaleLineItem extends DataClass
       unitPrice: serializer.fromJson<Decimal>(json['unitPrice']),
       discountAmount: serializer.fromJson<Decimal>(json['discountAmount']),
       lineTotal: serializer.fromJson<Decimal>(json['lineTotal']),
+      unitCost: serializer.fromJson<Decimal?>(json['unitCost']),
     );
   }
   @override
@@ -6687,6 +6777,7 @@ class CachedSaleLineItem extends DataClass
       'unitPrice': serializer.toJson<Decimal>(unitPrice),
       'discountAmount': serializer.toJson<Decimal>(discountAmount),
       'lineTotal': serializer.toJson<Decimal>(lineTotal),
+      'unitCost': serializer.toJson<Decimal?>(unitCost),
     };
   }
 
@@ -6698,6 +6789,7 @@ class CachedSaleLineItem extends DataClass
     Decimal? unitPrice,
     Decimal? discountAmount,
     Decimal? lineTotal,
+    Value<Decimal?> unitCost = const Value.absent(),
   }) => CachedSaleLineItem(
     id: id ?? this.id,
     saleId: saleId ?? this.saleId,
@@ -6706,6 +6798,7 @@ class CachedSaleLineItem extends DataClass
     unitPrice: unitPrice ?? this.unitPrice,
     discountAmount: discountAmount ?? this.discountAmount,
     lineTotal: lineTotal ?? this.lineTotal,
+    unitCost: unitCost.present ? unitCost.value : this.unitCost,
   );
   CachedSaleLineItem copyWithCompanion(CachedSaleLineItemsCompanion data) {
     return CachedSaleLineItem(
@@ -6718,6 +6811,7 @@ class CachedSaleLineItem extends DataClass
           ? data.discountAmount.value
           : this.discountAmount,
       lineTotal: data.lineTotal.present ? data.lineTotal.value : this.lineTotal,
+      unitCost: data.unitCost.present ? data.unitCost.value : this.unitCost,
     );
   }
 
@@ -6730,7 +6824,8 @@ class CachedSaleLineItem extends DataClass
           ..write('quantity: $quantity, ')
           ..write('unitPrice: $unitPrice, ')
           ..write('discountAmount: $discountAmount, ')
-          ..write('lineTotal: $lineTotal')
+          ..write('lineTotal: $lineTotal, ')
+          ..write('unitCost: $unitCost')
           ..write(')'))
         .toString();
   }
@@ -6744,6 +6839,7 @@ class CachedSaleLineItem extends DataClass
     unitPrice,
     discountAmount,
     lineTotal,
+    unitCost,
   );
   @override
   bool operator ==(Object other) =>
@@ -6755,7 +6851,8 @@ class CachedSaleLineItem extends DataClass
           other.quantity == this.quantity &&
           other.unitPrice == this.unitPrice &&
           other.discountAmount == this.discountAmount &&
-          other.lineTotal == this.lineTotal);
+          other.lineTotal == this.lineTotal &&
+          other.unitCost == this.unitCost);
 }
 
 class CachedSaleLineItemsCompanion extends UpdateCompanion<CachedSaleLineItem> {
@@ -6766,6 +6863,7 @@ class CachedSaleLineItemsCompanion extends UpdateCompanion<CachedSaleLineItem> {
   final Value<Decimal> unitPrice;
   final Value<Decimal> discountAmount;
   final Value<Decimal> lineTotal;
+  final Value<Decimal?> unitCost;
   final Value<int> rowid;
   const CachedSaleLineItemsCompanion({
     this.id = const Value.absent(),
@@ -6775,6 +6873,7 @@ class CachedSaleLineItemsCompanion extends UpdateCompanion<CachedSaleLineItem> {
     this.unitPrice = const Value.absent(),
     this.discountAmount = const Value.absent(),
     this.lineTotal = const Value.absent(),
+    this.unitCost = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CachedSaleLineItemsCompanion.insert({
@@ -6785,6 +6884,7 @@ class CachedSaleLineItemsCompanion extends UpdateCompanion<CachedSaleLineItem> {
     required Decimal unitPrice,
     required Decimal discountAmount,
     required Decimal lineTotal,
+    this.unitCost = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        saleId = Value(saleId),
@@ -6801,6 +6901,7 @@ class CachedSaleLineItemsCompanion extends UpdateCompanion<CachedSaleLineItem> {
     Expression<String>? unitPrice,
     Expression<String>? discountAmount,
     Expression<String>? lineTotal,
+    Expression<String>? unitCost,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -6811,6 +6912,7 @@ class CachedSaleLineItemsCompanion extends UpdateCompanion<CachedSaleLineItem> {
       if (unitPrice != null) 'unit_price': unitPrice,
       if (discountAmount != null) 'discount_amount': discountAmount,
       if (lineTotal != null) 'line_total': lineTotal,
+      if (unitCost != null) 'unit_cost': unitCost,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -6823,6 +6925,7 @@ class CachedSaleLineItemsCompanion extends UpdateCompanion<CachedSaleLineItem> {
     Value<Decimal>? unitPrice,
     Value<Decimal>? discountAmount,
     Value<Decimal>? lineTotal,
+    Value<Decimal?>? unitCost,
     Value<int>? rowid,
   }) {
     return CachedSaleLineItemsCompanion(
@@ -6833,6 +6936,7 @@ class CachedSaleLineItemsCompanion extends UpdateCompanion<CachedSaleLineItem> {
       unitPrice: unitPrice ?? this.unitPrice,
       discountAmount: discountAmount ?? this.discountAmount,
       lineTotal: lineTotal ?? this.lineTotal,
+      unitCost: unitCost ?? this.unitCost,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -6871,6 +6975,11 @@ class CachedSaleLineItemsCompanion extends UpdateCompanion<CachedSaleLineItem> {
         $CachedSaleLineItemsTable.$converterlineTotal.toSql(lineTotal.value),
       );
     }
+    if (unitCost.present) {
+      map['unit_cost'] = Variable<String>(
+        $CachedSaleLineItemsTable.$converterunitCostn.toSql(unitCost.value),
+      );
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -6887,6 +6996,7 @@ class CachedSaleLineItemsCompanion extends UpdateCompanion<CachedSaleLineItem> {
           ..write('unitPrice: $unitPrice, ')
           ..write('discountAmount: $discountAmount, ')
           ..write('lineTotal: $lineTotal, ')
+          ..write('unitCost: $unitCost, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -17935,6 +18045,7 @@ typedef $$PendingSaleLineItemsTableCreateCompanionBuilder =
       required Decimal quantity,
       required Decimal unitPrice,
       Value<Decimal> discountAmount,
+      Value<Decimal?> unitCost,
     });
 typedef $$PendingSaleLineItemsTableUpdateCompanionBuilder =
     PendingSaleLineItemsCompanion Function({
@@ -17944,6 +18055,7 @@ typedef $$PendingSaleLineItemsTableUpdateCompanionBuilder =
       Value<Decimal> quantity,
       Value<Decimal> unitPrice,
       Value<Decimal> discountAmount,
+      Value<Decimal?> unitCost,
     });
 
 final class $$PendingSaleLineItemsTableReferences
@@ -18016,6 +18128,12 @@ class $$PendingSaleLineItemsTableFilterComposer
         builder: (column) => ColumnWithTypeConverterFilters(column),
       );
 
+  ColumnWithTypeConverterFilters<Decimal?, Decimal, String> get unitCost =>
+      $composableBuilder(
+        column: $table.unitCost,
+        builder: (column) => ColumnWithTypeConverterFilters(column),
+      );
+
   $$PendingSalesTableFilterComposer get pendingSaleId {
     final $$PendingSalesTableFilterComposer composer = $composerBuilder(
       composer: this,
@@ -18074,6 +18192,11 @@ class $$PendingSaleLineItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get unitCost => $composableBuilder(
+    column: $table.unitCost,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$PendingSalesTableOrderingComposer get pendingSaleId {
     final $$PendingSalesTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -18124,6 +18247,9 @@ class $$PendingSaleLineItemsTableAnnotationComposer
         column: $table.discountAmount,
         builder: (column) => column,
       );
+
+  GeneratedColumnWithTypeConverter<Decimal?, String> get unitCost =>
+      $composableBuilder(column: $table.unitCost, builder: (column) => column);
 
   $$PendingSalesTableAnnotationComposer get pendingSaleId {
     final $$PendingSalesTableAnnotationComposer composer = $composerBuilder(
@@ -18191,6 +18317,7 @@ class $$PendingSaleLineItemsTableTableManager
                 Value<Decimal> quantity = const Value.absent(),
                 Value<Decimal> unitPrice = const Value.absent(),
                 Value<Decimal> discountAmount = const Value.absent(),
+                Value<Decimal?> unitCost = const Value.absent(),
               }) => PendingSaleLineItemsCompanion(
                 id: id,
                 pendingSaleId: pendingSaleId,
@@ -18198,6 +18325,7 @@ class $$PendingSaleLineItemsTableTableManager
                 quantity: quantity,
                 unitPrice: unitPrice,
                 discountAmount: discountAmount,
+                unitCost: unitCost,
               ),
           createCompanionCallback:
               ({
@@ -18207,6 +18335,7 @@ class $$PendingSaleLineItemsTableTableManager
                 required Decimal quantity,
                 required Decimal unitPrice,
                 Value<Decimal> discountAmount = const Value.absent(),
+                Value<Decimal?> unitCost = const Value.absent(),
               }) => PendingSaleLineItemsCompanion.insert(
                 id: id,
                 pendingSaleId: pendingSaleId,
@@ -18214,6 +18343,7 @@ class $$PendingSaleLineItemsTableTableManager
                 quantity: quantity,
                 unitPrice: unitPrice,
                 discountAmount: discountAmount,
+                unitCost: unitCost,
               ),
           withReferenceMapper: (p0) => p0
               .map(
@@ -20251,6 +20381,7 @@ typedef $$CachedSaleLineItemsTableCreateCompanionBuilder =
       required Decimal unitPrice,
       required Decimal discountAmount,
       required Decimal lineTotal,
+      Value<Decimal?> unitCost,
       Value<int> rowid,
     });
 typedef $$CachedSaleLineItemsTableUpdateCompanionBuilder =
@@ -20262,6 +20393,7 @@ typedef $$CachedSaleLineItemsTableUpdateCompanionBuilder =
       Value<Decimal> unitPrice,
       Value<Decimal> discountAmount,
       Value<Decimal> lineTotal,
+      Value<Decimal?> unitCost,
       Value<int> rowid,
     });
 
@@ -20339,6 +20471,12 @@ class $$CachedSaleLineItemsTableFilterComposer
         builder: (column) => ColumnWithTypeConverterFilters(column),
       );
 
+  ColumnWithTypeConverterFilters<Decimal?, Decimal, String> get unitCost =>
+      $composableBuilder(
+        column: $table.unitCost,
+        builder: (column) => ColumnWithTypeConverterFilters(column),
+      );
+
   $$CachedSalesTableFilterComposer get saleId {
     final $$CachedSalesTableFilterComposer composer = $composerBuilder(
       composer: this,
@@ -20402,6 +20540,11 @@ class $$CachedSaleLineItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get unitCost => $composableBuilder(
+    column: $table.unitCost,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$CachedSalesTableOrderingComposer get saleId {
     final $$CachedSalesTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -20455,6 +20598,9 @@ class $$CachedSaleLineItemsTableAnnotationComposer
 
   GeneratedColumnWithTypeConverter<Decimal, String> get lineTotal =>
       $composableBuilder(column: $table.lineTotal, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<Decimal?, String> get unitCost =>
+      $composableBuilder(column: $table.unitCost, builder: (column) => column);
 
   $$CachedSalesTableAnnotationComposer get saleId {
     final $$CachedSalesTableAnnotationComposer composer = $composerBuilder(
@@ -20523,6 +20669,7 @@ class $$CachedSaleLineItemsTableTableManager
                 Value<Decimal> unitPrice = const Value.absent(),
                 Value<Decimal> discountAmount = const Value.absent(),
                 Value<Decimal> lineTotal = const Value.absent(),
+                Value<Decimal?> unitCost = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CachedSaleLineItemsCompanion(
                 id: id,
@@ -20532,6 +20679,7 @@ class $$CachedSaleLineItemsTableTableManager
                 unitPrice: unitPrice,
                 discountAmount: discountAmount,
                 lineTotal: lineTotal,
+                unitCost: unitCost,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -20543,6 +20691,7 @@ class $$CachedSaleLineItemsTableTableManager
                 required Decimal unitPrice,
                 required Decimal discountAmount,
                 required Decimal lineTotal,
+                Value<Decimal?> unitCost = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CachedSaleLineItemsCompanion.insert(
                 id: id,
@@ -20552,6 +20701,7 @@ class $$CachedSaleLineItemsTableTableManager
                 unitPrice: unitPrice,
                 discountAmount: discountAmount,
                 lineTotal: lineTotal,
+                unitCost: unitCost,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

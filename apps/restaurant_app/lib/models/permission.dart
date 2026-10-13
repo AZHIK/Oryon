@@ -101,6 +101,9 @@ abstract final class AppPermissions {
   static const suppliersUpdate = 'suppliers.update';
   static const suppliersDelete = 'suppliers.delete';
   static const couriersView = 'couriers.view';
+  static const couriersCreate = 'couriers.create';
+  static const couriersUpdate = 'couriers.update';
+  static const couriersDelete = 'couriers.delete';
   static const financeView = 'finance.view';
   static const financeExpensesCreate = 'finance.expenses.create';
   static const financeExpensesUpdate = 'finance.expenses.update';
@@ -322,6 +325,21 @@ abstract final class AppPermissions {
           id: couriersView,
           label: 'View couriers',
           description: 'Track delivery couriers and their assignments',
+        ),
+        Permission(
+          id: couriersCreate,
+          label: 'Add couriers',
+          description: 'Register a new delivery courier',
+        ),
+        Permission(
+          id: couriersUpdate,
+          label: 'Edit couriers',
+          description: "Change a courier's details or availability",
+        ),
+        Permission(
+          id: couriersDelete,
+          label: 'Delete couriers',
+          description: 'Remove a courier record',
         ),
         Permission(
           id: financeView,

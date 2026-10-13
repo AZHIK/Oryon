@@ -96,6 +96,7 @@ class SyncService {
                 quantity: li.quantity,
                 unitPrice: li.unitPrice,
                 discountAmount: li.discountAmount,
+                unitCost: li.unitCost,
               ))
               .toList(),
           discountAmount: row.discountAmount,

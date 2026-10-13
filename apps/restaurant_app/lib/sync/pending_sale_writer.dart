@@ -65,6 +65,11 @@ class PendingSaleWriter {
             itemId: line.itemId,
             quantity: Decimal.parse(line.quantity.toString()),
             unitPrice: Decimal.parse(line.unitPrice.toStringAsFixed(2)),
+            unitCost: Value(
+              line.unitCost == null
+                  ? null
+                  : Decimal.parse(line.unitCost.toString()),
+            ),
           ),
         );
       }

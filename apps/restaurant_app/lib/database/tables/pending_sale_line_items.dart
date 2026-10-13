@@ -39,4 +39,10 @@ class PendingSaleLineItems extends Table {
   /// Discount applied to this line.
   TextColumn get discountAmount =>
       text().map(const DecimalConverter()).withDefault(const Constant('0'))();
+
+  /// Per-unit production cost snapshot at sale time. Null means unknown
+  /// (no recipe, nothing on file) — synced as JSON null and stored
+  /// server-side for frozen profit history.
+  TextColumn get unitCost =>
+      text().map(const DecimalConverter()).nullable()();
 }

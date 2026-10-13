@@ -81,6 +81,7 @@ class SalesSyncService {
                 unitPrice: Value(line.unitPrice),
                 discountAmount: Value(line.discountAmount),
                 lineTotal: Value(line.lineTotal),
+                unitCost: Value(line.unitCost),
               ),
             );
           }

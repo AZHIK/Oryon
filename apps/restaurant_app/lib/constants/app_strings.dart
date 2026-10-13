@@ -1658,6 +1658,40 @@ abstract final class AppStrings {
       L10n.t('allowNegativeOff', 'A sale is blocked once stock reaches zero');
   static String get priceRequiredTill =>
       L10n.t('priceRequiredTill', 'Required to appear on the POS menu');
+  static String get costSourceLabel =>
+      L10n.t('costSourceLabel', 'Unit cost source');
+  static String get costSourceAuto =>
+      L10n.t('costSourceAuto', 'From recipe');
+  static String get costSourceManual =>
+      L10n.t('costSourceManual', 'Manual');
+  static String costAutoHelper(int count) => L10n.tp(
+    'costAutoHelper',
+    'From {count} ingredients at current grocery prices — updates as prices change',
+    {'count': '$count'},
+  );
+  static String get costAutoEstimated => L10n.t(
+    'costAutoEstimated',
+    'Some ingredients have no cost yet — this is an estimate',
+  );
+  static String get costNoRecipeHint => L10n.t(
+    'costNoRecipeHint',
+    'No recipe for this item yet — the cost stays unknown and the item stays inactive until a recipe prices it.',
+  );
+  static String get costAutoIncompleteHint => L10n.t(
+    'costAutoIncompleteHint',
+    'Some ingredients have no cost yet — the recipe cannot price this item until they do.',
+  );
+  static String get inactiveUntilReadyTitle =>
+      L10n.t('inactiveUntilReadyTitle', 'Stays inactive for now');
+  static String get inactiveUntilReadyBody => L10n.t(
+    'inactiveUntilReadyBody',
+    'This item activates once a recipe prices it — until then it stays off the menu.',
+  );
+  static String menuItemAddedInactive(String name) => L10n.tp(
+    'menuItemAddedInactive',
+    '{name} added as inactive — add a recipe to activate it',
+    {'name': name},
+  );
   static String get priceGroceryHint => L10n.t(
     'priceGroceryHint',
     'Not shown for groceries — change type to set a price',
@@ -1766,6 +1800,26 @@ abstract final class AppStrings {
   static String inactiveCount(int count) =>
       L10n.tp('inactiveCount', 'Inactive ({count})', {'count': '$count'});
   static String get noCouriers => L10n.t('noCouriers', 'No couriers added');
+  static String get addCourier => L10n.t('addCourier', 'Add courier');
+  static String get addCourierTitle =>
+      L10n.t('addCourierTitle', 'Add courier');
+  static String get editCourier => L10n.t('editCourier', 'Edit courier');
+  static String get vehicleLabel => L10n.t('vehicleLabel', 'Vehicle');
+  static String get vehicleHint =>
+      L10n.t('vehicleHint', 'e.g. Motorbike, Bicycle, Car (optional)');
+  static String get availableLabel => L10n.t('availableLabel', 'Available');
+  static String get availableHelper => L10n.t(
+    'availableHelper',
+    'Available couriers can be assigned to delivery orders.',
+  );
+  static String courierSaved(String name, bool isEdit) =>
+      isEdit ? '$name updated' : '$name added';
+  static String courierDeleted(String name) => '$name deleted';
+  static String deleteCourierTitle(String name) => 'Delete $name?';
+  static String get deleteCourierBody => L10n.t(
+    'deleteCourierBody',
+    'This courier will be removed. Assigned deliveries keep their history.',
+  );
   static String get recentBadge => L10n.t('recentBadge', 'NEW');
   static String get orderColumn => L10n.t('orderColumn', 'Order');
   static String get dateTimeColumn => L10n.t('dateTimeColumn', 'Date & time');

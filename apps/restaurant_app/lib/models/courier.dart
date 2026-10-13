@@ -53,6 +53,21 @@ class Courier {
     );
   }
 
+  /// Maps POS Service `GET /couriers` (`is_active` bool) onto the local
+  /// [CourierStatus] enum. `vehicle` is nullable server-side; an absent
+  /// value renders as an empty string locally and is sent back as null.
+  factory Courier.fromJson(Map<String, dynamic> json) {
+    final isActive = json['is_active'] as bool? ?? true;
+    final vehicle = json['vehicle'] as String?;
+    return Courier(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      phone: json['phone'] as String,
+      vehicle: vehicle ?? '',
+      status: isActive ? CourierStatus.active : CourierStatus.inactive,
+    );
+  }
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) || (other is Courier && other.id == id);

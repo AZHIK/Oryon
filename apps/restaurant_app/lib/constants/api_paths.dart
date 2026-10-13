@@ -216,4 +216,8 @@ abstract final class PosApiPaths {
       '/businesses/$businessId/customers/$customerId';
   static String customersSync(String businessId) =>
       '/businesses/$businessId/customers/sync';
+  static String couriers(String businessId) =>
+      '/businesses/$businessId/couriers';
+  static String courier(String businessId, String courierId) =>
+      '/businesses/$businessId/couriers/$courierId';
 }

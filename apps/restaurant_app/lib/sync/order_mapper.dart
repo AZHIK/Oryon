@@ -104,6 +104,7 @@ Order orderFromCachedRow({
         emoji: '📦',
         unitPrice: _toDouble(line.unitPrice),
         quantity: _toDouble(line.quantity).round(),
+        unitCost: line.unitCost == null ? null : _toDouble(line.unitCost!),
       ),
   ];
 

@@ -59,11 +59,16 @@ class PendingSaleLineItemDto {
   final Decimal unitPrice;
   final Decimal discountAmount;
 
+  /// Per-unit production cost snapshot at sale time. Null means unknown —
+  /// the backend stores null and reports fall back to live recipe costs.
+  final Decimal? unitCost;
+
   PendingSaleLineItemDto({
     required this.itemId,
     required this.quantity,
     required this.unitPrice,
     required this.discountAmount,
+    this.unitCost,
   });
 
   Map<String, dynamic> toJson() => {
@@ -71,6 +76,7 @@ class PendingSaleLineItemDto {
     'quantity': quantity.toString(),
     'unit_price': unitPrice.toString(),
     'discount_amount': discountAmount.toString(),
+    'unit_cost': unitCost?.toString(),
   };
 }
 

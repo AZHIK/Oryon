@@ -19,12 +19,18 @@ class SaleLineItemInput(BaseModel):
     ``quantity`` and ``unit_price`` must both be strictly positive — a
     zero-quantity line item is meaningless, and a negative one is nearly
     always a client bug worth rejecting early.
+
+    ``unit_cost`` is the per-unit production cost snapshot at sale time
+    (the recipe cost at current grocery prices when the ticket closed).
+    Optional so older clients keep syncing; stored frozen for profit
+    history while live recipe costs keep moving.
     """
 
     item_id: UUID
     quantity: Decimal = Field(gt=Decimal("0"))
     unit_price: Decimal = Field(gt=Decimal("0"))
     discount_amount: Decimal = Field(default=Decimal("0"), ge=Decimal("0"))
+    unit_cost: Decimal | None = Field(default=None, ge=Decimal("0"))
 
 
 class SaleLineItemRead(SaleLineItemInput):

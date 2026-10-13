@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:decimal/decimal.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,10 +20,13 @@ import '../sync/order_mapper.dart';
 import '../sync/pending_sale_writer.dart';
 import '../sync/sales_sync_service.dart';
 import '../sync/sync_service.dart';
+import '../utils/cogs.dart';
 import 'customer_api_provider.dart';
 import 'database_providers.dart';
+import 'inventory_provider.dart';
 import 'permissions_provider.dart';
 import 'pos_api_provider.dart';
+import 'production_provider.dart';
 import 'sync_status_provider.dart';
 import 'table_query_provider.dart';
 
@@ -186,6 +190,7 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
       tableLabel: tableLabel,
       serverName: serverName,
       customerId: customerId,
+      unitCosts: _saleTimeUnitCosts(cart),
     );
     state = AsyncData([order, ...current]);
 
@@ -198,6 +203,37 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     }
 
     return order;
+  }
+
+  /// Per-unit production cost snapshot for each cart line, taken at sale
+  /// time from live recipe costs (see `lib/utils/cogs.dart`).
+  ///
+  /// Lines whose cost is genuinely unknown — no recipe and nothing on file,
+  /// which `CogsIndex` reports as zero-and-estimated — are left out so they
+  /// sync as null (unknown, not zero) and profit figures fall back to live
+  /// costs for those. Everything else freezes at today's number.
+  Map<String, double> _saleTimeUnitCosts(Cart cart) {
+    final recipes = ref.read(recipesCatalogListProvider);
+    final items = ref.read(inventoryItemsListProvider);
+    final index = CogsIndex(
+      recipeCost: {for (final r in recipes) r.sellableItemId: r.costPerUnit},
+      recipeComplete: {
+        for (final r in recipes) r.sellableItemId: r.costComplete,
+      },
+      fallbackCost: {
+        for (final i in items)
+          if (i.catalogItemId != null)
+            i.catalogItemId!: Decimal.parse(i.unitCost.toString()),
+      },
+    );
+    final costs = <String, double>{};
+    for (final line in cart.items) {
+      final unit = index.unitCostFor(line.item.id);
+      if (unit.cost != Decimal.zero || !unit.estimated) {
+        costs[line.item.id] = double.parse(unit.cost.toString());
+      }
+    }
+    return costs;
   }
 
   Future<void> _writeAndSync(

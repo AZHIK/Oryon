@@ -5,11 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/inventory_item.dart';
 import '../../constants/app_strings.dart';
+import '../../models/permission.dart';
 import '../../providers/inventory_provider.dart';
+import '../../providers/permissions_provider.dart';
 import '../../providers/production_provider.dart';
 import '../../services/inventory_api_service.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/breakpoints.dart';
+import '../../widgets/dialogs/menu_item_form_dialog.dart';
 import '../../widgets/labeled_form_field.dart';
 import '../../widgets/responsive_form_dialog.dart';
 import 'stock_dialog_shared.dart';
@@ -38,6 +41,7 @@ Future<void> showRecipeFormDialog(
 /// item names that change per test.
 abstract final class RecipeFormKeys {
   static const sellable = Key('recipeForm.sellable');
+  static const addSellable = Key('recipeForm.addSellable');
   static const name = Key('recipeForm.name');
   static const category = Key('recipeForm.category');
   static const targetQty = Key('recipeForm.targetQty');
@@ -139,6 +143,31 @@ class _RecipeFormDialogState extends ConsumerState<RecipeFormDialog> {
         for (final item in ref.watch(menuCatalogItemsProvider))
           if (item.catalogItemId != null) item,
       ];
+
+  /// Opens the menu-item form above this dialog and selects whatever was
+  /// just added.
+  ///
+  /// The returned item is the pre-save local copy (no `catalogItemId` yet),
+  /// so the new row is found by diffing backend ids: `upsert()` refreshes
+  /// the catalog before the menu-item form pops, which makes the new id
+  /// appear exactly once.
+  Future<void> _addSellable() async {
+    final before = {
+      for (final item in ref.read(menuCatalogItemsProvider))
+        if (item.catalogItemId != null) item.catalogItemId!,
+    };
+    final created = await showMenuItemFormDialog(context);
+    if (!mounted || created == null) return;
+    String? freshId;
+    for (final item in ref.read(menuCatalogItemsProvider)) {
+      final id = item.catalogItemId;
+      if (id != null && !before.contains(id)) {
+        freshId = id;
+        break;
+      }
+    }
+    if (freshId != null) setState(() => _sellableCatalogId = freshId);
+  }
 
   String? _duplicateId() {
     final seen = <String>{};
@@ -332,24 +361,48 @@ class _RecipeFormDialogState extends ConsumerState<RecipeFormDialog> {
                   )
                       ? _sellableCatalogId
                       : null;
-                  return DropdownButtonFormField<String>(
-                    key: RecipeFormKeys.sellable,
-                    initialValue: initial,
-                    isExpanded: true,
-                    hint: Text(AppStrings.selectHint),
-                    items: [
-                      for (final item in sellables)
-                        DropdownMenuItem(
-                          value: item.catalogItemId,
-                          child: Text(
-                            item.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                  // Hidden rather than shown-disabled: someone who can't
+                  // add menu items shouldn't see a control that only ever
+                  // 403s — same rule as every other primary action.
+                  final canAddMenuItem = ref.watch(
+                    hasPermissionProvider(
+                      AppPermissions.inventoryItemsCreate,
+                    ),
+                  );
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          key: RecipeFormKeys.sellable,
+                          initialValue: initial,
+                          isExpanded: true,
+                          hint: Text(AppStrings.selectHint),
+                          items: [
+                            for (final item in sellables)
+                              DropdownMenuItem(
+                                value: item.catalogItemId,
+                                child: Text(
+                                  item.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _sellableCatalogId = value),
                         ),
+                      ),
+                      if (canAddMenuItem) ...[
+                        const SizedBox(width: Insets.sm),
+                        IconButton.filledTonal(
+                          key: RecipeFormKeys.addSellable,
+                          tooltip: AppStrings.addMenuItem,
+                          onPressed: _addSellable,
+                          icon: const Icon(Icons.add_rounded),
+                        ),
+                      ],
                     ],
-                    onChanged: (value) =>
-                        setState(() => _sellableCatalogId = value),
                   );
                 },
               ),
