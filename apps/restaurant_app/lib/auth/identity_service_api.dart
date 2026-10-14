@@ -12,7 +12,7 @@ import 'auth_dtos.dart';
 class IdentityServiceApi {
   final Dio _dio;
 
-  IdentityServiceApi({required Dio dio}) : _dio = dio;
+  IdentityServiceApi({required this._dio});
 
   /// POST /auth/otp/request - Request an OTP code for a phone number.
   /// Returns void (204 No Content response from backend).

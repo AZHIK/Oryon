@@ -23,8 +23,7 @@ class FinanceLedgerSyncService {
   DateTime? lastSyncTime;
   String? lastSyncError;
 
-  FinanceLedgerSyncService({required this._db, required FinanceCatalogApi api})
-      : _api = api;
+  FinanceLedgerSyncService({required this._db, required this._api});
 
   /// Pulls other expenses for [storeId] and upserts into cache.
   Future<void> syncExpenses({required String storeId}) async {

@@ -27,19 +27,17 @@ import '../theme/breakpoints.dart';
 /// )
 /// ```
 class PermissionGatedWidget extends ConsumerWidget {
-  const PermissionGatedWidget({
+  const PermissionGatedWidget({super.key,
     required this.requiredPermission,
     required this.child,
     this.onDenied,
     this.onUnknown,
-    this.key,
   });
 
   final String requiredPermission;
   final Widget child;
   final Widget Function(String reason)? onDenied;
   final Widget Function(String reason)? onUnknown;
-  final Key? key;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -139,17 +137,15 @@ class PermissionGatedWidget extends ConsumerWidget {
 /// )
 /// ```
 class PermissionGatedButton extends ConsumerWidget {
-  const PermissionGatedButton({
+  const PermissionGatedButton({super.key,
     required this.requiredPermission,
     required this.onPressed,
     required this.child,
-    this.key,
   });
 
   final String requiredPermission;
   final VoidCallback onPressed;
   final Widget child;
-  final Key? key;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -204,14 +200,13 @@ class PermissionGatedButton extends ConsumerWidget {
 /// )
 /// ```
 class PermissionGatedScreen extends ConsumerWidget {
-  const PermissionGatedScreen({
+  const PermissionGatedScreen({super.key,
     required this.requiredPermission,
     required this.child,
     this.title,
     this.feature,
     this.onDenied,
     this.onUnknown,
-    this.key,
   });
 
   final String requiredPermission;
@@ -229,7 +224,6 @@ class PermissionGatedScreen extends ConsumerWidget {
 
   final Widget Function(String reason)? onDenied;
   final Widget Function(String reason)? onUnknown;
-  final Key? key;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

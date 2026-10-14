@@ -45,7 +45,7 @@ void main() {
 
         result.when(
           onAllowed: () => fail('Should not be allowed'),
-          onDenied: (_, __) => fail('Should not be denied'),
+          onDenied: (_, _) => fail('Should not be denied'),
           onUnknown: (r) {
             expect(r, reason);
           },

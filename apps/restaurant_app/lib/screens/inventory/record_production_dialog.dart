@@ -651,7 +651,7 @@ class _ConfirmStep extends StatelessWidget {
                 ),
               const SizedBox(height: Insets.xs),
               Text(
-                'Target: ${Fmt.quantity(target)} × ${recipe.sellableItemName}',
+                'Target: ${Fmt.quantity(target)} × ${recipe.sellableItemName ?? recipe.name}',
                 style: context.text.bodySmall?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),

@@ -29,7 +29,6 @@ import '../screens/purchasing/requisition_order_screen.dart';
 import '../screens/reports/report_detail_screen.dart';
 import '../screens/reports/reports_screen_gated.dart';
 import '../screens/suppliers/suppliers_screen_gated.dart';
-import '../screens/placeholder/module_placeholder_screen.dart';
 import '../screens/pos/pos_screen.dart';
 import '../screens/sales/couriers_screen.dart';
 import '../screens/sales/sales_screen.dart';

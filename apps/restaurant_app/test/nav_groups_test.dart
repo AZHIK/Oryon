@@ -9,12 +9,13 @@ import 'package:restaurant_pos/widgets/responsive_scaffold.dart';
 
 import 'test_helpers/test_container.dart';
 
-/// Same Sell membership as the sidebar: POS, Sales, Customers, Couriers.
-/// Open by default, like in the app.
+/// Same Sell membership as the sidebar: POS, Sales, Customers.
+/// Couriers is hidden from navigation (kept, not deleted), so it is
+/// deliberately absent here too. Open by default, like in the app.
 const _sellGroup = NavGroupSpec(
   label: 'Sell',
   icon: Icons.shopping_basket_outlined,
-  children: [1, 2, 3, 7],
+  children: [1, 2, 3],
   expandedByDefault: true,
 );
 
@@ -36,7 +37,6 @@ const _allSellPermissions = {
   AppPermissions.posAccess,
   AppPermissions.posView,
   AppPermissions.customersView,
-  AppPermissions.couriersView,
 };
 
 Future<List<int>> pumpGroup(
@@ -77,7 +77,8 @@ void main() {
       expect(find.text('POS'), findsOneWidget);
       expect(find.text('Sales'), findsOneWidget);
       expect(find.text('Customers'), findsOneWidget);
-      expect(find.text('Couriers'), findsOneWidget);
+      // Couriers hidden from navigation — kept, not deleted.
+      expect(find.text('Couriers'), findsNothing);
 
       await tester.tap(find.text('Customers'));
       await tester.pumpAndSettle();

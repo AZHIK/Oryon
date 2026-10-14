@@ -109,6 +109,11 @@ async def plan_production_quantities(
         raise InvalidProductionInputError(
             f"Recipe '{recipe.name}' has no ingredients — cannot plan"
         )
+    if recipe.sellable_item_id is None:
+        raise InvalidProductionInputError(
+            f"Recipe '{recipe.name}' is not linked to a menu item yet — "
+            "link it before planning production"
+        )
     sellable_result = await db.exec(
         select(Item).where(
             Item.id == recipe.sellable_item_id, Item.business_id == business_id
@@ -202,6 +207,11 @@ async def record_production_event(
     if recipe is None:
         raise RecipeNotFoundError(
             f"Recipe '{recipe_id}' not found in this business"
+        )
+    if recipe.sellable_item_id is None:
+        raise InvalidProductionInputError(
+            f"Recipe '{recipe.name}' is not linked to a menu item yet — "
+            "link it before recording production"
         )
 
     comp_result = await db.exec(

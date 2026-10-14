@@ -58,7 +58,7 @@ class WhatsAppConnectionInfo {
 }
 
 class WhatsAppApiService {
-  const WhatsAppApiService({required Dio dio}) : _dio = dio;
+  const WhatsAppApiService({required this._dio});
 
   final Dio _dio;
 

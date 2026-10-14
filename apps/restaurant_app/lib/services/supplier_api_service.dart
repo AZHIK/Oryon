@@ -64,10 +64,10 @@ class SupplierApiService {
         InventoryApiPaths.suppliers(businessId),
         data: {
           'name': name,
-          if (phone != null) 'phone': phone,
-          if (email != null) 'email': email,
-          if (addressLine1 != null) 'address_line1': addressLine1,
-          if (notes != null) 'notes': notes,
+          'phone': ?phone,
+          'email': ?email,
+          'address_line1': ?addressLine1,
+          'notes': ?notes,
         },
       );
       return _supplierFromJson(response.data as Map<String, dynamic>);
@@ -91,11 +91,11 @@ class SupplierApiService {
       final response = await _dio.patch(
         InventoryApiPaths.supplier(businessId, supplierId),
         data: {
-          if (name != null) 'name': name,
-          if (phone != null) 'phone': phone,
-          if (email != null) 'email': email,
-          if (addressLine1 != null) 'address_line1': addressLine1,
-          if (notes != null) 'notes': notes,
+          'name': ?name,
+          'phone': ?phone,
+          'email': ?email,
+          'address_line1': ?addressLine1,
+          'notes': ?notes,
         },
       );
       return _supplierFromJson(response.data as Map<String, dynamic>);

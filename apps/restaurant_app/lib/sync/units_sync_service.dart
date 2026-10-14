@@ -18,10 +18,9 @@ class UnitsSyncService {
   String? lastSyncError;
 
   UnitsSyncService({
-    required AppDatabase db,
+    required this._db,
     required UnitsCatalogApi api,
-  })  : _db = db,
-        _api = api;
+  })  : _api = api;
 
   /// Pulls the full unit taxonomy and upserts into cache. No missing-row
   /// handling — units are never hard-deleted server-side (see

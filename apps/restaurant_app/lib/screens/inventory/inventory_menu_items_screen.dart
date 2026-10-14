@@ -54,8 +54,16 @@ class InventoryMenuItemsScreen extends ConsumerWidget {
     // only, no labour yet. The table resolves each row against these.
     final recipes = ref.watch(recipesCatalogListProvider);
     final columns = menuItemColumns(
-      recipeCost: {for (final r in recipes) r.sellableItemId: r.costPerUnit},
-      recipeComplete: {for (final r in recipes) r.sellableItemId: r.costComplete},
+      recipeCost: {
+        for (final r in recipes)
+          if (r.sellableItemId != null)
+            r.sellableItemId!: r.costPerUnit,
+      },
+      recipeComplete: {
+        for (final r in recipes)
+          if (r.sellableItemId != null)
+            r.sellableItemId!: r.costComplete,
+      },
     );
 
     return DataPageScaffold(

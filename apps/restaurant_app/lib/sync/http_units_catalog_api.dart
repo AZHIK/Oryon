@@ -16,7 +16,7 @@ import 'units_catalog_api.dart';
 class HttpUnitsCatalogApi extends UnitsCatalogApi {
   final Dio _dio;
 
-  HttpUnitsCatalogApi({required Dio dio}) : _dio = dio;
+  HttpUnitsCatalogApi({required this._dio});
 
   @override
   Future<List<UnitDto>> fetchUnits() async {

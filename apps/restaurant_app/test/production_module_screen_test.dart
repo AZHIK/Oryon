@@ -71,7 +71,7 @@ RunDto _run({
 /// so the guided pages (plan saved, cooking started) render without a
 /// backend. Refresh is a no-op — lists are seeded via [seeded].
 class FakeRunsNotifier extends ProductionRunsNotifier {
-  FakeRunsNotifier({List<RunDto> seeded = const []}) : _seeded = seeded;
+  FakeRunsNotifier({this._seeded = const []});
 
   final List<RunDto> _seeded;
 

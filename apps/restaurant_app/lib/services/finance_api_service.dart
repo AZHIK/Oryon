@@ -49,12 +49,12 @@ class FinanceApiService {
       await _dio.patch(
         PosApiPaths.expense(businessId, expenseId),
         data: {
-          if (category != null) 'category': category,
+          'category': ?category,
           if (amount != null) 'amount': amount.toString(),
-          if (description != null) 'description': description,
-          if (paymentMethod != null) 'payment_method': paymentMethod,
-          if (payee != null) 'payee': payee,
-          if (note != null) 'note': note,
+          'description': ?description,
+          'payment_method': ?paymentMethod,
+          'payee': ?payee,
+          'note': ?note,
           if (occurredAt != null)
             'occurred_at': occurredAt.toUtc().toIso8601String(),
         },
@@ -90,12 +90,12 @@ class FinanceApiService {
       await _dio.patch(
         PosApiPaths.income(businessId, incomeId),
         data: {
-          if (category != null) 'category': category,
+          'category': ?category,
           if (amount != null) 'amount': amount.toString(),
-          if (description != null) 'description': description,
-          if (paymentMethod != null) 'payment_method': paymentMethod,
-          if (source != null) 'source': source,
-          if (note != null) 'note': note,
+          'description': ?description,
+          'payment_method': ?paymentMethod,
+          'source': ?source,
+          'note': ?note,
           if (occurredAt != null)
             'occurred_at': occurredAt.toUtc().toIso8601String(),
         },

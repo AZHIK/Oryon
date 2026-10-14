@@ -21,10 +21,9 @@ class PurchasingSyncService {
   String? lastSyncError;
 
   PurchasingSyncService({
-    required AppDatabase db,
+    required this._db,
     required SuppliersCatalogApi suppliersApi,
-  })  : _db = db,
-        _suppliersApi = suppliersApi;
+  })  : _suppliersApi = suppliersApi;
 
   /// Pulls the full supplier directory and upserts into cache. Suppliers
   /// have no soft-delete-on-missing logic to run here — deletion is a

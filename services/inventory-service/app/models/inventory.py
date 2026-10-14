@@ -245,7 +245,7 @@ class Item(SQLModel, table=True):
 
 
 class Recipe(SQLModel, table=True):
-    """A named bill-of-materials for one sellable item (Stage 1: Recipe CRUD).
+    """A named bill-of-materials, optionally linked to one sellable item.
 
     A "recipe" is a GROUP of ``RecipeComponent`` rows sharing one header.
     The header exists so whole-recipe operations are single actions — "delete
@@ -255,6 +255,14 @@ class Recipe(SQLModel, table=True):
     application-level check. It also carries recipe-level metadata (``name``,
     which defaults to the sellable item's own name but may diverge if recipe
     variants ever land).
+
+    STANDALONE RECIPES: ``sellable_item_id`` is nullable so the kitchen can
+    define a formula before its menu item exists. The ``UNIQUE`` is kept —
+    Postgres treats NULLs as distinct, so any number of standalone recipes
+    can coexist while a linked menu item still owns at most one recipe. A
+    standalone recipe is linked once via ``POST /recipes/{id}/link`` (link
+    is set-once, never moved); production runs/plans refuse unlinked
+    recipes with a 422 because the output needs a sellable item to stock.
 
     BATCH FORMULA SEMANTICS: component quantities are totals for the
     recipe's ``target_yield_quantity`` (e.g. "2kg rice for 50 portions"),
@@ -279,11 +287,12 @@ class Recipe(SQLModel, table=True):
         index=True,
         sa_type=PG_UUID,
     )
-    sellable_item_id: UUID = Field(
+    sellable_item_id: UUID | None = Field(
+        default=None,
         sa_column=Column(
             PG_UUID,
             ForeignKey("item.id", ondelete="CASCADE"),
-            nullable=False,
+            nullable=True,
             unique=True,
         ),
     )

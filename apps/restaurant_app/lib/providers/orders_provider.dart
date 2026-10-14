@@ -217,9 +217,15 @@ class OrdersNotifier extends AsyncNotifier<List<Order>> {
     final recipes = ref.read(recipesCatalogListProvider);
     final items = ref.read(inventoryItemsListProvider);
     final index = CogsIndex(
-      recipeCost: {for (final r in recipes) r.sellableItemId: r.costPerUnit},
+      recipeCost: {
+        for (final r in recipes)
+          if (r.sellableItemId != null)
+            r.sellableItemId!: r.costPerUnit,
+      },
       recipeComplete: {
-        for (final r in recipes) r.sellableItemId: r.costComplete,
+        for (final r in recipes)
+          if (r.sellableItemId != null)
+            r.sellableItemId!: r.costComplete,
       },
       fallbackCost: {
         for (final i in items)

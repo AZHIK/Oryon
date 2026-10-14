@@ -17,8 +17,7 @@ class HttpCustomerSyncApi extends CustomerSyncApi {
   final Dio _dio;
   final String _businessId;
 
-  HttpCustomerSyncApi({required this._dio, required String businessId})
-      : _businessId = businessId;
+  HttpCustomerSyncApi({required this._dio, required this._businessId});
 
   @override
   Future<CustomerSyncBatchResult> syncCustomers(List<CustomerDto> batch) async {

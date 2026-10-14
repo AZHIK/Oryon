@@ -16,7 +16,6 @@ library;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/permission.dart';
-import '../models/user_permissions.dart';
 import '../providers/permissions_provider.dart';
 
 /// Exception thrown when a user attempts an action they lack permission for.

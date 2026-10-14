@@ -20,8 +20,7 @@ class HttpCustomerCatalogApi extends CustomerCatalogApi {
   final Dio _dio;
   final String _businessId;
 
-  HttpCustomerCatalogApi({required this._dio, required String businessId})
-      : _businessId = businessId;
+  HttpCustomerCatalogApi({required this._dio, required this._businessId});
 
   @override
   Future<List<CustomerServerDto>> fetchCustomers() async {

@@ -20,8 +20,7 @@ class HttpFinanceSyncApi extends FinanceSyncApi {
   final Dio _dio;
   final String _businessId;
 
-  HttpFinanceSyncApi({required this._dio, required String businessId})
-      : _businessId = businessId;
+  HttpFinanceSyncApi({required this._dio, required this._businessId});
 
   @override
   Future<FinanceSyncBatchResult> syncExpenses(

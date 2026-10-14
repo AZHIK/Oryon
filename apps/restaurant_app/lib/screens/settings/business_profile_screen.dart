@@ -13,7 +13,6 @@ import '../../router/app_router.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/brand_palette.dart';
 import '../../theme/breakpoints.dart';
-import '../../utils/formatters.dart';
 import '../../widgets/detail_page/detail_page_scaffold.dart';
 import '../../widgets/field_pair.dart';
 import '../../widgets/image_upload_field.dart';

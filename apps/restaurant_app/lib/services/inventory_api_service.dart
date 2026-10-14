@@ -145,8 +145,10 @@ abstract final class RecipeCategories {
 class RecipeDto {
   final String id;
   final String businessId;
-  final String sellableItemId;
-  final String sellableItemName;
+  // Null for standalone recipes (formula defined before its menu item
+  // exists) — linked later via linkRecipe, set-once.
+  final String? sellableItemId;
+  final String? sellableItemName;
   final String name;
   final String? category;
   final Decimal targetYieldQuantity;
@@ -178,18 +180,18 @@ class RecipeDto {
         costPerUnit = costPerUnit ?? Decimal.zero;
 
   factory RecipeDto.fromJson(Map<String, dynamic> json) {
-    Decimal? _opt(Object? v) => v == null ? null : Decimal.parse(v.toString());
+    Decimal? opt(Object? v) => v == null ? null : Decimal.parse(v.toString());
     return RecipeDto(
       id: json['id'] as String,
       businessId: json['business_id'] as String,
-      sellableItemId: json['sellable_item_id'] as String,
-      sellableItemName: json['sellable_item_name'] as String,
+      sellableItemId: json['sellable_item_id'] as String?,
+      sellableItemName: json['sellable_item_name'] as String?,
       name: json['name'] as String,
       category: json['category'] as String?,
-      targetYieldQuantity: _opt(json['target_yield_quantity']) ?? Decimal.fromInt(1),
+      targetYieldQuantity: opt(json['target_yield_quantity']) ?? Decimal.fromInt(1),
       targetYieldUnit: json['target_yield_unit'] as String? ?? 'portions',
-      totalCost: _opt(json['total_cost']) ?? Decimal.zero,
-      costPerUnit: _opt(json['cost_per_unit']) ?? Decimal.zero,
+      totalCost: opt(json['total_cost']) ?? Decimal.zero,
+      costPerUnit: opt(json['cost_per_unit']) ?? Decimal.zero,
       costComplete: json['cost_complete'] as bool? ?? true,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
@@ -380,7 +382,7 @@ class ProductionEventDto {
   });
 
   factory ProductionEventDto.fromJson(Map<String, dynamic> json) {
-    Decimal? _optDecimal(Object? v) =>
+    Decimal? optDecimal(Object? v) =>
         v == null ? null : Decimal.parse(v.toString());
     return ProductionEventDto(
       id: json['id'] as String,
@@ -394,7 +396,7 @@ class ProductionEventDto {
       leadingQuantityUsed: Decimal.parse(
         json['leading_quantity_used'].toString(),
       ),
-      targetOutputQuantity: _optDecimal(json['target_output_quantity']),
+      targetOutputQuantity: optDecimal(json['target_output_quantity']),
       suggestedOutputQuantity: Decimal.parse(
         json['suggested_output_quantity'].toString(),
       ),
@@ -410,7 +412,7 @@ class ProductionEventDto {
       yieldVariance: Decimal.parse(
         (json['yield_variance'] ?? '0').toString(),
       ),
-      yieldVariancePercent: _optDecimal(json['yield_variance_percent']),
+      yieldVariancePercent: optDecimal(json['yield_variance_percent']),
       yieldStatus: json['yield_status'] == null
           ? YieldStatusDto.withinThreshold
           : YieldStatusDto.fromJson(json['yield_status'].toString()),
@@ -535,7 +537,7 @@ class RunDto {
   });
 
   factory RunDto.fromJson(Map<String, dynamic> json) {
-    Decimal? _opt(Object? v) =>
+    Decimal? opt(Object? v) =>
         v == null ? null : Decimal.parse(v.toString());
     final status = RunStatusDto.fromJson(json['status'].toString());
     final yieldStatus = json['yield_status'];
@@ -555,13 +557,13 @@ class RunDto {
       yieldTolerancePercent: Decimal.parse(
         (json['yield_tolerance_percent'] ?? '5').toString(),
       ),
-      actualOutputQuantity: _opt(json['actual_output_quantity']),
+      actualOutputQuantity: opt(json['actual_output_quantity']),
       wasteReason: json['waste_reason'] as String?,
       yieldGoalQuantity: Decimal.parse(
         json['yield_goal_quantity'].toString(),
       ),
-      yieldVariance: _opt(json['yield_variance']),
-      yieldVariancePercent: _opt(json['yield_variance_percent']),
+      yieldVariance: opt(json['yield_variance']),
+      yieldVariancePercent: opt(json['yield_variance_percent']),
       yieldStatus: yieldStatus == null
           ? null
           : YieldStatusDto.fromJson(yieldStatus.toString()),
@@ -820,14 +822,14 @@ class LotLineDto {
         totalCost = totalCost ?? Decimal.zero;
 
   factory LotLineDto.fromJson(Map<String, dynamic> json) {
-    Decimal _opt(Object? v) => v == null ? Decimal.zero : Decimal.parse(v.toString());
+    Decimal opt(Object? v) => v == null ? Decimal.zero : Decimal.parse(v.toString());
     return LotLineDto(
       lotNo: json['lot_no'] as String,
       itemName: json['item_name'] as String,
       quantityReceived:
           Decimal.parse(json['quantity_received'].toString()),
-      unitCost: _opt(json['unit_cost']),
-      totalCost: _opt(json['total_cost']),
+      unitCost: opt(json['unit_cost']),
+      totalCost: opt(json['total_cost']),
       supplierName: json['supplier_name'] as String?,
       expiryDate: json['expiry_date'] as String?,
     );
@@ -979,7 +981,7 @@ class InventoryApiService {
           'item_type': itemType,
           'reorder_threshold': reorderThreshold.toString(),
           'reorder_quantity': reorderQuantity.toString(),
-          if (categoryId != null) 'category_id': categoryId,
+          'category_id': ?categoryId,
           if (sellingPrice != null) 'selling_price': sellingPrice.toString(),
           if (unitCost != null) 'unit_cost': unitCost.toString(),
           'allow_negative_stock': allowNegativeStock,
@@ -1012,15 +1014,15 @@ class InventoryApiService {
       final response = await _dio.patch(
         InventoryApiPaths.item(businessId, itemId),
         data: {
-          if (name != null) 'name': name,
-          if (unitId != null) 'unit_id': unitId,
-          if (categoryId != null) 'category_id': categoryId,
+          'name': ?name,
+          'unit_id': ?unitId,
+          'category_id': ?categoryId,
           if (reorderThreshold != null) 'reorder_threshold': reorderThreshold.toString(),
           if (reorderQuantity != null) 'reorder_quantity': reorderQuantity.toString(),
           if (sellingPrice != null) 'selling_price': sellingPrice.toString(),
           if (unitCost != null) 'unit_cost': unitCost.toString(),
-          if (allowNegativeStock != null) 'allow_negative_stock': allowNegativeStock,
-          if (itemType != null) 'item_type': itemType,
+          'allow_negative_stock': ?allowNegativeStock,
+          'item_type': ?itemType,
         },
       );
       return _itemFromJson(response.data as Map<String, dynamic>);
@@ -1501,8 +1503,8 @@ class InventoryApiService {
         InventoryApiPaths.costHistory(businessId),
         queryParameters: {
           ..._reportWindow(from, to),
-          if (itemId != null) 'item_id': itemId,
-          if (supplierId != null) 'supplier_id': supplierId,
+          'item_id': ?itemId,
+          'supplier_id': ?supplierId,
         },
       );
       return _lines(
@@ -1514,12 +1516,14 @@ class InventoryApiService {
     }
   }
 
-  /// Creates a recipe for a sellable item. Requires `recipes.create`.
-  /// At least one component is required — the backend rejects an empty set.
+  /// Creates a recipe, standalone or for a sellable item.
+  /// Requires `recipes.create`. Omit [sellableItemId] for a standalone
+  /// formula (then [name] is required — the backend rejects a nameless
+  /// standalone). At least one component is required.
   /// Component quantities are totals for [targetYieldQuantity] (batch).
   Future<RecipeDto> createRecipe({
     required String businessId,
-    required String sellableItemId,
+    String? sellableItemId,
     String? name,
     String? category,
     Decimal? targetYieldQuantity,
@@ -1530,14 +1534,33 @@ class InventoryApiService {
       final response = await _dio.post(
         InventoryApiPaths.recipes(businessId),
         data: {
-          'sellable_item_id': sellableItemId,
-          if (name != null) 'name': name,
-          if (category != null) 'category': category,
+          'sellable_item_id': ?sellableItemId,
+          'name': ?name,
+          'category': ?category,
           if (targetYieldQuantity != null)
             'target_yield_quantity': targetYieldQuantity.toString(),
-          if (targetYieldUnit != null) 'target_yield_unit': targetYieldUnit,
+          'target_yield_unit': ?targetYieldUnit,
           'components': [for (final c in components) c.toJson()],
         },
+      );
+      return RecipeDto.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      _rethrowAsInventoryError(e);
+    }
+  }
+
+  /// Links a standalone recipe to its sellable item (set-once, never
+  /// moved). Requires `recipes.update`. 422 when already linked, 409 when
+  /// the target item already has a recipe.
+  Future<RecipeDto> linkRecipe({
+    required String businessId,
+    required String recipeId,
+    required String sellableItemId,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '${InventoryApiPaths.recipe(businessId, recipeId)}/link',
+        data: {'sellable_item_id': sellableItemId},
       );
       return RecipeDto.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
@@ -1560,11 +1583,11 @@ class InventoryApiService {
       final response = await _dio.patch(
         InventoryApiPaths.recipe(businessId, recipeId),
         data: {
-          if (name != null) 'name': name,
-          if (category != null) 'category': category,
+          'name': ?name,
+          'category': ?category,
           if (targetYieldQuantity != null)
             'target_yield_quantity': targetYieldQuantity.toString(),
-          if (targetYieldUnit != null) 'target_yield_unit': targetYieldUnit,
+          'target_yield_unit': ?targetYieldUnit,
           'components': [for (final c in components) c.toJson()],
         },
       );

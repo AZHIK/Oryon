@@ -65,13 +65,11 @@ class TokenRefreshInterceptor extends Interceptor {
   static Stream<void> get sessionExpired => _sessionExpiredController.stream;
 
   TokenRefreshInterceptor({
-    required TokenStorage tokenStorage,
+    required this._tokenStorage,
     required String baseUrl,
     LocalProfileRepository? profileRepo,
-    void Function()? onPermissionsSynced,
-  })  : _tokenStorage = tokenStorage,
-        _profileRepo = profileRepo,
-        _onPermissionsSynced = onPermissionsSynced {
+    this._onPermissionsSynced,
+  })  : _profileRepo = profileRepo {
     // Create a bare Dio instance (no interceptors) for refresh calls.
     // This prevents reentrancy if the refresh call itself fails.
     final bareDio = Dio(BaseOptions(

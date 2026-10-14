@@ -16,14 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:restaurant_pos/database/app_database.dart';
 import 'package:restaurant_pos/database/local_profile_repository.dart';
-import 'package:restaurant_pos/models/user_permissions.dart';
-import 'package:restaurant_pos/providers/auth_provider.dart';
-import 'package:restaurant_pos/providers/database_providers.dart';
-import 'package:restaurant_pos/providers/permissions_provider.dart';
-import 'package:restaurant_pos/utils/pin_hasher.dart';
 
-import '../test_helpers/fake_identity_backend.dart';
-import '../auth_flow_test.dart';
 
 void main() {
   group('RBAC Offline Knowledge', () {

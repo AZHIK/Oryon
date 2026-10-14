@@ -16,7 +16,7 @@ import 'categories_catalog_api.dart';
 class HttpCategoriesCatalogApi extends CategoriesCatalogApi {
   final Dio _dio;
 
-  HttpCategoriesCatalogApi({required Dio dio}) : _dio = dio;
+  HttpCategoriesCatalogApi({required this._dio});
 
   @override
   Future<List<CategoryDto>> fetchCategories() async {

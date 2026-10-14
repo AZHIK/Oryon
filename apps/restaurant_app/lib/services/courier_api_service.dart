@@ -64,7 +64,7 @@ class CourierApiService {
         data: {
           'name': name,
           'phone': phone,
-          if (vehicle != null) 'vehicle': vehicle,
+          'vehicle': ?vehicle,
           'is_active': isActive,
         },
       );
@@ -86,10 +86,10 @@ class CourierApiService {
       final response = await _dio.patch(
         PosApiPaths.courier(businessId, courierId),
         data: {
-          if (name != null) 'name': name,
-          if (phone != null) 'phone': phone,
-          if (vehicle != null) 'vehicle': vehicle,
-          if (isActive != null) 'is_active': isActive,
+          'name': ?name,
+          'phone': ?phone,
+          'vehicle': ?vehicle,
+          'is_active': ?isActive,
         },
       );
       return Courier.fromJson(response.data as Map<String, dynamic>);

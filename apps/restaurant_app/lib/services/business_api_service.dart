@@ -12,7 +12,7 @@ import '../constants/api_paths.dart';
 ///
 /// All operations are authenticated and require a valid access token.
 class BusinessApiService {
-  const BusinessApiService({required Dio dio}) : _dio = dio;
+  const BusinessApiService({required this._dio});
 
   final Dio _dio;
 

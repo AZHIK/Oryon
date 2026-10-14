@@ -16,7 +16,7 @@ import '../theme/breakpoints.dart';
 /// to serve an item photo at ~190px, a business logo, and a staff avatar at
 /// considerably less.
 class ImageUploadField extends StatefulWidget {
-  ImageUploadField({
+  const ImageUploadField({
     super.key,
     required this.image,
     required this.onPicked,

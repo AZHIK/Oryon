@@ -41,20 +41,30 @@ class RecipeComponentInput(BaseModel):
 
 
 class RecipeCreate(BaseModel):
-    """Create a recipe for a sellable item.
+    """Create a recipe, optionally for a sellable item.
 
-    ``name`` defaults to the sellable item's own name when omitted. At least
-    one component is required — a recipe with zero ingredients is meaningless
-    and is rejected here, not at the database. ``target_yield_quantity``
-    sizes the batch the component totals are written for (1 = per-unit).
+    ``sellable_item_id`` may be omitted to define a standalone formula
+    before its menu item exists (linked later via ``POST /recipes/{id}/link``).
+    ``name`` defaults to the sellable item's own name when omitted — but a
+    standalone recipe has no sellable to default from, so ``name`` is
+    required when ``sellable_item_id`` is omitted. At least one component is
+    required — a recipe with zero ingredients is meaningless and is rejected
+    here, not at the database. ``target_yield_quantity`` sizes the batch the
+    component totals are written for (1 = per-unit).
     """
 
-    sellable_item_id: UUID
+    sellable_item_id: UUID | None = None
     name: str | None = Field(default=None, max_length=255)
     category: str | None = Field(default=None, max_length=50)
     target_yield_quantity: Decimal = Field(default=Decimal("1"), gt=Decimal("0"))
     target_yield_unit: str = Field(default="portions", max_length=50)
     components: list[RecipeComponentInput] = Field(min_length=1)
+
+
+class RecipeLink(BaseModel):
+    """Link a standalone recipe to its sellable item (set-once, never moved)."""
+
+    sellable_item_id: UUID
 
 
 class RecipeUpdate(BaseModel):
@@ -114,8 +124,8 @@ class RecipeRead(BaseModel):
 
     id: UUID
     business_id: UUID
-    sellable_item_id: UUID
-    sellable_item_name: str
+    sellable_item_id: UUID | None = None
+    sellable_item_name: str | None = None
     name: str
     category: str | None = None
     target_yield_quantity: Decimal

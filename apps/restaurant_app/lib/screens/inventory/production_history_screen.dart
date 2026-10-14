@@ -207,7 +207,9 @@ class _RecipePickerDialog extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final recipes = ref.watch(recipesCatalogListProvider);
+    // Only linked recipes can be produced (the output needs a menu item
+    // to stock) — standalone formulas stay in Production until linked.
+    final recipes = ref.watch(linkedRecipesProvider);
 
     return ResponsiveFormDialog(
       title: AppStrings.whatMaking,

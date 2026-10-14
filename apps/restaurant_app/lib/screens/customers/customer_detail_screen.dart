@@ -243,7 +243,7 @@ class DetailPanel extends StatelessWidget {
                     style: context.text.titleMedium,
                   ),
                 ),
-                if (trailing case final t?) t,
+                ?trailing,
               ],
             ),
             const SizedBox(height: Insets.lg),

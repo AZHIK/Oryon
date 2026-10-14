@@ -23,8 +23,7 @@ class CatalogSyncService {
   /// Error from the last sync attempt, if any.
   String? lastSyncError;
 
-  CatalogSyncService({required this._db, required InventoryCatalogApi api})
-    : _api = api;
+  CatalogSyncService({required this._db, required this._api});
 
   /// Runs [syncCatalog] then [syncStockLevels] for [storeId]. Convenience
   /// for call sites (e.g. right after login) that want both in one call.

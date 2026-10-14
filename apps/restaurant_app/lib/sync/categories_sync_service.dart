@@ -20,10 +20,9 @@ class CategoriesSyncService {
   String? lastSyncError;
 
   CategoriesSyncService({
-    required AppDatabase db,
+    required this._db,
     required CategoriesCatalogApi api,
-  })  : _db = db,
-        _api = api;
+  })  : _api = api;
 
   /// Pulls the full category taxonomy and upserts into cache. No
   /// missing-row handling — categories are never hard-deleted server-side

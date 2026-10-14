@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:dio/dio.dart';
+import 'package:restaurant_pos/auth/auth_dtos.dart';
 
 import '../../constants/app_strings.dart';
 
@@ -129,7 +130,7 @@ class _LocationFormDialogState extends ConsumerState<LocationFormDialog> {
       final locationName = _name.text.trim();
       final phone = _phone.text.trim();
 
-      final result;
+      final StoreReadDto result;
       if (existing == null) { // ignore: prefer_const_constructors
         // Create new store
         result = await storeApi.createStore(

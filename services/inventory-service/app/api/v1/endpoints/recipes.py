@@ -7,6 +7,7 @@
 │   GET    /businesses/{business_id}/recipes          → RECIPES_VIEW       │
 │   GET    /businesses/{business_id}/recipes/{id}     → RECIPES_VIEW       │
 │   PATCH  /businesses/{business_id}/recipes/{id}     → RECIPES_UPDATE     │
+│   POST   /businesses/{business_id}/recipes/{id}/link → RECIPES_UPDATE    │
 │   DELETE /businesses/{business_id}/recipes/{id}     → RECIPES_DELETE     │
 │                                                                          │
 │ Business-context binding is enforced at the shared dependency level      │
@@ -41,6 +42,7 @@ from app.schemas.recipes import (
     RecipeComponentInput,
     RecipeComponentRead,
     RecipeCreate,
+    RecipeLink,
     RecipeRead,
     RecipeUpdate,
 )
@@ -169,7 +171,7 @@ async def _read_recipes(
     )
     components = list(comp_result.all())
 
-    item_ids = {r.sellable_item_id for r in recipes} | {
+    item_ids = {r.sellable_item_id for r in recipes if r.sellable_item_id is not None} | {
         c.raw_material_item_id for c in components
     }
     item_result = await session.exec(select(Item).where(Item.id.in_(list(item_ids))))
@@ -215,12 +217,17 @@ async def _read_recipes(
         total = sum((c.line_cost for c in lines if c.line_cost is not None),
                     Decimal("0.00")).quantize(Decimal("0.01"))
         target = r.target_yield_quantity or Decimal("1")
+        sellable_name = (
+            items[r.sellable_item_id].name
+            if r.sellable_item_id is not None
+            else None
+        )
         reads.append(
             RecipeRead(
                 id=r.id,
                 business_id=r.business_id,
                 sellable_item_id=r.sellable_item_id,
-                sellable_item_name=items[r.sellable_item_id].name,
+                sellable_item_name=sellable_name,
                 name=r.name,
                 category=r.category,
                 target_yield_quantity=r.target_yield_quantity,
@@ -245,24 +252,38 @@ async def create_recipe(
 ) -> RecipeRead:
     """Create a recipe header plus its full ingredient set, atomically.
 
-    A pre-check surfaces "already has a recipe" as a clear 409; the
+    ``sellable_item_id`` may be omitted for a standalone formula (linked
+    later via ``POST /recipes/{id}/link``) — but then ``name`` is required,
+    since there is no sellable name to default from. When a sellable IS
+    given, a pre-check surfaces "already has a recipe" as a clear 409; the
     ``UNIQUE`` on ``recipe.sellable_item_id`` remains the backstop and an
     ``IntegrityError`` catch maps a lost race to the same 409 (never a raw
     DB error to the caller).
     """
-    sellable = await _get_sellable_or_error(business_id, body.sellable_item_id, session)
-
-    existing = await session.exec(
-        select(Recipe).where(
-            Recipe.business_id == business_id,
-            Recipe.sellable_item_id == body.sellable_item_id,
+    sellable: Item | None = None
+    sellable_name: str | None = None
+    if body.sellable_item_id is not None:
+        sellable = await _get_sellable_or_error(
+            business_id, body.sellable_item_id, session
         )
-    )
-    if existing.one_or_none() is not None:
+
+        existing = await session.exec(
+            select(Recipe).where(
+                Recipe.business_id == business_id,
+                Recipe.sellable_item_id == body.sellable_item_id,
+            )
+        )
+        if existing.one_or_none() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Item '{sellable.name}' already has a recipe — "
+                "update it instead of creating a second one",
+            )
+    elif not body.name:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Item '{sellable.name}' already has a recipe — "
-            "update it instead of creating a second one",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A recipe without a menu item needs a name — "
+            "pass 'name' or link it to a sellable item",
         )
 
     await _validate_components(business_id, body.components, session)
@@ -271,11 +292,11 @@ async def create_recipe(
     # every ORM object in this session, and reading `sellable.name` after
     # that would fire a synchronous lazy-load SELECT with no greenlet
     # context (MissingGreenlet). Never touch ORM state past a rollback.
-    sellable_name = sellable.name
+    sellable_name = sellable.name if sellable is not None else body.name
     recipe = Recipe(
         business_id=business_id,
         sellable_item_id=body.sellable_item_id,
-        name=(body.name or sellable.name),
+        name=(body.name or sellable_name),
         category=body.category,
         target_yield_quantity=body.target_yield_quantity,
         target_yield_unit=body.target_yield_unit,
@@ -307,6 +328,65 @@ async def create_recipe(
         business_id=str(business_id),
         sellable_item_id=str(body.sellable_item_id),
         component_count=len(body.components),
+    )
+    return (await _read_recipes([recipe], session))[0]
+
+
+@router.post("/{recipe_id}/link", response_model=RecipeRead)
+async def link_recipe(
+    business_id: UUID,
+    recipe_id: UUID,
+    body: RecipeLink,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    _jwt_biz_id: Annotated[str, Depends(require_business_permission("recipes.update"))],
+) -> RecipeRead:
+    """Link a standalone recipe to its sellable item (set-once, never moved).
+
+    422 when the recipe is already linked — a recipe produces exactly one
+    menu item, so links are never moved between items. 409 when the target
+    item already has a recipe.
+    """
+    recipe = await _get_recipe_or_404(business_id, recipe_id, session)
+    if recipe.sellable_item_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Recipe '{recipe.name}' is already linked to a menu item — "
+            "links are never moved between items",
+        )
+    sellable = await _get_sellable_or_error(
+        business_id, body.sellable_item_id, session
+    )
+    existing = await session.exec(
+        select(Recipe).where(
+            Recipe.business_id == business_id,
+            Recipe.sellable_item_id == body.sellable_item_id,
+        )
+    )
+    if existing.one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Item '{sellable.name}' already has a recipe — "
+            "update it instead of linking a second one",
+        )
+    sellable_name = sellable.name
+    recipe.sellable_item_id = body.sellable_item_id
+    session.add(recipe)
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Item '{sellable_name}' already has a recipe — "
+            "update it instead of linking a second one",
+        ) from exc
+    await session.refresh(recipe)
+
+    logger.info(
+        "recipe.linked",
+        recipe_id=str(recipe.id),
+        business_id=str(business_id),
+        sellable_item_id=str(body.sellable_item_id),
     )
     return (await _read_recipes([recipe], session))[0]
 

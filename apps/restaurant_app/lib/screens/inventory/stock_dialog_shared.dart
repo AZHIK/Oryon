@@ -109,7 +109,7 @@ class StockItemContext extends StatelessWidget {
 /// The quantity input the three dialogs share: digits only, unit as a suffix,
 /// and an inline error when the amount is impossible.
 class StockQuantityField extends StatelessWidget {
-  StockQuantityField({
+  const StockQuantityField({
     super.key,
     required this.controller,
     required this.item,
@@ -158,7 +158,7 @@ class StockQuantityField extends StatelessWidget {
 
 /// Optional free-text notes. Identical in all three dialogs.
 class StockNotesField extends StatelessWidget {
-  StockNotesField({
+  const StockNotesField({
     super.key,
     required this.controller,
     this.label,

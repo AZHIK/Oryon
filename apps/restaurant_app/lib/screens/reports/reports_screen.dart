@@ -940,10 +940,14 @@ class ProfitLossSection extends ConsumerWidget {
       // Recipe cost per sellable at current raw prices; fallback is the
       // item's own unit cost (bought-and-resold lines).
       final recipeCost = <String, Decimal>{
-        for (final r in recipes) r.sellableItemId: r.costPerUnit,
+        for (final r in recipes)
+          if (r.sellableItemId != null)
+            r.sellableItemId!: r.costPerUnit,
       };
       final recipeComplete = <String, bool>{
-        for (final r in recipes) r.sellableItemId: r.costComplete,
+        for (final r in recipes)
+          if (r.sellableItemId != null)
+            r.sellableItemId!: r.costComplete,
       };
       final fallbackCost = <String, Decimal>{
         for (final i in items)

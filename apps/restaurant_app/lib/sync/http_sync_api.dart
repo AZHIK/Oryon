@@ -17,8 +17,7 @@ class HttpSyncApi extends PosSyncApi {
   final Dio _dio;
   final String _businessId;
 
-  HttpSyncApi({required this._dio, required String businessId})
-      : _businessId = businessId;
+  HttpSyncApi({required this._dio, required this._businessId});
 
   @override
   Future<SyncBatchResult> syncSales(List<PendingSaleDto> batch) async {

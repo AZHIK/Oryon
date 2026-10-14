@@ -18,9 +18,8 @@ class HttpSuppliersCatalogApi extends SuppliersCatalogApi {
   final Dio _dio;
   final String _businessId;
 
-  HttpSuppliersCatalogApi({required Dio dio, required String businessId})
-      : _dio = dio,
-        _businessId = businessId;
+  HttpSuppliersCatalogApi({required this._dio, required String businessId})
+      : _businessId = businessId;
 
   @override
   Future<List<SupplierDto>> fetchSuppliers() async {

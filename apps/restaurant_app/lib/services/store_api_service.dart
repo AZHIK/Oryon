@@ -14,7 +14,7 @@ import '../constants/api_paths.dart';
 ///
 /// All operations are business-scoped and require authentication.
 class StoreApiService {
-  const StoreApiService({required Dio dio}) : _dio = dio;
+  const StoreApiService({required this._dio});
 
   final Dio _dio;
 
@@ -80,12 +80,12 @@ class StoreApiService {
       final payload = {
         'name': name,
         'location_type': locationType,
-        if (address != null) 'address': address,
-        if (city != null) 'city': city,
-        if (countryCode != null) 'country_code': countryCode,
-        if (timezone != null) 'timezone': timezone,
-        if (isPrimary != null) 'is_primary': isPrimary,
-        if (status != null) 'status': status,
+        'address': ?address,
+        'city': ?city,
+        'country_code': ?countryCode,
+        'timezone': ?timezone,
+        'is_primary': ?isPrimary,
+        'status': ?status,
       };
 
       final response = await _dio.post(
@@ -116,13 +116,13 @@ class StoreApiService {
   }) async {
     try {
       final payload = <String, dynamic>{
-        if (name != null) 'name': name,
-        if (address != null) 'address': address,
-        if (city != null) 'city': city,
-        if (timezone != null) 'timezone': timezone,
-        if (isPrimary != null) 'is_primary': isPrimary,
-        if (status != null) 'status': status,
-        if (locationType != null) 'location_type': locationType,
+        'name': ?name,
+        'address': ?address,
+        'city': ?city,
+        'timezone': ?timezone,
+        'is_primary': ?isPrimary,
+        'status': ?status,
+        'location_type': ?locationType,
       };
 
       final response = await _dio.patch(
@@ -193,20 +193,19 @@ class StoreApiService {
   }) async {
     try {
       final payload = <String, dynamic>{
-        if (active != null) 'active': active,
-        if (address != null) 'address': address,
-        if (latitude != null) 'latitude': latitude,
-        if (longitude != null) 'longitude': longitude,
-        if (email != null) 'email': email,
-        if (phone != null) 'phone': phone,
-        if (preferredCurrency != null) 'preferred_currency': preferredCurrency,
-        if (amount != null) 'amount': amount,
-        if (maxPaymentTimeMinutes != null) 'max_payment_time_minutes': maxPaymentTimeMinutes,
-        if (logo != null) 'logo': logo,
-        if (offerRetail != null) 'offer_retail': offerRetail,
-        if (offerWholesale != null) 'offer_wholesale': offerWholesale,
-        if (displayPricesInclusiveOfTax != null)
-          'display_prices_inclusive_of_tax': displayPricesInclusiveOfTax,
+        'active': ?active,
+        'address': ?address,
+        'latitude': ?latitude,
+        'longitude': ?longitude,
+        'email': ?email,
+        'phone': ?phone,
+        'preferred_currency': ?preferredCurrency,
+        'amount': ?amount,
+        'max_payment_time_minutes': ?maxPaymentTimeMinutes,
+        'logo': ?logo,
+        'offer_retail': ?offerRetail,
+        'offer_wholesale': ?offerWholesale,
+        'display_prices_inclusive_of_tax': ?displayPricesInclusiveOfTax,
       };
 
       final response = await _dio.patch(
@@ -239,8 +238,8 @@ class StoreApiService {
     try {
       final payload = {
         'business_role_id': businessRoleId,
-        if (userId != null) 'user_id': userId,
-        if (phone != null) 'phone': phone,
+        'user_id': ?userId,
+        'phone': ?phone,
       };
 
       await _dio.post(

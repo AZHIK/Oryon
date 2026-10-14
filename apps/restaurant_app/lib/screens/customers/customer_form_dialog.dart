@@ -5,6 +5,7 @@ import '../../models/customer.dart';
 import '../../constants/app_strings.dart';
 import '../../providers/customers_provider.dart';
 import '../../theme/breakpoints.dart';
+import '../../utils/phone_validation.dart';
 import '../../widgets/labeled_form_field.dart';
 import '../../widgets/responsive_form_dialog.dart';
 import '../../widgets/section_label.dart';
@@ -165,11 +166,16 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
                 textInputAction: TextInputAction.next,
                 keyboardType: TextInputType.phone,
                 decoration: InputDecoration(
-                  hintText: AppStrings.phoneExample2,
+                  hintText: AppStrings.phoneExample,
                 ),
-                validator: (value) => (value ?? '').trim().isEmpty
-                    ? AppStrings.enterPhoneError
-                    : null,
+                validator: (value) {
+                  final text = (value ?? '').trim();
+                  if (text.isEmpty) return AppStrings.enterPhoneError;
+                  if (!isValidTanzanianPhoneInput(text)) {
+                    return tanzanianPhoneHint;
+                  }
+                  return null;
+                },
               ),
             ),
             const SizedBox(height: Insets.lg),

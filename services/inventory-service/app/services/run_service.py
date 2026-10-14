@@ -88,6 +88,11 @@ async def _load_recipe(
         raise InvalidProductionInputError(
             f"Recipe '{recipe.name}' has no ingredients — cannot plan a run"
         )
+    if recipe.sellable_item_id is None:
+        raise InvalidProductionInputError(
+            f"Recipe '{recipe.name}' is not linked to a menu item yet — "
+            "link it before planning a production run"
+        )
     sellable_result = await db.exec(
         select(Item).where(
             Item.id == recipe.sellable_item_id, Item.business_id == business_id

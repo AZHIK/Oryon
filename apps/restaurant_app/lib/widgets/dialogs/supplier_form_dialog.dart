@@ -5,6 +5,7 @@ import '../../models/supplier.dart';
 import '../../constants/app_strings.dart';
 import '../../providers/suppliers_provider.dart';
 import '../../theme/breakpoints.dart';
+import '../../utils/phone_validation.dart';
 import '../labeled_form_field.dart';
 import '../responsive_form_dialog.dart';
 import '../section_label.dart';
@@ -157,7 +158,15 @@ class _SupplierFormDialogState extends ConsumerState<_SupplierFormDialog> {
                 controller: _phone,
                 textInputAction: TextInputAction.next,
                 keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(hintText: '+1 (555) 123-4567'),
+                decoration: const InputDecoration(hintText: '6XXXXXXXX or 7XXXXXXXX'),
+                validator: (value) {
+                  final text = (value ?? '').trim();
+                  if (text.isEmpty) return null;
+                  if (!isValidTanzanianPhoneInput(text)) {
+                    return tanzanianPhoneHint;
+                  }
+                  return null;
+                },
               ),
             ),
             const SizedBox(height: Insets.lg),

@@ -347,7 +347,7 @@ class _SettingsTabState extends ConsumerState<_SettingsTab> {
                   Text(AppStrings.storePricingSection, style: context.text.labelLarge),
                   const SizedBox(height: Insets.md),
                   DropdownButtonFormField<String>(
-                    value: _currency,
+                    initialValue: _currency,
                     items: [
                       DropdownMenuItem(value: 'TZS', child: Text(AppStrings.tzShilling)),
                       DropdownMenuItem(value: 'USD', child: Text(AppStrings.usDollar)),

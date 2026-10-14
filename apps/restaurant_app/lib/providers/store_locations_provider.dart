@@ -30,7 +30,7 @@ class StoreLocationsNotifier extends Notifier<List<StoreLocation>> {
           .map((store) => StoreLocation.fromDto(store))
           .toList(),
       loading: () => [],
-      error: (_, __) => [],
+      error: (_, _) => [],
       orElse: () => [],
     );
   }

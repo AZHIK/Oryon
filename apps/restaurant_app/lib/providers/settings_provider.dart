@@ -48,7 +48,7 @@ class BusinessProfileNotifier extends Notifier<BusinessProfile?> {
         return null;
       },
       loading: () => null,
-      error: (_, __) => null,
+      error: (_, _) => null,
     );
   }
 

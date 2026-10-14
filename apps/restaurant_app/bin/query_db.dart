@@ -4,7 +4,7 @@
 ///
 /// This script connects to the local encrypted SQLite database and queries
 /// staff profiles to verify role data is being cached correctly.
-library query_db;
+library;
 
 import 'dart:io';
 import 'package:sqlite3/sqlite3.dart';
@@ -133,7 +133,7 @@ Future<void> main() async {
         }
       }
 
-      print('\n' + '─' * 80);
+      print('\n${'─' * 80}');
       print('\n✅ Database query complete!\n');
     } catch (e) {
       print('⚠️ Database appears to be encrypted. Error: $e\n');

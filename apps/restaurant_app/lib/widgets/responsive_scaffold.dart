@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../utils/dialog_helper.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -89,6 +88,10 @@ List<NavDestinationSpec> get _destinations => <NavDestinationSpec>[
     selectedIcon: Icons.storefront_rounded,
     requiredPermission: AppPermissions.suppliersView,
   ),
+  // Couriers module is hidden from navigation (kept here, not deleted, so
+  // these indices stay aligned index-for-index with the shell branches in
+  // [goRouterProvider] and the route remains reachable by deep link).
+  // See [_hiddenNavIndices] and the Sell group below.
   NavDestinationSpec(
     label: AppStrings.navCouriers,
     icon: Icons.two_wheeler_outlined,
@@ -170,7 +173,8 @@ List<NavGroupSpec> get _groups => <NavGroupSpec>[
   NavGroupSpec(
     label: AppStrings.navGroupSell,
     icon: Icons.shopping_basket_outlined,
-    children: const [1, 2, 3, 7],
+    // Couriers (index 7) hidden from the sidebar — module kept, not deleted.
+    children: const [1, 2, 3],
     expandedByDefault: true,
   ),
   NavGroupSpec(
@@ -235,6 +239,12 @@ List<_MoreEntry> _moreSheetEntries(List<int> visible) {
   return entries;
 }
 
+/// Destinations hidden from every navigation surface (sidebar rail, drawer,
+/// mobile bottom bar / More sheet) without deleting the module: the entry in
+/// [_destinations] and its shell branch in [goRouterProvider] stay in place so
+/// branch indices never shift. Currently: 7 == Couriers.
+const _hiddenNavIndices = <int>{7};
+
 /// Destinations visible to the signed-in staff member, as indices into
 /// [_destinations] — a destination with no [NavDestinationSpec.requiredPermission]
 /// is always included; otherwise it needs that permission (or the `*`
@@ -242,6 +252,7 @@ List<_MoreEntry> _moreSheetEntries(List<int> visible) {
 final _visibleNavIndicesProvider = Provider<List<int>>((ref) {
   final visible = <int>[];
   for (var i = 0; i < _destinations.length; i++) {
+    if (_hiddenNavIndices.contains(i)) continue;
     final permission = _destinations[i].requiredPermission;
     if (permission == null || ref.watch(hasPermissionProvider(permission))) {
       visible.add(i);

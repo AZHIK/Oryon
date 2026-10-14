@@ -16,7 +16,7 @@ import 'staff_rbac_dtos.dart';
 class StaffRbacApi {
   final Dio _dio;
 
-  StaffRbacApi({required Dio dio}) : _dio = dio;
+  StaffRbacApi({required this._dio});
 
   /// POST /businesses/{businessId}/roles
   Future<BusinessRoleDto> createRole({

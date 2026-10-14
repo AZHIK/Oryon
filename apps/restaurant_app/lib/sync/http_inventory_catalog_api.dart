@@ -25,8 +25,7 @@ class HttpInventoryCatalogApi extends InventoryCatalogApi {
   final Dio _dio;
   final String _businessId;
 
-  HttpInventoryCatalogApi({required this._dio, required String businessId})
-      : _businessId = businessId;
+  HttpInventoryCatalogApi({required this._dio, required this._businessId});
 
   @override
   Future<List<CatalogItemDto>> fetchItems({required String storeId}) async {

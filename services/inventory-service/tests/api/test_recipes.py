@@ -461,3 +461,164 @@ def test_recipe_permission_codes_registered() -> None:
     assert PermissionCode.RECIPES_CREATE.value == "recipes.create"
     assert PermissionCode.RECIPES_UPDATE.value == "recipes.update"
     assert PermissionCode.RECIPES_DELETE.value == "recipes.delete"
+
+
+# ── Standalone recipes (no menu item yet) ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_create_standalone_recipe_without_sellable(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Omitting sellable_item_id creates a standalone formula (201)."""
+    _, rice, onions = await _create_pilau_setup(db_session)
+    resp = await client.post(
+        API_PREFIX,
+        json={
+            "name": "House Pilau Mix",
+            "components": [
+                _component(rice.id, "0.200"),
+                _component(onions.id, "0.030"),
+            ],
+        },
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["sellable_item_id"] is None
+    assert data["sellable_item_name"] is None
+    assert data["name"] == "House Pilau Mix"
+    assert len(data["components"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_create_standalone_recipe_requires_name(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """No sellable and no name → 422 (nothing to default from)."""
+    _, rice, _ = await _create_pilau_setup(db_session)
+    resp = await client.post(
+        API_PREFIX,
+        json={"components": [_component(rice.id, "0.200")]},
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_link_standalone_recipe_to_sellable(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """POST /recipes/{id}/link attaches a standalone recipe (200)."""
+    pilau, rice, _ = await _create_pilau_setup(db_session)
+    resp = await client.post(
+        API_PREFIX,
+        json={
+            "name": "House Pilau Mix",
+            "components": [_component(rice.id, "0.200")],
+        },
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 201, resp.text
+    recipe_id = resp.json()["id"]
+
+    resp = await client.post(
+        f"{API_PREFIX}/{recipe_id}/link",
+        json={"sellable_item_id": str(pilau.id)},
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["sellable_item_id"] == str(pilau.id)
+    assert data["sellable_item_name"] == "Pilau"
+    # The recipe's own name is kept, not overwritten by the sellable's.
+    assert data["name"] == "House Pilau Mix"
+
+
+@pytest.mark.asyncio
+async def test_link_already_linked_recipe_rejected(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Links are set-once: re-linking a linked recipe → 422."""
+    pilau, rice, _ = await _create_pilau_setup(db_session)
+    other = await _create_test_item(
+        session=db_session, name="Biriani", item_type=ItemType.SELLABLE
+    )
+    resp = await client.post(
+        API_PREFIX,
+        json={
+            "sellable_item_id": str(pilau.id),
+            "components": [_component(rice.id, "0.200")],
+        },
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 201, resp.text
+    recipe_id = resp.json()["id"]
+
+    resp = await client.post(
+        f"{API_PREFIX}/{recipe_id}/link",
+        json={"sellable_item_id": str(other.id)},
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_link_to_sellable_with_recipe_conflicts(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Linking onto a menu item that already has a recipe → 409."""
+    pilau, rice, onions = await _create_pilau_setup(db_session)
+    resp = await client.post(
+        API_PREFIX,
+        json={
+            "sellable_item_id": str(pilau.id),
+            "components": [_component(rice.id, "0.200")],
+        },
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 201, resp.text
+
+    resp = await client.post(
+        API_PREFIX,
+        json={
+            "name": "Second Mix",
+            "components": [_component(onions.id, "0.030")],
+        },
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 201, resp.text
+    standalone_id = resp.json()["id"]
+
+    resp = await client.post(
+        f"{API_PREFIX}/{standalone_id}/link",
+        json={"sellable_item_id": str(pilau.id)},
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 409, resp.text
+
+
+@pytest.mark.asyncio
+async def test_run_for_standalone_recipe_rejected(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Planning a run for an unlinked recipe → 422 (output needs a home)."""
+    _, rice, _ = await _create_pilau_setup(db_session)
+    resp = await client.post(
+        API_PREFIX,
+        json={
+            "name": "House Pilau Mix",
+            "components": [_component(rice.id, "0.200")],
+        },
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 201, resp.text
+    recipe_id = resp.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/businesses/{BUSINESS_ID}/runs",
+        json={"recipe_id": recipe_id, "target_output_quantity": "10.000"},
+        headers=_auth_header("production.create"),
+    )
+    assert resp.status_code == 422, resp.text
+    assert "not linked" in resp.json()["detail"]

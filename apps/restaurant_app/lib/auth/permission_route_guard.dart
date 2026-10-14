@@ -34,7 +34,7 @@ Future<String?> permissionGuard(
 
   return result.when(
     onAllowed: () => null, // Allow navigation
-    onDenied: (_, __) => AppRoute.dashboardPath, // Redirect to dashboard
+    onDenied: (_, _) => AppRoute.dashboardPath, // Redirect to dashboard
     onUnknown: (_) => AppRoute.dashboardPath, // Offline: go to dashboard
   );
 }

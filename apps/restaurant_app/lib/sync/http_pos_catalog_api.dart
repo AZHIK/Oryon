@@ -25,8 +25,7 @@ class HttpPosCatalogApi extends PosCatalogApi {
   final Dio _dio;
   final String _businessId;
 
-  HttpPosCatalogApi({required this._dio, required String businessId})
-      : _businessId = businessId;
+  HttpPosCatalogApi({required this._dio, required this._businessId});
 
   @override
   Future<List<SaleDto>> fetchSales({required String storeId}) async {

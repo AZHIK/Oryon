@@ -488,7 +488,9 @@ class _RecipeStep extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final recipes = ref.watch(recipesCatalogListProvider);
+    // Runs stock an output item, so only linked recipes can be cooked —
+    // standalone formulas 422 server-side until linked to a menu item.
+    final recipes = ref.watch(linkedRecipesProvider);
     if (recipes.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: Insets.lg),

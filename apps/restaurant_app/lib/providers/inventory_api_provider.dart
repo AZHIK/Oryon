@@ -26,7 +26,6 @@ import '../sync/purchasing_sync_service.dart';
 import '../sync/suppliers_catalog_api.dart';
 import '../sync/units_catalog_api.dart';
 import '../sync/units_sync_service.dart';
-import 'auth_provider.dart';
 import 'database_providers.dart';
 import 'permissions_cache_tick_provider.dart';
 import 'permissions_provider.dart';

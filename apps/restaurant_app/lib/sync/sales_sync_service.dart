@@ -27,8 +27,7 @@ class SalesSyncService {
   /// Error from the last sync attempt, if any.
   String? lastSyncError;
 
-  SalesSyncService({required this._db, required PosCatalogApi api})
-      : _api = api;
+  SalesSyncService({required this._db, required this._api});
 
   /// Pulls the sales ledger for [storeId] and upserts into cache, then
   /// fetches line items for any sale seen for the first time.

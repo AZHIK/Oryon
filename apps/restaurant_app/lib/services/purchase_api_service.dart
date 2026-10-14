@@ -205,7 +205,7 @@ class GoodsReceiptDto {
 // ── Service ──────────────────────────────────────────────────────────────
 
 class PurchaseApiService {
-  const PurchaseApiService({required Dio dio}) : _dio = dio;
+  const PurchaseApiService({required this._dio});
 
   final Dio _dio;
 
@@ -225,7 +225,7 @@ class PurchaseApiService {
     try {
       final response = await _dio.get(
         InventoryApiPaths.purchaseOrders(businessId),
-        queryParameters: {if (status != null) 'status': status},
+        queryParameters: {'status': ?status},
       );
       final items = (response.data as Map<String, dynamic>)['items'] as List;
       return items
@@ -268,8 +268,8 @@ class PurchaseApiService {
         data: {
           'store_id': storeId,
           'supplier_id': supplierId,
-          if (poNumber != null) 'po_number': poNumber,
-          if (notes != null) 'notes': notes,
+          'po_number': ?poNumber,
+          'notes': ?notes,
           if (expectedAt != null) 'expected_at': expectedAt.toIso8601String(),
           'lines': [
             for (final line in lines)
@@ -336,7 +336,7 @@ class PurchaseApiService {
       final response = await _dio.post(
         InventoryApiPaths.purchaseOrderAction(businessId, orderId, 'receive'),
         data: {
-          if (notes != null) 'notes': notes,
+          'notes': ?notes,
           'lines': [
             for (final line in lines)
               {

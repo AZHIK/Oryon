@@ -20,8 +20,7 @@ class HttpFinanceCatalogApi extends FinanceCatalogApi {
   final Dio _dio;
   final String _businessId;
 
-  HttpFinanceCatalogApi({required this._dio, required String businessId})
-      : _businessId = businessId;
+  HttpFinanceCatalogApi({required this._dio, required this._businessId});
 
   @override
   Future<List<OtherExpenseServerDto>> fetchExpenses({

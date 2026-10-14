@@ -53,11 +53,12 @@ class RecipesCatalogNotifier extends AsyncNotifier<List<RecipeDto>> {
     return null;
   }
 
-  /// Creates a recipe, then re-reads the catalog so pickers and detail
-  /// screens see it. Returns what the server stored. Component quantities
-  /// are totals for [targetYieldQuantity] (the batch the formula makes).
+  /// Creates a recipe — standalone or for a sellable item — then re-reads
+  /// the catalog so pickers and detail screens see it. Returns what the
+  /// server stored. Component quantities are totals for
+  /// [targetYieldQuantity] (the batch the formula makes).
   Future<RecipeDto> createRecipe({
-    required String sellableItemId,
+    String? sellableItemId,
     String? name,
     String? category,
     Decimal? targetYieldQuantity,
@@ -74,6 +75,24 @@ class RecipesCatalogNotifier extends AsyncNotifier<List<RecipeDto>> {
           targetYieldQuantity: targetYieldQuantity,
           targetYieldUnit: targetYieldUnit,
           components: components,
+        );
+    await refresh();
+    return saved;
+  }
+
+  /// Links a standalone recipe to its sellable item (set-once, never
+  /// moved), then re-reads the catalog. The menu-item form calls this
+  /// right after saving a produced-in-house item with a recipe picked.
+  Future<RecipeDto> linkRecipe({
+    required String recipeId,
+    required String sellableItemId,
+  }) async {
+    final businessId = ref.read(currentBusinessIdProvider);
+    if (businessId == null) throw StateError('No active business context');
+    final saved = await ref.read(inventoryApiServiceProvider).linkRecipe(
+          businessId: businessId,
+          recipeId: recipeId,
+          sellableItemId: sellableItemId,
         );
     await refresh();
     return saved;
@@ -126,6 +145,25 @@ final recipesCatalogProvider =
 /// The catalog, unwrapped for pickers that just need the current list.
 final recipesCatalogListProvider = Provider<List<RecipeDto>>(
   (ref) => ref.watch(recipesCatalogProvider).valueOrNull ?? const [],
+);
+
+/// Standalone recipes: formulas defined before their menu item exists
+/// ([RecipeDto.sellableItemId] null). The menu-item form offers these when
+/// adding a produced-in-house item; linking happens on save.
+final standaloneRecipesProvider = Provider<List<RecipeDto>>(
+  (ref) => [
+    for (final recipe in ref.watch(recipesCatalogListProvider))
+      if (recipe.sellableItemId == null) recipe,
+  ],
+);
+
+/// Linked recipes only: the only ones production runs and records can use
+/// (the output needs a sellable item to stock — the backend 422s the rest).
+final linkedRecipesProvider = Provider<List<RecipeDto>>(
+  (ref) => [
+    for (final recipe in ref.watch(recipesCatalogListProvider))
+      if (recipe.sellableItemId != null) recipe,
+  ],
 );
 
 // ---------------------------------------------------------------------------

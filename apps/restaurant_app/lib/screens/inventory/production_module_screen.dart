@@ -409,7 +409,7 @@ class _RecipeCard extends ConsumerWidget {
               const SizedBox(height: Insets.xs),
               Text(
                 '${AppStrings.batchYieldLine(batch, recipe.targetYieldUnit)}'
-                ' · ${recipe.sellableItemName}'
+                ' · ${recipe.sellableItemName ?? AppStrings.recipeUnlinkedBadge}'
                 ' · ${recipe.components.length} lines',
                 style: context.text.bodySmall?.copyWith(
                   color: context.colors.onSurfaceVariant,

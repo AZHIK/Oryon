@@ -39,10 +39,10 @@ class CustomerApiService {
       await _dio.patch(
         PosApiPaths.customer(businessId, customerId),
         data: {
-          if (name != null) 'name': name,
-          if (phone != null) 'phone': phone,
-          if (email != null) 'email': email,
-          if (addressLine1 != null) 'address_line1': addressLine1,
+          'name': ?name,
+          'phone': ?phone,
+          'email': ?email,
+          'address_line1': ?addressLine1,
         },
       );
     } on DioException catch (e) {

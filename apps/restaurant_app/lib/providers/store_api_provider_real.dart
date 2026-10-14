@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../auth/auth_dtos.dart';
 import '../services/store_api_service.dart';
 import 'auth_provider.dart';
-import 'database_providers.dart';
 import 'session_provider.dart';
 
 /// Provides access to the store API service.

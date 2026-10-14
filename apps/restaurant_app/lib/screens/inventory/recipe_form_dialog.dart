@@ -5,26 +5,30 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/inventory_item.dart';
 import '../../constants/app_strings.dart';
-import '../../models/permission.dart';
 import '../../providers/inventory_provider.dart';
-import '../../providers/permissions_provider.dart';
 import '../../providers/production_provider.dart';
 import '../../services/inventory_api_service.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/breakpoints.dart';
-import '../../widgets/dialogs/menu_item_form_dialog.dart';
 import '../../widgets/labeled_form_field.dart';
 import '../../widgets/responsive_form_dialog.dart';
 import 'stock_dialog_shared.dart';
 import '../../utils/dialog_helper.dart';
 
-/// Opens the recipe form: pass [recipe] to edit, [sellable] to pre-select
-/// a menu item, or neither for a blank add (user picks inside the form).
-/// Passing both is ambiguous and rejected.
+/// Opens the recipe form: pass [recipe] to edit, [sellable] to create
+/// directly for a menu item (detail screen / table row — no picker, the
+/// caller is the menu-item side), or neither for a standalone add from the
+/// menu-item form's + button or the production module.
+/// [initialName] pre-fills the name field when adding — the menu-item form
+/// passes what was just typed so the kitchen doesn't type it twice.
+/// There is deliberately no menu-item picker inside this form: recipes are
+/// always added from a menu item, never the other way round.
+/// Passing both [sellable] and [recipe] is ambiguous and rejected.
 Future<void> showRecipeFormDialog(
   BuildContext context, {
   InventoryItem? sellable,
   RecipeDto? recipe,
+  String? initialName,
 }) {
   assert(
     !(sellable != null && recipe != null),
@@ -32,7 +36,11 @@ Future<void> showRecipeFormDialog(
   );
   return showResponsiveFormDialog<void>(
     context,
-    builder: (_) => RecipeFormDialog(sellable: sellable, recipe: recipe),
+    builder: (_) => RecipeFormDialog(
+      sellable: sellable,
+      recipe: recipe,
+      initialName: initialName,
+    ),
   );
 }
 
@@ -40,8 +48,6 @@ Future<void> showRecipeFormDialog(
 /// so tests can target "the second row's quantity" without depending on
 /// item names that change per test.
 abstract final class RecipeFormKeys {
-  static const sellable = Key('recipeForm.sellable');
-  static const addSellable = Key('recipeForm.addSellable');
   static const name = Key('recipeForm.name');
   static const category = Key('recipeForm.category');
   static const targetQty = Key('recipeForm.targetQty');
@@ -70,10 +76,17 @@ class _IngredientRow {
 }
 
 class RecipeFormDialog extends ConsumerStatefulWidget {
-  const RecipeFormDialog({super.key, this.sellable, this.recipe});
+  const RecipeFormDialog({super.key, this.sellable, this.recipe, this.initialName});
 
+  /// Menu item this new recipe is created for, set programmatically by
+  /// menu-item entry points (detail screen, table row). Never picked inside
+  /// this form — the flow is always recipe-in-menu-item, not the reverse.
   final InventoryItem? sellable;
   final RecipeDto? recipe;
+
+  /// Prefilled name for a blank add (menu-item form's draft name).
+  /// Ignored when editing — a rename there is explicit, never defaulted.
+  final String? initialName;
 
   bool get isEdit => recipe != null;
 
@@ -113,6 +126,8 @@ class _RecipeFormDialogState extends ConsumerState<RecipeFormDialog> {
       }
     } else {
       _sellableCatalogId = widget.sellable?.catalogItemId;
+      final draft = (widget.initialName ?? '').trim();
+      if (draft.isNotEmpty) _name.text = draft;
       _rows.add(_IngredientRow());
     }
   }
@@ -136,38 +151,6 @@ class _RecipeFormDialogState extends ConsumerState<RecipeFormDialog> {
         for (final item in ref.watch(groceryItemsProvider))
           if (item.catalogItemId != null) item,
       ];
-
-  /// Menu lines backed by backend items — the only lines that can own a
-  /// recipe. Only used when adding; editing never re-targets a recipe.
-  List<InventoryItem> _pickableSellables() => [
-        for (final item in ref.watch(menuCatalogItemsProvider))
-          if (item.catalogItemId != null) item,
-      ];
-
-  /// Opens the menu-item form above this dialog and selects whatever was
-  /// just added.
-  ///
-  /// The returned item is the pre-save local copy (no `catalogItemId` yet),
-  /// so the new row is found by diffing backend ids: `upsert()` refreshes
-  /// the catalog before the menu-item form pops, which makes the new id
-  /// appear exactly once.
-  Future<void> _addSellable() async {
-    final before = {
-      for (final item in ref.read(menuCatalogItemsProvider))
-        if (item.catalogItemId != null) item.catalogItemId!,
-    };
-    final created = await showMenuItemFormDialog(context);
-    if (!mounted || created == null) return;
-    String? freshId;
-    for (final item in ref.read(menuCatalogItemsProvider)) {
-      final id = item.catalogItemId;
-      if (id != null && !before.contains(id)) {
-        freshId = id;
-        break;
-      }
-    }
-    if (freshId != null) setState(() => _sellableCatalogId = freshId);
-  }
 
   String? _duplicateId() {
     final seen = <String>{};
@@ -201,7 +184,11 @@ class _RecipeFormDialogState extends ConsumerState<RecipeFormDialog> {
 
   bool get _canSubmit {
     if (_saving || _deleting) return false;
-    if (_sellableCatalogId == null) return false;
+    // Standalone recipes (no menu item yet) need a name — there is no
+    // sellable name to default from. Linked ones default server-side.
+    if (_sellableCatalogId == null && _name.text.trim().isEmpty) {
+      return false;
+    }
     final target = _targetYield;
     if (target == null || target <= 0) return false;
     final filled = [
@@ -235,7 +222,7 @@ class _RecipeFormDialogState extends ConsumerState<RecipeFormDialog> {
     try {
       final saved = recipeId == null
           ? await ref.read(recipesCatalogProvider.notifier).createRecipe(
-                sellableItemId: _sellableCatalogId!,
+                sellableItemId: _sellableCatalogId,
                 name: nameText.isEmpty ? null : nameText,
                 category: _category,
                 targetYieldQuantity: Decimal.parse(target.toString()),
@@ -348,72 +335,14 @@ class _RecipeFormDialogState extends ConsumerState<RecipeFormDialog> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (!isEdit) ...[
-            LabeledFormField(
-              label: AppStrings.menuItemProduces,
-              helper: AppStrings.recipeProducesHelper,
-              isRequired: true,
-              child: Builder(
-                builder: (context) {
-                  final sellables = _pickableSellables();
-                  final initial = sellables.any(
-                    (i) => i.catalogItemId == _sellableCatalogId,
-                  )
-                      ? _sellableCatalogId
-                      : null;
-                  // Hidden rather than shown-disabled: someone who can't
-                  // add menu items shouldn't see a control that only ever
-                  // 403s — same rule as every other primary action.
-                  final canAddMenuItem = ref.watch(
-                    hasPermissionProvider(
-                      AppPermissions.inventoryItemsCreate,
-                    ),
-                  );
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          key: RecipeFormKeys.sellable,
-                          initialValue: initial,
-                          isExpanded: true,
-                          hint: Text(AppStrings.selectHint),
-                          items: [
-                            for (final item in sellables)
-                              DropdownMenuItem(
-                                value: item.catalogItemId,
-                                child: Text(
-                                  item.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                          ],
-                          onChanged: (value) =>
-                              setState(() => _sellableCatalogId = value),
-                        ),
-                      ),
-                      if (canAddMenuItem) ...[
-                        const SizedBox(width: Insets.sm),
-                        IconButton.filledTonal(
-                          key: RecipeFormKeys.addSellable,
-                          tooltip: AppStrings.addMenuItem,
-                          onPressed: _addSellable,
-                          icon: const Icon(Icons.add_rounded),
-                        ),
-                      ],
-                    ],
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: Insets.lg),
-          ],
           LabeledFormField(
             label: AppStrings.recipeName,
             helper: isEdit
                 ? AppStrings.recipeNameHelper
-                : AppStrings.recipeNameDefault,
+                : (_sellableCatalogId == null
+                    ? AppStrings.recipeNameRequiredStandalone
+                    : AppStrings.recipeNameDefault),
+            isRequired: !isEdit && _sellableCatalogId == null,
             child: TextFormField(
               key: RecipeFormKeys.name,
               controller: _name,
@@ -421,6 +350,7 @@ class _RecipeFormDialogState extends ConsumerState<RecipeFormDialog> {
               textInputAction: TextInputAction.next,
               decoration:
                   InputDecoration(hintText: AppStrings.recipeNameExample),
+              onChanged: (_) => setState(() {}),
             ),
           ),
           const SizedBox(height: Insets.lg),

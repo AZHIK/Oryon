@@ -627,8 +627,8 @@ abstract final class AppStrings {
     'No recipes yet — define one for a menu item first, then come back '
         'to record the run.',
   );
-  static String recipeSubtitle(int count, String name) =>
-      '$count ingredients · makes $name';
+  static String recipeSubtitle(int count, String? name) =>
+      name == null ? '$count ingredients · standalone formula' : '$count ingredients · makes $name';
   static String get adjustedBadge => L10n.t('adjustedBadge', 'Adjusted');
   static String tileDetail(
     String leadingQuantity,
@@ -1504,6 +1504,32 @@ abstract final class AppStrings {
   static String get menuItemProduces => L10n.t('menuItemProduces', 'Menu item');
   static String get recipeProducesHelper =>
       L10n.t('recipeProducesHelper', 'What this recipe produces');
+  static String get recipeStandaloneHelper => L10n.t(
+    'recipeStandaloneHelper',
+    'Optional — leave empty for a standalone formula, linkable to a menu item later',
+  );
+  static String get recipeStandaloneOption => L10n.t(
+    'recipeStandaloneOption',
+    'No menu item yet (standalone)',
+  );
+  static String get recipeNameRequiredStandalone => L10n.t(
+    'recipeNameRequiredStandalone',
+    'Name is required for a standalone recipe',
+  );
+  static String get recipeLinkHelper => L10n.t(
+    'recipeLinkHelper',
+    'Link this formula to the menu item it produces',
+  );
+  static String get menuItemRecipeLabel =>
+      L10n.t('menuItemRecipeLabel', 'Recipe (produced in-house)');
+  static String get menuItemRecipeHelper => L10n.t(
+    'menuItemRecipeHelper',
+    'Pick the formula this item is produced from, if any',
+  );
+  static String get menuItemRecipeNone =>
+      L10n.t('menuItemRecipeNone', 'Not produced in-house');
+  static String get recipeUnlinkedBadge =>
+      L10n.t('recipeUnlinkedBadge', 'Not linked');
   static String get selectHint => L10n.t('selectHint', 'Select');
   static String get recipeName => L10n.t('recipeName', 'Recipe name');
   static String get recipeNameExample =>

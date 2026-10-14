@@ -131,7 +131,8 @@ final dashboardMetricsProvider = Provider<DashboardMetrics>((ref) {
   final recipes = ref.watch(recipesCatalogListProvider);
   final recipeCost = <String, double>{
     for (final r in recipes)
-      r.sellableItemId: double.parse(r.costPerUnit.toString()),
+      if (r.sellableItemId != null)
+        r.sellableItemId!: double.parse(r.costPerUnit.toString()),
   };
   final fallbackCost = <String, double>{for (final i in items) i.id: i.unitCost};
   double cogsOf(Order order) {

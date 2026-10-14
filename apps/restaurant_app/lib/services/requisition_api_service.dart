@@ -24,7 +24,7 @@ class RequisitionApiException implements Exception {
 }
 
 class RequisitionApiService {
-  const RequisitionApiService({required Dio dio}) : _dio = dio;
+  const RequisitionApiService({required this._dio});
 
   final Dio _dio;
 

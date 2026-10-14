@@ -217,9 +217,15 @@ final snapshotCogsProvider = FutureProvider<SnapshotCogs>((ref) async {
   final recipes = ref.watch(recipesCatalogListProvider);
   final items = ref.watch(inventoryItemsListProvider);
   final index = CogsIndex(
-    recipeCost: {for (final r in recipes) r.sellableItemId: r.costPerUnit},
+    recipeCost: {
+      for (final r in recipes)
+        if (r.sellableItemId != null)
+          r.sellableItemId!: r.costPerUnit,
+    },
     recipeComplete: {
-      for (final r in recipes) r.sellableItemId: r.costComplete,
+      for (final r in recipes)
+        if (r.sellableItemId != null)
+          r.sellableItemId!: r.costComplete,
     },
     fallbackCost: {
       for (final i in items)

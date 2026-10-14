@@ -36,8 +36,8 @@ class SyncService {
 
   SyncService({
     required this._db,
-    required PosSyncApi api,
-  })  : _api = api;
+    required this._api,
+  });
 
   /// Returns pending sales in sync order (created first).
   Future<List> queryPendingSales() {

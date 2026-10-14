@@ -6,9 +6,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../constants/app_strings.dart';
 import '../../models/inventory_item.dart';
+import '../../models/permission.dart';
 import '../../providers/categories_provider.dart';
 import '../../providers/inventory_provider.dart';
 import '../../providers/menu_item_form_provider.dart';
+import '../../providers/permissions_provider.dart';
 import '../../providers/production_provider.dart';
 import '../../providers/units_provider.dart';
 import '../../services/inventory_api_service.dart';
@@ -20,6 +22,7 @@ import '../labeled_form_field.dart';
 import '../responsive_form_dialog.dart';
 import '../section_label.dart';
 import '../selectable_option_card.dart';
+import '../../screens/inventory/recipe_form_dialog.dart';
 
 /// Opens the add/edit menu-item form over the current screen.
 ///
@@ -60,6 +63,9 @@ abstract final class MenuItemFormKeys {
   static const cancel = Key('menuItemForm.cancel');
   static const submit = Key('menuItemForm.submit');
   static const costSource = Key('menuItemForm.costSource');
+  static const recipe = Key('menuItemForm.recipe');
+  static const addRecipe = Key('menuItemForm.addRecipe');
+  static const recipeCost = Key('menuItemForm.recipeCost');
 }
 
 /// The menu-item form itself. Prefer [showMenuItemFormDialog].
@@ -102,6 +108,11 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
   /// Backend id of the item under edit, for matching its recipe. Null when
   /// adding — a new item has no recipe to derive from yet.
   String? _catalogItemId;
+
+  /// Standalone recipe picked for this item (produced in-house). Linked
+  /// server-side right after the item saves — the backend link is
+  /// set-once, so an already-linked item never offers this picker.
+  String? _linkedRecipeId;
 
   AutoDisposeFamilyNotifierProvider<MenuItemFormNotifier, MenuItemFormState, String?>
   get _provider => menuItemFormProvider(widget.itemId);
@@ -177,7 +188,10 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
     String? unitCostOverride;
     var autoComplete = false;
     if (isAuto) {
-      final recipe = _recipeFor(ref.read(recipesCatalogListProvider));
+      final recipe = _recipeFor(
+        ref.read(recipesCatalogListProvider),
+        pickedRecipeId: _linkedRecipeId,
+      );
       autoComplete = recipe != null && recipe.costComplete;
       unitCostOverride =
           autoComplete ? recipe.costPerUnit.toString() : "0";
@@ -185,6 +199,14 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
     // An auto item with no complete recipe yet can never be active: it
     // saves archived until a recipe prices it.
     final forceInactive = isAuto && !autoComplete;
+
+    // Backend ids present before the save, so a newly added item's fresh
+    // id can be found afterwards for recipe linking (the saved copy is
+    // pre-save local state without one).
+    final knownIds = {
+      for (final item in ref.read(inventoryItemsListProvider))
+        if (item.catalogItemId != null) item.catalogItemId!,
+    };
 
     setState(() => _saving = true);
     try {
@@ -194,6 +216,30 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
             unitCostOverride: unitCostOverride,
             forceArchived: forceInactive ? true : null,
           );
+      // A produced-in-house item links its picked standalone recipe now
+      // that the menu item exists server-side.
+      final pickedRecipeId = _linkedRecipeId;
+      if (pickedRecipeId != null) {
+        var sellableId = _catalogItemId;
+        if (!isEdit) {
+          for (final candidate in ref.read(inventoryItemsListProvider)) {
+            final id = candidate.catalogItemId;
+            if (id != null && !knownIds.contains(id)) {
+              sellableId = id;
+              break;
+            }
+          }
+        }
+        if (sellableId == null) {
+          throw StateError(
+            'Item saved but its fresh record was not found — link the recipe from Production instead',
+          );
+        }
+        await ref.read(recipesCatalogProvider.notifier).linkRecipe(
+              recipeId: pickedRecipeId,
+              sellableItemId: sellableId,
+            );
+      }
       if (!mounted) return;
       Navigator.of(context).pop(item);
       messenger.showSnackBar(
@@ -244,9 +290,15 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
     );
   }
 
-  /// The recipe pricing the item under edit, if any — matched by backend id.
-  /// Null when adding: a new item has no recipe to derive from yet.
-  RecipeDto? _recipeFor(List<RecipeDto> recipes) {
+  /// The recipe pricing the item, if any — matched by backend id, or the
+  /// standalone recipe picked in this form (which prices a new item before
+  /// it exists server-side). Null when the item is bought, not produced.
+  RecipeDto? _recipeFor(List<RecipeDto> recipes, {String? pickedRecipeId}) {
+    if (pickedRecipeId != null) {
+      for (final recipe in recipes) {
+        if (recipe.id == pickedRecipeId) return recipe;
+      }
+    }
     final catalogId = _catalogItemId;
     if (catalogId == null) return null;
     for (final recipe in recipes) {
@@ -294,8 +346,11 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
     final categories = ref.watch(categoriesListProvider);
     // The recipe pricing this item in auto mode. Watched, so a recipe
     // saved moments ago (or a refresh landing mid-dialog) swaps the cost
-    // box in without reopening the form.
-    final autoRecipe = _recipeFor(ref.watch(recipesCatalogListProvider));
+    // box in without reopening the form. A picked standalone recipe
+    // prices a new item before it exists server-side.
+    final recipes = ref.watch(recipesCatalogListProvider);
+    final autoRecipe =
+        _recipeFor(recipes, pickedRecipeId: _linkedRecipeId);
     final isAuto = state.costSource == ItemCostSource.auto;
     final autoComplete = autoRecipe?.costComplete ?? false;
     // Mirrors `_save`'s forcing rule so the toggle never promises an
@@ -345,6 +400,13 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
             onChanged: notifier.setName,
             validator: MenuItemFormState.validateName,
           ),
+        ),
+        const SizedBox(height: Insets.lg),
+        _RecipeLinkSection(
+          existingLink: _recipeFor(recipes),
+          linkedRecipeId: _linkedRecipeId,
+          draftName: _name.text,
+          onChanged: (value) => setState(() => _linkedRecipeId = value),
         ),
         const SizedBox(height: Insets.lg),
         _FieldPair(
@@ -462,9 +524,19 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
           ),
         ],
         const SizedBox(height: Insets.lg),
-        // Auto derives the cost, so no cost field at all in that state —
-        // the price takes the full width. Manual keeps the cost+price pair.
-        if (isAuto)
+        // Auto shows the recipe's live cost beside the price so the margin
+        // is visible while typing — manual keeps the cost+price pair with
+        // a typed cost. Without a complete recipe there is no cost to show,
+        // so the price takes the full width under the warning above.
+        if (isAuto && autoComplete)
+          _FieldPair(
+            left: _ReadOnlyCost(
+              cost: double.parse(autoRecipe!.costPerUnit.toString()),
+              helper: AppStrings.costAutoHelper(autoRecipe.components.length),
+            ),
+            right: priceField,
+          )
+        else if (isAuto)
           priceField
         else
           _FieldPair(
@@ -491,6 +563,13 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
             ),
             right: priceField,
           ),
+        if (isAuto && autoComplete) ...[
+          const SizedBox(height: Insets.sm),
+          _MarginPreview(
+            cost: double.parse(autoRecipe!.costPerUnit.toString()),
+            sellingPrice: double.tryParse(state.sellingPrice.trim()),
+          ),
+        ],
         const SizedBox(height: Insets.xl),
         SectionLabel(AppStrings.stockSection),
         const SizedBox(height: Insets.md),
@@ -627,6 +706,154 @@ class _MenuItemFormDialogState extends ConsumerState<MenuItemFormDialog> {
   }
 }
 
+/// Produced-in-house link: pick the standalone recipe this menu item is
+/// made from, if any — or create the formula on the spot. Sits right under
+/// the item name so a produced dish gets its recipe before anything else.
+///
+/// Hidden when the item is already linked (links are set-once server-side,
+/// never moved) and when the session may neither link nor create — a dead
+/// control would only ever 403. The create button stays visible even with
+/// no standalone recipes yet: the first formula has to come from somewhere.
+class _RecipeLinkSection extends ConsumerWidget {
+  const _RecipeLinkSection({
+    required this.existingLink,
+    required this.linkedRecipeId,
+    required this.onChanged,
+    this.draftName,
+  });
+
+  final RecipeDto? existingLink;
+  final String? linkedRecipeId;
+  final ValueChanged<String?> onChanged;
+
+  /// What the user has typed as the item name so far — offered as the new
+  /// recipe's default name so the kitchen doesn't type it twice.
+  final String? draftName;
+
+  /// Opens a blank recipe form above this dialog and selects whatever was
+  /// just created. The new row is found by diffing standalone ids:
+  /// `createRecipe()` refreshes the catalog before the recipe form pops,
+  /// which makes the new id appear exactly once.
+  Future<void> _createRecipe(BuildContext context, WidgetRef ref) async {
+    final before = {
+      for (final recipe in ref.read(standaloneRecipesProvider)) recipe.id,
+    };
+    final trimmed = (draftName ?? '').trim();
+    await showRecipeFormDialog(
+      context,
+      initialName: trimmed.isEmpty ? null : trimmed,
+    );
+    if (!context.mounted) return;
+    String? freshId;
+    for (final recipe in ref.read(standaloneRecipesProvider)) {
+      if (!before.contains(recipe.id)) {
+        freshId = recipe.id;
+        break;
+      }
+    }
+    if (freshId != null) onChanged(freshId);
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (existingLink != null) {
+      return LabeledFormField(
+        label: AppStrings.menuItemRecipeLabel,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.symmetric(horizontal: Insets.lg),
+          decoration: BoxDecoration(
+            color:
+                context.colors.surfaceContainerHigh.withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(Radii.pill),
+            border: Border.all(color: context.semantic.hairline),
+          ),
+          alignment: Alignment.centerLeft,
+          child: Row(
+            children: [
+              Icon(
+                Icons.soup_kitchen_outlined,
+                size: 15,
+                color: context.colors.onSurfaceVariant,
+              ),
+              const SizedBox(width: Insets.sm),
+              Expanded(
+                child: Text(
+                  existingLink!.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: context.colors.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final canLink =
+        ref.watch(hasPermissionProvider(AppPermissions.recipesUpdate));
+    final canCreate =
+        ref.watch(hasPermissionProvider(AppPermissions.recipesCreate));
+    if (!canLink && !canCreate) return const SizedBox.shrink();
+    final standalone = ref.watch(standaloneRecipesProvider);
+
+    return LabeledFormField(
+      label: AppStrings.menuItemRecipeLabel,
+      helper: AppStrings.menuItemRecipeHelper,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: canLink
+                ? DropdownButtonFormField<String>(
+                    key: MenuItemFormKeys.recipe,
+                    initialValue:
+                        standalone.any((r) => r.id == linkedRecipeId)
+                            ? linkedRecipeId
+                            : null,
+                    isExpanded: true,
+                    hint: Text(AppStrings.selectHint),
+                    items: [
+                      DropdownMenuItem(
+                        child: Text(
+                          AppStrings.menuItemRecipeNone,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      for (final recipe in standalone)
+                        DropdownMenuItem(
+                          value: recipe.id,
+                          child: Text(
+                            recipe.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: onChanged,
+                  )
+                : const SizedBox.shrink(),
+          ),
+          if (canCreate) ...[
+            if (canLink) const SizedBox(width: Insets.sm),
+            IconButton.filledTonal(
+              key: MenuItemFormKeys.addRecipe,
+              tooltip: AppStrings.addRecipeTitle,
+              onPressed: () => _createRecipe(context, ref),
+              icon: const Icon(Icons.add_rounded),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _PhotoSection extends StatelessWidget {
   const _PhotoSection({
     required this.state,
@@ -709,7 +936,6 @@ class _FieldPair extends StatelessWidget {
 
 class _ReadOnlyStock extends StatelessWidget {
   const _ReadOnlyStock({required this.value, required this.unit});
-
   final String value;
   final String unit;
 
@@ -750,6 +976,91 @@ class _ReadOnlyStock extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The recipe's live cost per unit in auto mode: read-only, re-derived on
+/// every build so grocery price changes landing mid-dialog show at once.
+/// Mirrors [_ReadOnlyStock]'s surface so the pair reads as family.
+class _ReadOnlyCost extends StatelessWidget {
+  const _ReadOnlyCost({required this.cost, required this.helper});
+
+  final double cost;
+  final String helper;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+
+    return LabeledFormField(
+      key: MenuItemFormKeys.recipeCost,
+      label: AppStrings.unitCostLabel,
+      helper: helper,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 48),
+        padding: const EdgeInsets.symmetric(horizontal: Insets.lg),
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerHigh.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(Radii.pill),
+          border: Border.all(color: context.semantic.hairline),
+        ),
+        alignment: Alignment.centerLeft,
+        child: Row(
+          children: [
+            Icon(
+              Icons.soup_kitchen_outlined,
+              size: 15,
+              color: colors.onSurfaceVariant,
+            ),
+            const SizedBox(width: Insets.sm),
+            Expanded(
+              child: Text(
+                Fmt.money(cost),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: context.text.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Live margin under the auto cost+price pair: what the till keeps per item
+/// at the typed price. Rebuilds with the form state, so typing the price
+/// prices the margin at once.
+class _MarginPreview extends StatelessWidget {
+  const _MarginPreview({required this.cost, required this.sellingPrice});
+
+  final double cost;
+  final double? sellingPrice;
+
+  @override
+  Widget build(BuildContext context) {
+    final price = sellingPrice;
+    if (price == null || price <= 0) {
+      return Text(
+        AppStrings.setPriceForMargin,
+        style: context.text.bodySmall?.copyWith(
+          color: context.colors.onSurfaceVariant,
+        ),
+      );
+    }
+    final margin = price - cost;
+    return Text(
+      '${AppStrings.marginLabel}: ${Fmt.money(margin)} (${Fmt.percent(margin / price)})',
+      style: context.text.bodySmall?.copyWith(
+        fontWeight: FontWeight.w600,
+        color: margin >= 0
+            ? context.semantic.success
+            : context.semantic.danger,
       ),
     );
   }

@@ -9,7 +9,8 @@ import '../../router/app_router.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/breakpoints.dart';
 import '../../utils/formatters.dart';
-import '../../widgets/dialogs/assign_courier_dialog.dart';
+// import '../../widgets/dialogs/assign_courier_dialog.dart'; // Courier module
+// hidden — kept, not deleted. Re-enable with the delivery button below.
 import '../../widgets/dialogs/refund_confirm_dialog.dart';
 import '../../widgets/receipt/coupon_dialog.dart';
 import '../../widgets/receipt/receipt_dialog.dart';
@@ -482,7 +483,8 @@ class _Actions extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final refunded = order.status == OrderStatus.refunded;
-    final isDelivery = order.orderType == OrderType.delivery;
+    // final isDelivery = order.orderType == OrderType.delivery; // Courier
+    // module hidden — kept, not deleted. Re-enable with the button below.
 
     return Wrap(
       spacing: Insets.md,
@@ -498,16 +500,18 @@ class _Actions extends ConsumerWidget {
           icon: const Icon(Icons.confirmation_number_outlined, size: 18),
           label: Text(AppStrings.printCoupon),
         ),
-        if (isDelivery)
-          OutlinedButton.icon(
-            onPressed: () => showAssignCourierDialog(context, order),
-            icon: const Icon(Icons.two_wheeler_rounded, size: 18),
-            label: Text(
-              order.courierId != null
-                  ? AppStrings.changeCourier
-                  : AppStrings.assignCourierAction,
-            ),
-          ),
+        // Courier module hidden — kept, not deleted. The sales logic link
+        // (assign/change courier on delivery orders) is commented out only.
+        // if (isDelivery)
+        //   OutlinedButton.icon(
+        //     onPressed: () => showAssignCourierDialog(context, order),
+        //     icon: const Icon(Icons.two_wheeler_rounded, size: 18),
+        //     label: Text(
+        //       order.courierId != null
+        //           ? AppStrings.changeCourier
+        //           : AppStrings.assignCourierAction,
+        //     ),
+        //   ),
         OutlinedButton.icon(
           onPressed: refunded
               ? null

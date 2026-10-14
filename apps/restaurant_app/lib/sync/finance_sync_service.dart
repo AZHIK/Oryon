@@ -38,8 +38,7 @@ class FinanceSyncService {
 
   bool get isSyncing => _inFlight != null;
 
-  FinanceSyncService({required this._db, required FinanceSyncApi api})
-      : _api = api;
+  FinanceSyncService({required this._db, required this._api});
 
   /// Syncs pending expenses and incomes with the backend. Returns the same
   /// Future if a sync is already in progress (reentrancy guard).

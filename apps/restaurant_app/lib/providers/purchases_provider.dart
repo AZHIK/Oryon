@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/purchase_order.dart';
 import '../services/purchase_api_service.dart';
 import 'inventory_api_provider.dart';
+import 'inventory_provider.dart';
 import 'permissions_provider.dart';
 
 class PurchasesNotifier extends AsyncNotifier<List<PurchaseOrder>> {
@@ -99,6 +100,9 @@ class PurchasesNotifier extends AsyncNotifier<List<PurchaseOrder>> {
   }
 
   /// Records a goods receipt (partial quantities allowed), then refreshes.
+  /// The backend credits stock via `record_movement` in the same
+  /// transaction, so the local inventory cache is refreshed too — otherwise
+  /// Groceries/Menu keep showing the pre-receipt counts until a manual pull.
   Future<GoodsReceiptDto> receive({
     required String orderId,
     required List<GoodsReceiptLineInput> lines,
@@ -113,6 +117,11 @@ class PurchasesNotifier extends AsyncNotifier<List<PurchaseOrder>> {
           notes: notes,
         );
     await refresh();
+    try {
+      await ref.read(inventoryItemsProvider.notifier).refresh();
+    } catch (_) {
+      ref.invalidate(inventoryItemsProvider);
+    }
     return grn;
   }
 }

@@ -402,7 +402,7 @@ class _QuickActions extends ConsumerWidget {
     final recipeAction = _recipeAction(context, ref);
     final buttons = <Widget>[
       if (_canProduce(ref)) _RecordProductionButton(item: item),
-      if (recipeAction != null) recipeAction,
+      ?recipeAction,
     ];
     if (buttons.isEmpty) return const SizedBox.shrink();
 

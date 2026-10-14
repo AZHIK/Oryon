@@ -20,8 +20,7 @@ class CustomerLedgerSyncService {
   DateTime? lastSyncTime;
   String? lastSyncError;
 
-  CustomerLedgerSyncService({required this._db, required CustomerCatalogApi api})
-      : _api = api;
+  CustomerLedgerSyncService({required this._db, required this._api});
 
   /// Pulls all customers for the business and upserts into cache.
   Future<void> syncCustomers() async {

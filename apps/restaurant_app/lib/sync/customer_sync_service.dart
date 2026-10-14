@@ -35,8 +35,7 @@ class CustomerSyncService {
 
   bool get isSyncing => _inFlight != null;
 
-  CustomerSyncService({required this._db, required CustomerSyncApi api})
-      : _api = api;
+  CustomerSyncService({required this._db, required this._api});
 
   /// Syncs pending customers with the backend. Returns the same Future if
   /// a sync is already in progress (reentrancy guard).
