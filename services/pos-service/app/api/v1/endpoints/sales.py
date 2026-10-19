@@ -8,7 +8,7 @@ from typing import Annotated
 from uuid import UUID
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import case as sa_case, func as sa_func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -48,6 +48,7 @@ router = APIRouter(tags=["sales"])
 async def sync_sales(
     business_id: UUID,
     batch: SaleSyncBatchRequest,
+    request: Request,
     session: AsyncSession = Depends(get_db),
     claims: dict = Depends(get_current_claims),
     _active_business: str = Depends(require_business_permission(PermissionCode.POS_WRITE)),
@@ -62,7 +63,10 @@ async def sync_sales(
         actor_id = UUID(claims["sub"])
     except (ValueError, KeyError, TypeError):
         actor_id = None
-    response = await sync_sale_batch(session, business_id, actor_id, batch)
+    response = await sync_sale_batch(
+        session, business_id, actor_id, batch,
+        authorization=request.headers.get("authorization"),
+    )
 
     created = sum(1 for r in response.results if r.status == "created")
     duplicate = sum(1 for r in response.results if r.status == "duplicate")

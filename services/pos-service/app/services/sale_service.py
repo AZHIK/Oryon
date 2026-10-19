@@ -96,6 +96,7 @@ async def sync_sale_batch(
     actor_id: UUID | None,
     batch: SaleSyncBatchRequest,
     publish: Callable[..., Awaitable[None]] = publish_event,
+    authorization: str | None = None,
 ) -> SaleSyncBatchResponse:
     """Process a batch of offline-synced sales.
 
@@ -105,6 +106,9 @@ async def sync_sale_batch(
 
     Idempotency is enforced by ``client_sale_id`` — sales whose idempotency
     key already exists in the database are reported as ``duplicate``.
+
+    ``authorization`` is the caller's own JWT, forwarded to Identity
+    Service to read each store's tax switch (never stored or logged).
     """
     results: list[SyncResult] = []
 
@@ -126,6 +130,7 @@ async def sync_sale_batch(
                 async with session.begin_nested():
                     sale = await _create_sale_internal(
                         session, business_id, actor_id, sale_input,
+                        authorization=authorization,
                     )
 
                 await _publish_sale_events(sale, sale_input, publish)
@@ -168,6 +173,7 @@ async def _create_sale_internal(
     business_id: UUID,
     actor_id: UUID | None,
     sale_input: SaleSyncInput,
+    authorization: str | None = None,
 ) -> Sale:
     if sale_input.status in ("voided", "refunded") and not sale_input.void_or_refund_reason:
         raise SaleValidationError(
@@ -221,8 +227,14 @@ async def _create_sale_internal(
     subtotal = sum(
         li.quantity * li.unit_price for li in sale_input.line_items
     )
-    settings = get_settings()
-    tax_amount = subtotal * settings.default_tax_rate
+    # Per-store tax switch (default off): on = subtotal * rate, off = 0.
+    # Never blocks the sale — lookup failures degrade to no tax.
+    from app.services.tax_policy import get_store_tax
+
+    _, tax_rate = await get_store_tax(
+        business_id, sale_input.store_id, authorization
+    )
+    tax_amount = subtotal * tax_rate
     total = subtotal - sale_input.discount_amount + tax_amount + delivery_fee
 
     subtotal = subtotal.quantize(Decimal("0.01"))

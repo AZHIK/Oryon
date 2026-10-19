@@ -37,6 +37,8 @@ class RunCreate(BaseModel):
     yield_tolerance_percent: Decimal = Field(
         default=DEFAULT_YIELD_TOLERANCE_PERCENT, ge=Decimal("0"), le=Decimal("100")
     )
+    # Safe retry: same key sent twice makes only one batch.
+    idempotency_key: str | None = Field(default=None, max_length=100)
 
 
 class RunMeasuredComponentInput(BaseModel):
@@ -132,6 +134,9 @@ class RunRead(BaseModel):
     yield_variance_percent: Decimal | None = None
     yield_status: YieldStatus | None = None
     published_at: datetime | None = None
+    # True when this batch was stopped (items put back).
+    cancel_reason: str | None = None
+    cancelled_at: datetime | None = None
     created_by: UUID | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None

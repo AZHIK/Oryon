@@ -12,7 +12,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.validators import NormalizedEmailStr, PhoneStr
 
@@ -34,6 +34,9 @@ class StoreSettingBase(BaseModel):
     offer_retail: bool = True
     offer_wholesale: bool = False
     display_prices_inclusive_of_tax: bool = False
+    # Tax switch (off by default). tax_rate is a fraction (0.18 = 18%).
+    tax_enabled: bool = False
+    tax_rate: Decimal | None = Field(default=Decimal("0"), ge=Decimal("0"), le=Decimal("1"))
 
 
 class StoreSettingCreate(StoreSettingBase):
@@ -60,6 +63,8 @@ class StoreSettingUpdate(BaseModel):
     offer_retail: bool | None = None
     offer_wholesale: bool | None = None
     display_prices_inclusive_of_tax: bool | None = None
+    tax_enabled: bool | None = None
+    tax_rate: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("1"))
 
 
 class StoreSettingRead(StoreSettingBase):

@@ -106,6 +106,7 @@ class MovementType(str, PyEnum):
     REFUND_REVERSAL = "refund_reversal"
     PRODUCTION_INPUT = "production_input"
     PRODUCTION_OUTPUT = "production_output"
+    PRODUCTION_REVERSAL = "production_reversal"
 
 
 class ActorType(str, PyEnum):
@@ -391,6 +392,7 @@ class RunStatus(str, PyEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+    CANCELLED = "cancelled"
 
 
 class ProductionRun(SQLModel, table=True):
@@ -460,6 +462,13 @@ class ProductionRun(SQLModel, table=True):
     # Loss tracking: why stock went missing (spillage, burning,
     # over-portioning). Free text — the kitchen's own words.
     waste_reason: str | None = Field(default=None, max_length=500)
+    # Simple words for the undo button: why this batch was stopped.
+    cancel_reason: str | None = Field(default=None, max_length=500)
+    cancelled_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True)
+    )
+    # Safe retry: same key sent twice makes only one batch.
+    idempotency_key: str | None = Field(default=None, max_length=100)
     published_at: datetime | None = Field(
         default=None, sa_type=DateTime(timezone=True)
     )
@@ -623,6 +632,30 @@ class ProductionEvent(SQLModel, table=True):
     )
     # Loss tracking carried over from the run's completion.
     waste_reason: str | None = Field(default=None, max_length=500)
+    # Simple undo: when set, this record is undone (stock was put back).
+    # History is kept — we never delete rows.
+    voided_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True)
+    )
+    void_reason: str | None = Field(default=None, max_length=500)
+    # The band used for the "met plan" check, saved so history always
+    # reads the same (was request-only before).
+    yield_tolerance_percent: Decimal = Field(
+        default=Decimal("5"),
+        sa_type=Numeric(precision=12, scale=3),
+    )
+    # Simple cost: what all used items cost in total, and per made item.
+    # Null when items have no cost on file.
+    production_cost_total: Decimal | None = Field(
+        default=None,
+        sa_type=Numeric(precision=12, scale=4),
+    )
+    production_cost_per_unit: Decimal | None = Field(
+        default=None,
+        sa_type=Numeric(precision=12, scale=4),
+    )
+    # Safe retry: same key sent twice makes only one record.
+    idempotency_key: str | None = Field(default=None, max_length=100)
     actor_id: UUID | None = Field(default=None, sa_type=PG_UUID)
     occurred_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),

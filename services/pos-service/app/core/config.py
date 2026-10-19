@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     internal_service_token: str = "change-me-internal-token"
     internal_event_timeout_seconds: float = 5.0
 
+    # ── Identity (per-store tax switch) ──────────
+    # Where to read each store's tax_enabled/tax_rate. The caller's own
+    # JWT is forwarded, so no service token is needed.
+    identity_service_url: str = "http://localhost:8009/api/v1"
+
     # ── CORS ────────────────────────────────────
     cors_allowed_origins: str = "http://localhost:3000"
 
@@ -62,6 +67,8 @@ class Settings(BaseSettings):
 
     # Local tax configuration — kept in POS Service for MVP rather than
     # touching Identity Service's businesses table.
+    # Fallback only: per-store tax_enabled/tax_rate from Identity (see
+    # app/services/tax_policy.py) wins when reachable. Default 0 = off.
     default_tax_rate: Decimal = Decimal("0")
 
     # ── Receipt storage ─────────────────────────

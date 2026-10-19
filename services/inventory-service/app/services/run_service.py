@@ -113,6 +113,7 @@ async def create_run(
     target_output_quantity: Decimal,
     yield_tolerance_percent: Decimal = Decimal("5"),
     actor_id: UUID | None = None,
+    idempotency_key: str | None = None,
 ) -> ProductionRun:
     """Schedule a batch (pending): snapshot the plan, move no stock.
 
@@ -124,6 +125,16 @@ async def create_run(
         raise InvalidProductionInputError(
             f"target_output_quantity must be positive, got {target_output_quantity}"
         )
+    if idempotency_key:
+        existing = await db.exec(
+            select(ProductionRun).where(
+                ProductionRun.business_id == business_id,
+                ProductionRun.idempotency_key == idempotency_key,
+            )
+        )
+        found = existing.one_or_none()
+        if found is not None:
+            return found
     recipe, components, sellable = await _load_recipe(db, business_id, recipe_id)
 
     run = ProductionRun(
@@ -134,6 +145,7 @@ async def create_run(
         status=RunStatus.PENDING,
         yield_tolerance_percent=yield_tolerance_percent,
         created_by=actor_id,
+        idempotency_key=idempotency_key,
     )
     db.add(run)
     await db.flush()
@@ -388,10 +400,24 @@ async def publish_run(
     """
     run = await _get_run_or_404(db, business_id, run_id)
     if run.status != RunStatus.COMPLETED:
+        # Safe retry: tapping Publish twice returns the same record.
+        if run.published_at is not None:
+            existing = await db.exec(
+                select(ProductionEvent).where(ProductionEvent.run_id == run.id)
+            )
+            found = existing.one_or_none()
+            if found is not None:
+                return found
         raise InvalidRunStateError(
             f"Run '{run_id}' is {run.status.value} — only completed runs can publish"
         )
     if run.published_at is not None:
+        existing = await db.exec(
+            select(ProductionEvent).where(ProductionEvent.run_id == run.id)
+        )
+        found = existing.one_or_none()
+        if found is not None:
+            return found
         raise InvalidRunStateError(f"Run '{run_id}' is already published")
     assert run.actual_output_quantity is not None  # completed implies actual
     assert run.leading_component_item_id is not None  # started implies leading
@@ -427,6 +453,22 @@ async def publish_run(
 
     leading_qty = measured[run.leading_component_item_id]
     assert leading_qty is not None
+    # Simple cost from weighed items (same rule as quick cooking).
+    ingredient_ids = list(measured.keys())
+    item_result = await db.exec(
+        select(Item).where(Item.id.in_(ingredient_ids))
+    )
+    cost_by_item = {i.id: i.unit_cost for i in item_result.all()}
+    cost_total: Decimal | None = None
+    for raw_id, qty in measured.items():
+        assert qty is not None
+        basis = cost_by_item.get(raw_id)
+        if basis is not None:
+            line = (qty * basis).quantize(Decimal("0.0001"))
+            cost_total = line if cost_total is None else cost_total + line
+    cost_per_unit: Decimal | None = None
+    if cost_total is not None and run.actual_output_quantity and run.actual_output_quantity > Decimal("0"):
+        cost_per_unit = (cost_total / run.actual_output_quantity).quantize(Decimal("0.0001"))
     event = ProductionEvent(
         business_id=business_id,
         store_id=run.store_id,
@@ -438,6 +480,9 @@ async def publish_run(
         actual_output_quantity=run.actual_output_quantity,
         run_id=run.id,
         waste_reason=run.waste_reason,
+        yield_tolerance_percent=run.yield_tolerance_percent,
+        production_cost_total=cost_total,
+        production_cost_per_unit=cost_per_unit,
         actor_id=actor_id,
     )
     try:
@@ -464,7 +509,11 @@ async def publish_run(
             actor_id=actor_id,
             reason=f"Production run {run.id} published",
             commit=False,
+            unit_cost=cost_per_unit,
         )
+        if cost_per_unit is not None:
+            sellable.unit_cost = cost_per_unit
+            db.add(sellable)
         run.published_at = datetime.now(UTC)
         db.add(run)
         await db.commit()
@@ -525,3 +574,93 @@ async def delete_run(db: AsyncSession, business_id: UUID, run_id: UUID) -> None:
     await db.delete(run)
     await db.commit()
     logger.info("production.run_deleted", run_id=str(run.id), business_id=str(business_id))
+
+
+async def cancel_run(
+    db: AsyncSession,
+    business_id: UUID,
+    run_id: UUID,
+    reason: str | None = None,
+    actor_id: UUID | None = None,
+) -> ProductionRun:
+    """Stop a batch: put weighed items back, mark it stopped.
+
+    Simple words: "Stop" puts the items back on the shelf.
+    Works for planned (pending) and cooking (in_progress) batches.
+    A finished batch cannot be stopped here — undo its record instead.
+    Safe to tap twice.
+    """
+    from datetime import UTC, datetime
+
+    run = await _get_run_or_404(db, business_id, run_id)
+    if run.status == RunStatus.CANCELLED:
+        return run
+    if run.status == RunStatus.COMPLETED:
+        raise InvalidRunStateError(
+            f"Run '{run_id}' is completed — undo its cooking record instead"
+        )
+    if run.published_at is not None:
+        raise InvalidRunStateError(
+            f"Run '{run_id}' is already published — undo its cooking record instead"
+        )
+    clean_reason = (reason or "").strip() or "Stopped by staff"
+
+    if run.status == RunStatus.PENDING:
+        run.status = RunStatus.CANCELLED
+        run.cancel_reason = clean_reason[:500]
+        run.cancelled_at = datetime.now(UTC)
+        db.add(run)
+        await db.commit()
+        await db.refresh(run)
+    else:
+        # in_progress: put measured items back.
+        comp_result = await db.exec(
+            select(ProductionRunComponent).where(
+                ProductionRunComponent.production_run_id == run.id
+            )
+        )
+        snap = list(comp_result.all())
+        measured = {
+            c.raw_material_item_id: c.measured_quantity for c in snap
+        }
+        if any(q is None for q in measured.values()):
+            raise InvalidRunStateError(
+                f"Run '{run_id}' has no measured quantities to put back"
+            )
+        try:
+            for raw_id, qty in measured.items():
+                assert qty is not None
+                await record_movement(
+                    db=db,
+                    item_id=raw_id,
+                    business_id=business_id,
+                    store_id=run.store_id,
+                    quantity_delta=qty,
+                    movement_type=MovementType.PRODUCTION_REVERSAL,
+                    reference_type="production_run",
+                    reference_id=run.id,
+                    actor_id=actor_id,
+                    reason=f"Stop batch {run.id}: put back",
+                    commit=False,
+                    skip_negative_check=True,
+                )
+            run.status = RunStatus.CANCELLED
+            run.cancel_reason = clean_reason[:500]
+            run.cancelled_at = datetime.now(UTC)
+            db.add(run)
+            await db.commit()
+            await db.refresh(run)
+        except Exception:
+            await db.rollback()
+            raise
+
+    await publish_event(
+        "production.run_cancelled",
+        {
+            "run_id": str(run.id),
+            "business_id": str(business_id),
+            "reason": clean_reason,
+        },
+    )
+    logger.info("production.run_cancelled", run_id=str(run.id), business_id=str(business_id))
+    return run

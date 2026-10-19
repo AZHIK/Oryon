@@ -150,6 +150,8 @@ async def record_production_event(
     components_override: dict[UUID, Decimal] | None = None,
     actor_type: str = "user",
     actor_id: UUID | None = None,
+    yield_tolerance_percent: Decimal = Decimal("5"),
+    idempotency_key: str | None = None,
 ) -> ProductionEvent:
     """Record one production run atomically: consume ingredients, add output.
 
@@ -188,6 +190,22 @@ async def record_production_event(
         Any ingredient would go negative without ``allow_negative_stock``.
         Nothing has been written when this raises — the event fails whole.
     """
+    # Safe retry: same key sent twice makes only one record.
+    if idempotency_key:
+        existing = await db.exec(
+            select(ProductionEvent).where(
+                ProductionEvent.business_id == business_id,
+                ProductionEvent.idempotency_key == idempotency_key,
+            )
+        )
+        found = existing.one_or_none()
+        if found is not None:
+            logger.info(
+                "production.idempotent_hit",
+                event_id=str(found.id),
+                business_id=str(business_id),
+            )
+            return found
     if leading_quantity_used <= Decimal("0"):
         raise InvalidProductionInputError(
             f"leading_quantity_used must be positive, got {leading_quantity_used}"
@@ -343,7 +361,35 @@ async def record_production_event(
                 "nothing was written"
             )
 
-    # ── Step 6: write event + component rows + movement legs, one txn ──
+    # ── Step 6: simple cost (what did the used items cost?) ─────────
+    # Total = each used amount × that item's cost on file. Per-unit =
+    # total ÷ made items. Null when no costs on file (we do not guess).
+    cost_total: Decimal | None = None
+    for raw_id, needed in consumption.items():
+        basis = items[raw_id].unit_cost
+        if basis is not None:
+            line = (needed * basis).quantize(Decimal("0.0001"))
+            cost_total = line if cost_total is None else cost_total + line
+    cost_per_unit: Decimal | None = None
+    if cost_total is not None and actual_output > Decimal("0"):
+        cost_per_unit = (cost_total / actual_output).quantize(Decimal("0.0001"))
+
+    # Remember old counts so we can say "this item is now low".
+    old_counts: dict[UUID, Decimal] = {
+        raw_id: (
+            levels[raw_id].current_quantity
+            if raw_id in levels
+            else Decimal("0.000")
+        )
+        for raw_id in consumption.keys()
+    }
+    sellable_old = (
+        levels[sellable.id].current_quantity
+        if sellable.id in levels
+        else Decimal("0.000")
+    )
+
+    # ── Step 7: write event + component rows + movement legs, one txn ──
     event = ProductionEvent(
         business_id=business_id,
         store_id=store_id,
@@ -353,6 +399,10 @@ async def record_production_event(
         target_output_quantity=target_output_quantity,
         suggested_output_quantity=suggested_output,
         actual_output_quantity=actual_output,
+        yield_tolerance_percent=yield_tolerance_percent,
+        production_cost_total=cost_total,
+        production_cost_per_unit=cost_per_unit,
+        idempotency_key=idempotency_key,
         actor_id=actor_id,
     )
     db.add(event)
@@ -371,7 +421,7 @@ async def record_production_event(
     # already held by this transaction, its negative-stock check is a
     # backstop to Step 5, and commit=False keeps everything in OUR
     # transaction (it also publishes nothing — production emits its own
-    # events in Step 7, not per-leg stock.adjusted noise).
+    # events in Step 8, not per-leg stock.adjusted noise).
     try:
         for raw_id, needed in consumption.items():
             await record_movement(
@@ -390,6 +440,7 @@ async def record_production_event(
             )
         # The sellable leg uses the OWNER-CONFIRMED quantity — that is the
         # real stock effect; the suggestion is recorded, not stocked.
+        # The made item's cost is the simple per-unit cost above.
         await record_movement(
             db=db,
             item_id=sellable.id,
@@ -403,7 +454,12 @@ async def record_production_event(
             actor_id=actor_id,
             reason=f"Production {event.id} ({recipe.name})",
             commit=False,
+            unit_cost=cost_per_unit,
         )
+        # Keep the made item's cost fresh for next time.
+        if cost_per_unit is not None:
+            sellable.unit_cost = cost_per_unit
+            db.add(sellable)
         await db.commit()
         await db.refresh(event)
     except Exception:
@@ -415,7 +471,7 @@ async def record_production_event(
     # persists as 10.000) so the published payloads — the future AI
     # insights feed — carry stored values, not float-shaped locals.
 
-    # ── Step 7: post-commit events (recorded, not stocked, quantities) ──
+    # ── Step 8: post-commit events (recorded, not stocked, quantities) ──
     production_payload: dict[str, Any] = {
         "event_id": str(event.id),
         "recipe_id": str(recipe.id),
@@ -452,6 +508,56 @@ async def record_production_event(
     }
     await publish_event("audit.recorded", audit_payload)
 
+    # Tell the app about new counts + low items (plain words for staff).
+    # record_movement with commit=False sends nothing, so we send it here.
+    try:
+        fresh_levels = await db.exec(
+            select(StockLevel).where(
+                StockLevel.item_id.in_(list(consumption.keys()) + [sellable.id]),
+                StockLevel.store_id == store_id,
+            )
+        )
+        fresh = {lv.item_id: lv.current_quantity for lv in fresh_levels.all()}
+        for raw_id, needed in consumption.items():
+            new_qty = fresh.get(raw_id, Decimal("0.000"))
+            await publish_event(
+                "stock.adjusted",
+                {
+                    "item_id": str(raw_id),
+                    "business_id": str(business_id),
+                    "store_id": str(store_id),
+                    "movement_type": MovementType.PRODUCTION_INPUT.value,
+                    "quantity_delta": str(-needed),
+                    "new_quantity": str(new_qty),
+                },
+            )
+            item = items[raw_id]
+            if old_counts[raw_id] >= item.reorder_threshold and new_qty < item.reorder_threshold:
+                await publish_event(
+                    "stock.low",
+                    {
+                        "item_id": str(raw_id),
+                        "business_id": str(business_id),
+                        "store_id": str(store_id),
+                        "current_quantity": str(new_qty),
+                        "reorder_threshold": str(item.reorder_threshold),
+                    },
+                )
+        sellable_new = fresh.get(sellable.id, sellable_old + actual_output)
+        await publish_event(
+            "stock.adjusted",
+            {
+                "item_id": str(sellable.id),
+                "business_id": str(business_id),
+                "store_id": str(store_id),
+                "movement_type": MovementType.PRODUCTION_OUTPUT.value,
+                "quantity_delta": str(actual_output),
+                "new_quantity": str(sellable_new),
+            },
+        )
+    except Exception:
+        logger.warning("production.post_commit_notify_failed", event_id=str(event.id))
+
     logger.info(
         "production.recorded",
         event_id=str(event.id),
@@ -460,4 +566,141 @@ async def record_production_event(
         suggested=str(suggested_output),
         actual=str(actual_output),
     )
+    return event
+
+
+class ProductionAlreadyVoidedError(ValueError):
+    """Raised when undo is asked twice — the second tap is safe, not an error."""
+
+
+async def void_production_event(
+    db: AsyncSession,
+    business_id: UUID,
+    event_id: UUID,
+    reason: str | None = None,
+    actor_type: str = "user",
+    actor_id: UUID | None = None,
+) -> ProductionEvent:
+    """Undo one cooking record: put used items back, take made items back.
+
+    Simple words: "Undo" means the stock goes back like the cooking
+    never happened. History is kept (we mark voided_at) — never deleted.
+    Safe to tap twice: the second tap just returns the same record.
+    """
+    from datetime import UTC, datetime
+
+    result = await db.exec(
+        select(ProductionEvent).where(
+            ProductionEvent.id == event_id,
+            ProductionEvent.business_id == business_id,
+        )
+    )
+    event = result.one_or_none()
+    if event is None:
+        raise RecipeNotFoundError(f"Production record '{event_id}' not found")
+    if event.voided_at is not None:
+        return event
+
+    comp_result = await db.exec(
+        select(ProductionEventComponent).where(
+            ProductionEventComponent.production_event_id == event.id
+        )
+    )
+    used = list(comp_result.all())
+
+    recipe_result = await db.exec(
+        select(Recipe).where(Recipe.id == event.recipe_id)
+    )
+    recipe = recipe_result.one_or_none()
+    recipe_name = recipe.name if recipe else "cooking"
+
+    # Load sellable id from recipe (or fail plainly).
+    if recipe is None or recipe.sellable_item_id is None:
+        raise RecipeNotFoundError("This cooking's menu item no longer exists")
+    sellable_id = recipe.sellable_item_id
+
+    lock_ids = sorted([*[c.raw_material_item_id for c in used], sellable_id], key=str)
+    item_result = await db.exec(
+        select(Item).where(Item.id.in_(lock_ids)).order_by(Item.id).with_for_update()
+    )
+    items = {i.id: i for i in item_result.all()}
+    level_result = await db.exec(
+        select(StockLevel)
+        .where(StockLevel.item_id.in_(lock_ids), StockLevel.store_id == event.store_id)
+        .order_by(StockLevel.item_id)
+        .with_for_update()
+    )
+    levels = {lv.item_id: lv for lv in level_result.all()}
+
+    # Taking made items back may go below zero when some were already
+    # sold — allow it here (the sale already happened) and say so.
+    sellable_current = (
+        levels[sellable_id].current_quantity
+        if sellable_id in levels
+        else Decimal("0.000")
+    )
+    _ = sellable_current
+
+    clean_reason = (reason or "").strip() or "Undone by staff"
+    try:
+        for comp in used:
+            await record_movement(
+                db=db,
+                item_id=comp.raw_material_item_id,
+                business_id=business_id,
+                store_id=event.store_id,
+                quantity_delta=comp.quantity_consumed,
+                movement_type=MovementType.PRODUCTION_REVERSAL,
+                reference_type="production_event",
+                reference_id=event.id,
+                actor_type=actor_type,
+                actor_id=actor_id,
+                reason=f"Undo cooking {event.id} ({recipe_name}): put back",
+                commit=False,
+                skip_negative_check=True,
+            )
+        await record_movement(
+            db=db,
+            item_id=sellable_id,
+            business_id=business_id,
+            store_id=event.store_id,
+            quantity_delta=-event.actual_output_quantity,
+            movement_type=MovementType.PRODUCTION_REVERSAL,
+            reference_type="production_event",
+            reference_id=event.id,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            reason=f"Undo cooking {event.id} ({recipe_name}): take back",
+            commit=False,
+            skip_negative_check=True,
+        )
+        event.voided_at = datetime.now(UTC)
+        event.void_reason = clean_reason[:500]
+        db.add(event)
+        await db.commit()
+        await db.refresh(event)
+    except Exception:
+        await db.rollback()
+        raise
+
+    await publish_event(
+        "production.voided",
+        {
+            "event_id": str(event.id),
+            "business_id": str(business_id),
+            "reason": clean_reason,
+        },
+    )
+    await publish_event(
+        "audit.recorded",
+        {
+            "actor_id": str(actor_id) if actor_id else None,
+            "business_id": str(business_id),
+            "action": "production.voided",
+            "resource_type": "production_event",
+            "resource_id": str(event.id),
+            "details": {"reason": clean_reason},
+        },
+    )
+    logger.info("production.voided", event_id=str(event.id), business_id=str(business_id))
     return event

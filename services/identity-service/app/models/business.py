@@ -198,6 +198,13 @@ class StoreSetting(UUIDMixin, TimestampMixin, SoftDeleteMixin, SQLModel, table=T
     offer_retail: bool = Field(default=True)
     offer_wholesale: bool = Field(default=False)
     display_prices_inclusive_of_tax: bool = Field(default=False)
+    # Tax switch: off by default. When off, no tax is charged or shown
+    # anywhere (POS, sales, reports). When on, sales charge
+    # subtotal * tax_rate. tax_rate is a fraction (0.18 = 18%).
+    tax_enabled: bool = Field(default=False)
+    tax_rate: Decimal | None = Field(
+        default=Decimal("0"), sa_column=Column(Numeric(5, 4), nullable=True)
+    )
     deleted_by: UUID | None = Field(default=None, foreign_key="users.id", nullable=True)
 
     store: Store = Relationship(back_populates="settings")

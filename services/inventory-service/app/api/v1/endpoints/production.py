@@ -27,6 +27,7 @@ from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -137,10 +138,13 @@ async def _read_events(
             if e.target_output_quantity is not None
             else e.suggested_output_quantity
         )
+        # Use the saved band when the caller does not pick one, so
+        # history always reads the same.
+        band = e.yield_tolerance_percent or yield_tolerance_percent
         status, variance, variance_percent = evaluate_yield(
             actual=e.actual_output_quantity,
             goal=goal,
-            tolerance_percent=yield_tolerance_percent,
+            tolerance_percent=band,
         )
         reads.append(
             ProductionEventRead(
@@ -162,7 +166,11 @@ async def _read_events(
                 yield_variance=variance,
                 yield_variance_percent=variance_percent,
                 yield_status=status,
-                yield_tolerance_percent=yield_tolerance_percent,
+                yield_tolerance_percent=band,
+                voided_at=e.voided_at,
+                void_reason=e.void_reason,
+                production_cost_total=e.production_cost_total,
+                production_cost_per_unit=e.production_cost_per_unit,
                 actor_id=e.actor_id,
                 occurred_at=e.occurred_at,
                 created_at=e.created_at,
@@ -220,6 +228,8 @@ async def produce(
                 else None
             ),
             actor_id=actor_id,
+            yield_tolerance_percent=body.yield_tolerance_percent,
+            idempotency_key=body.idempotency_key,
         )
     except RecipeNotFoundError as exc:
         raise HTTPException(
@@ -379,4 +389,42 @@ async def get_production_event(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Production event not found",
         )
+    return (await _read_events([event], session))[0]
+
+
+class VoidProductionRequest(BaseModel):
+    """Undo a cooking record, in simple words."""
+
+    reason: str | None = Field(default=None, max_length=500)
+
+
+@history_router.post("/{event_id}/void", response_model=ProductionEventRead)
+async def void_production(
+    business_id: UUID,
+    event_id: UUID,
+    body: VoidProductionRequest,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    _jwt_biz_id: Annotated[str, Depends(require_business_permission("production.create"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
+) -> ProductionEventRead:
+    """Undo: put used items back, take made items back. History is kept."""
+    from app.services.production_service import void_production_event
+
+    raw_sub = claims.get("sub")
+    try:
+        actor_id = UUID(raw_sub) if raw_sub else None
+    except ValueError:
+        actor_id = None
+    try:
+        event = await void_production_event(
+            db=session,
+            business_id=business_id,
+            event_id=event_id,
+            reason=body.reason,
+            actor_id=actor_id,
+        )
+    except RecipeNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
     return (await _read_events([event], session))[0]

@@ -27,6 +27,7 @@ from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -56,6 +57,7 @@ from app.services.production_service import (
 from app.services.run_service import (
     InvalidRunStateError,
     RunNotFoundError,
+    cancel_run,
     complete_run,
     create_run,
     delete_run,
@@ -67,7 +69,7 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/businesses/{business_id}/runs", tags=["production-runs"])
 
-_VALID_STATUSES = ("pending", "in_progress", "completed")
+_VALID_STATUSES = ("pending", "in_progress", "completed", "cancelled")
 
 
 async def _read_runs(
@@ -155,6 +157,8 @@ async def _read_runs(
                 yield_variance_percent=variance_percent,
                 yield_status=verdict,
                 published_at=r.published_at,
+                cancel_reason=r.cancel_reason,
+                cancelled_at=r.cancelled_at,
                 created_by=r.created_by,
                 started_at=r.started_at,
                 completed_at=r.completed_at,
@@ -203,6 +207,7 @@ async def create_production_run(
             target_output_quantity=body.target_output_quantity,
             yield_tolerance_percent=body.yield_tolerance_percent,
             actor_id=_actor_id_from(claims),
+            idempotency_key=body.idempotency_key,
         )
     except Exception as exc:
         raise _map_errors(exc) from exc
@@ -371,3 +376,33 @@ async def delete_production_run(
     except Exception as exc:
         raise _map_errors(exc) from exc
     logger.info("runs.endpoint_deleted", run_id=str(run_id), business_id=str(business_id))
+
+
+class CancelRunRequest(BaseModel):
+    """Stop a batch, in simple words."""
+
+    reason: str | None = None
+
+
+@router.post("/{run_id}/cancel", response_model=RunRead)
+async def cancel_production_run(
+    business_id: UUID,
+    run_id: UUID,
+    body: CancelRunRequest,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    _jwt_biz_id: Annotated[str, Depends(require_business_permission("production.create"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
+) -> RunRead:
+    """Stop: put weighed items back. Works for planned and cooking batches."""
+    try:
+        run = await cancel_run(
+            db=session,
+            business_id=business_id,
+            run_id=run_id,
+            reason=body.reason,
+            actor_id=_actor_id_from(claims),
+        )
+    except Exception as exc:
+        raise _map_errors(exc) from exc
+    logger.info("runs.endpoint_cancelled", run_id=str(run_id), business_id=str(business_id))
+    return (await _read_runs([run], session))[0]

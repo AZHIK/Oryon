@@ -87,6 +87,7 @@ _MOVEMENTS_ALLOWED_FOR_ANY: frozenset[MovementType] = frozenset(
         # sale/purchase item_type rules (Stage 2).
         MovementType.PRODUCTION_INPUT,
         MovementType.PRODUCTION_OUTPUT,
+        MovementType.PRODUCTION_REVERSAL,
     }
 )
 
@@ -102,6 +103,7 @@ _COMPATIBILITY_RULES: dict[ItemType, frozenset[MovementType]] = {
             MovementType.REFUND_REVERSAL,
             MovementType.PRODUCTION_INPUT,
             MovementType.PRODUCTION_OUTPUT,
+            MovementType.PRODUCTION_REVERSAL,
         }
     ),
     ItemType.RAW_MATERIAL: frozenset(
@@ -115,6 +117,7 @@ _COMPATIBILITY_RULES: dict[ItemType, frozenset[MovementType]] = {
             MovementType.REFUND_REVERSAL,
             MovementType.PRODUCTION_INPUT,
             MovementType.PRODUCTION_OUTPUT,
+            MovementType.PRODUCTION_REVERSAL,
         }
     ),
     ItemType.BOTH: frozenset(
@@ -129,6 +132,7 @@ _COMPATIBILITY_RULES: dict[ItemType, frozenset[MovementType]] = {
             MovementType.REFUND_REVERSAL,
             MovementType.PRODUCTION_INPUT,
             MovementType.PRODUCTION_OUTPUT,
+            MovementType.PRODUCTION_REVERSAL,
         }
     ),
 }

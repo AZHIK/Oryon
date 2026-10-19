@@ -118,6 +118,8 @@ class ProduceRequest(BaseModel):
     yield_tolerance_percent: Decimal = Field(
         default=DEFAULT_YIELD_TOLERANCE_PERCENT, ge=Decimal("0"), le=Decimal("100")
     )
+    # Safe retry: same key sent twice makes only one record.
+    idempotency_key: str | None = Field(default=None, max_length=100)
 
     @model_validator(mode="after")
     def _leading_matches_override(self) -> ProduceRequest:
@@ -207,6 +209,12 @@ class ProductionEventRead(BaseModel):
     actual_output_quantity: Decimal
     run_id: UUID | None = None
     waste_reason: str | None = None
+    # True when this record was undone (stock put back). History kept.
+    voided_at: datetime | None = None
+    void_reason: str | None = None
+    # Simple cost: what all used items cost, and per made item.
+    production_cost_total: Decimal | None = None
+    production_cost_per_unit: Decimal | None = None
     yield_goal_quantity: Decimal
     yield_variance: Decimal
     yield_variance_percent: Decimal | None = None
