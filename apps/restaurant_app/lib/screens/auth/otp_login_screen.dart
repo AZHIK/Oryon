@@ -393,10 +393,14 @@ class _CodeHint extends StatelessWidget {
                   color: context.colors.onSurfaceVariant,
                 ),
                 const SizedBox(width: Insets.sm - 2),
-                Text(
-                  AppStrings.codeHint,
-                  style: context.text.bodySmall?.copyWith(
-                    color: context.colors.onSurfaceVariant,
+                Flexible(
+                  child: Text(
+                    AppStrings.codeHint,
+                    textAlign: TextAlign.center,
+                    softWrap: true,
+                    style: context.text.bodySmall?.copyWith(
+                      color: context.colors.onSurfaceVariant,
+                    ),
                   ),
                 ),
               ],

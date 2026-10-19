@@ -165,6 +165,9 @@ List<AiInsight> _wasteInsights(
         body: AppStrings.insightWasteNoneBody,
         category: InsightCategory.waste,
         priority: InsightPriority.advisory,
+        evidence: [
+          (label: AppStrings.evidenceWasteRecords, value: '0'),
+        ],
       ),
     ];
   }

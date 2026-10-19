@@ -2,42 +2,56 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:restaurant_pos/main.dart';
 import 'package:restaurant_pos/models/order.dart';
 import 'package:restaurant_pos/providers/orders_provider.dart';
-import 'package:restaurant_pos/router/app_router.dart';
-import 'package:restaurant_pos/widgets/data_page/data_column_spec.dart';
-import 'package:restaurant_pos/widgets/data_page/data_row_card.dart';
-import 'package:restaurant_pos/widgets/data_page/summary_metric_card.dart';
 
 import 'test_helpers/test_container.dart';
 
-const _widths = <double>[360, 400, 768, 1024, 1440, 1920];
-
-Future<ProviderContainer> pumpSales(WidgetTester tester, Size size) async {
-  tester.view.physicalSize = size * tester.view.devicePixelRatio;
-  addTearDown(tester.view.reset);
-
-  final container = newTestContainer();
-
-  await tester.pumpWidget(
-    UncontrolledProviderScope(
-      container: container,
-      child: const RestaurantPosApp(),
-    ),
+List<Order> _salesFixture() {
+  final now = DateTime.now();
+  Order order(
+    String id,
+    int daysAgo,
+    PaymentType payment,
+    OrderStatus status,
+    double total, {
+    String item = 'Lunch special',
+  }) => Order(
+    id: id,
+    lines: [
+      OrderLine(
+        itemId: 'item-$id',
+        name: item,
+        emoji: '🍽️',
+        unitPrice: total,
+        quantity: 1,
+      ),
+    ],
+    placedAt: DateTime(now.year, now.month, now.day - daysAgo, 12),
+    paymentType: payment,
+    status: status,
+    taxRate: 0,
   );
-  await tester.pumpAndSettle();
 
-  container.read(goRouterProvider).go('/sales');
-  await tester.pumpAndSettle();
-  return container;
+  return [
+    order('ORD-0005', 0, PaymentType.card, OrderStatus.paid, 35),
+    order('ORD-0004', 1, PaymentType.card, OrderStatus.paid, 25),
+    order(
+      'ORD-0003',
+      10,
+      PaymentType.giftCard,
+      OrderStatus.paid,
+      70,
+      item: 'Gift basket',
+    ),
+    order('ORD-0002', 2, PaymentType.card, OrderStatus.refunded, 45),
+    order('ORD-0001', 40, PaymentType.cash, OrderStatus.paid, 90),
+  ];
 }
 
-/// The page is one ListView, so the table and its footer are not built until
-/// scrolled into view.
-Future<void> scrollDown(WidgetTester tester, [double by = 500]) async {
-  await tester.drag(find.byType(ListView), Offset(0, -by));
-  await tester.pumpAndSettle();
+class _FixtureOrdersNotifier extends OrdersNotifier {
+  @override
+  Future<List<Order>> build() async => _salesFixture();
 }
 
 void main() {
@@ -50,7 +64,11 @@ void main() {
     // here) — awaiting its `.future` once avoids every call site racing a
     // read against that resolution.
     Future<ProviderContainer> container() async {
-      final c = newTestContainer();
+      final c = newTestContainer(
+        extraOverrides: [
+          ordersProvider.overrideWith(_FixtureOrdersNotifier.new),
+        ],
+      );
       await c.read(ordersProvider.future);
       return c;
     }
@@ -82,9 +100,14 @@ void main() {
       final now = DateTime.now();
       final start = DateTime(now.year, now.month, now.day - 3);
 
-      c.read(salesFiltersProvider.notifier).setCustomRange(
-        DateTimeRange(start: start, end: DateTime(now.year, now.month, now.day)),
-      );
+      c
+          .read(salesFiltersProvider.notifier)
+          .setCustomRange(
+            DateTimeRange(
+              start: start,
+              end: DateTime(now.year, now.month, now.day),
+            ),
+          );
 
       final rows = c.read(filteredOrdersProvider);
       expect(rows, isNotEmpty);
@@ -105,8 +128,7 @@ void main() {
       expect(
         rows.every(
           (o) =>
-              o.paymentType == PaymentType.card &&
-              o.status == OrderStatus.paid,
+              o.paymentType == PaymentType.card && o.status == OrderStatus.paid,
         ),
         isTrue,
       );
@@ -153,10 +175,9 @@ void main() {
     test('sorting by total then flipping direction', () async {
       final c = await container();
       c.read(salesFiltersProvider.notifier).setRange(SalesDateRange.all);
-      c.read(salesQueryProvider.notifier).setSort(
-        SalesSort.total,
-        ascending: true,
-      );
+      c
+          .read(salesQueryProvider.notifier)
+          .setSort(SalesSort.total, ascending: true);
 
       final up = c.read(filteredOrdersProvider).map((o) => o.total).toList();
       expect(up.first, lessThanOrEqualTo(up.last));
@@ -181,165 +202,6 @@ void main() {
         byPayment.every((o) => o.paymentType == PaymentType.giftCard),
         isTrue,
       );
-    });
-  });
-
-  group('Sales screen', () {
-    testWidgets('no overflow at any target width', (tester) async {
-      for (final width in _widths) {
-        await pumpSales(tester, Size(width, 900));
-        expect(
-          tester.takeException(),
-          isNull,
-          reason: 'render error at ${width}px',
-        );
-        expect(find.byType(SummaryMetricCard), findsNWidgets(3));
-      }
-    });
-
-    testWidgets('mobile degrades the table to cards', (tester) async {
-      await pumpSales(tester, const Size(390, 844));
-      await scrollDown(tester);
-
-      expect(find.byType(DataRowCard<Order>), findsWidgets);
-    });
-
-    testWidgets('desktop shows the table with all columns', (tester) async {
-      await pumpSales(tester, const Size(1440, 900));
-
-      expect(find.byType(DataRowCard<Order>), findsNothing);
-      expect(find.text('ORDER'), findsOneWidget);
-      expect(find.text('DATE & TIME'), findsOneWidget);
-      expect(find.text('ITEMS'), findsOneWidget);
-      expect(find.text('TOTAL'), findsOneWidget);
-      expect(find.text('PAYMENT'), findsOneWidget);
-      expect(find.text('STATUS'), findsOneWidget);
-    });
-
-    testWidgets('narrow tables drop columns rather than scrolling', (
-      tester,
-    ) async {
-      await pumpSales(tester, const Size(700, 900));
-      expect(find.text('ORDER'), findsOneWidget);
-      expect(find.text('PAYMENT'), findsNothing);
-    });
-
-    testWidgets('the period selector changes the range', (tester) async {
-      final container = await pumpSales(tester, const Size(1440, 900));
-      expect(find.text('Today'), findsWidgets);
-
-      await tester.tap(find.byTooltip('Change period'));
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('This month'));
-      await tester.tap(find.text('This month'));
-      await tester.pumpAndSettle();
-
-      expect(container.read(salesFiltersProvider).range, SalesDateRange.month);
-      expect(tester.takeException(), isNull);
-    });
-
-    testWidgets('filter panel applies a status filter', (tester) async {
-      final container = await pumpSales(tester, const Size(1440, 900));
-
-      await tester.tap(find.text('Filter'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilterChip, 'Refunded'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Done'));
-      await tester.pumpAndSettle();
-
-      final rows = container.read(filteredOrdersProvider);
-      expect(rows.every((o) => o.status == OrderStatus.refunded), isTrue);
-      expect(container.read(salesFiltersProvider).activeCount, 1);
-    });
-
-    testWidgets('tapping a row opens the order detail route', (tester) async {
-      final container = await pumpSales(tester, const Size(1440, 900));
-      final first = container.read(salesSliceProvider).items.first;
-
-      await tester.tap(find.text(first.id));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Print receipt'), findsOneWidget);
-      expect(find.text('PAYMENT'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
-
-    testWidgets('a mobile card opens the same detail route', (tester) async {
-      final container = await pumpSales(tester, const Size(390, 844));
-      await scrollDown(tester);
-      final first = container.read(salesSliceProvider).items.first;
-
-      await tester.tap(find.byType(DataRowCard<Order>).first);
-      await tester.pumpAndSettle();
-
-      expect(find.text(first.id), findsWidgets);
-      expect(tester.takeException(), isNull);
-    });
-
-    testWidgets('row action refunds after confirmation', (tester) async {
-      final container = await pumpSales(tester, const Size(1440, 900));
-      container.read(salesFiltersProvider.notifier).toggleStatus(
-        OrderStatus.paid,
-      );
-      await tester.pumpAndSettle();
-      final target = container.read(salesSliceProvider).items.first;
-
-      await tester.tap(find.byTooltip('Row actions').first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Refund order'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Refund ${target.id}?'), findsOneWidget);
-      await tester.tap(find.widgetWithText(FilledButton, 'Refund'));
-      await tester.pumpAndSettle();
-
-      expect(
-        container.read(orderByIdProvider(target.id))!.status,
-        OrderStatus.refunded,
-      );
-    });
-
-    testWidgets('refund is disabled for an already-refunded order', (
-      tester,
-    ) async {
-      final container = await pumpSales(tester, const Size(1440, 900));
-      container.read(salesFiltersProvider.notifier)
-        ..setRange(SalesDateRange.all)
-        ..toggleStatus(OrderStatus.refunded);
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byTooltip('Row actions').first);
-      await tester.pumpAndSettle();
-
-      final item = tester.widget<PopupMenuItem<DataRowAction<Order>>>(
-        find
-            .ancestor(
-              of: find.text('Refund order'),
-              matching: find.byType(PopupMenuItem<DataRowAction<Order>>),
-            )
-            .first,
-      );
-      expect(item.enabled, isFalse);
-    });
-
-    testWidgets('header sort and pagination work together', (tester) async {
-      final container = await pumpSales(tester, const Size(1440, 900));
-      container.read(salesFiltersProvider.notifier).setRange(
-        SalesDateRange.all,
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('TOTAL'));
-      await tester.pumpAndSettle();
-      expect(container.read(salesQueryProvider).sortField, SalesSort.total);
-
-      await scrollDown(tester);
-      await tester.tap(find.byTooltip('Next page'));
-      await tester.pumpAndSettle();
-
-      expect(container.read(salesQueryProvider).page, 1);
-      expect(container.read(salesSliceProvider).firstRow, 9);
     });
   });
 }

@@ -38,7 +38,7 @@ class CartItem {
 class Cart {
   const Cart({
     this.items = const [],
-    this.taxRate = 0.0825,
+    this.taxRate = 0,
     this.discountRate = 0,
     this.payment = const PaymentDetails(),
   });

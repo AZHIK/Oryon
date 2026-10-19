@@ -5,11 +5,14 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:restaurant_pos/database/app_database.dart';
 import 'package:restaurant_pos/models/cart.dart';
+import 'package:restaurant_pos/models/inventory_item.dart';
 import 'package:restaurant_pos/models/menu_item.dart';
 import 'package:restaurant_pos/providers/cart_provider.dart';
 import 'package:restaurant_pos/providers/database_providers.dart';
 import 'package:restaurant_pos/providers/inventory_provider.dart';
 import 'package:restaurant_pos/providers/menu_providers.dart';
+import 'package:restaurant_pos/providers/permissions_provider.dart';
+import 'package:restaurant_pos/providers/session_provider.dart';
 import 'package:restaurant_pos/main.dart';
 
 import 'test_helpers/test_container.dart';
@@ -21,6 +24,56 @@ const _burger = MenuItem(
   price: 10.00,
   categoryId: 'mains',
   emoji: '🍔',
+);
+
+/// The menu (`inventoryItemsListProvider`) is empty without a store context —
+/// there is no bundled demo catalogue — so the filtering tests seed their own
+/// small one. It includes one raw material so "sellable only" is meaningful.
+const _catalog = <InventoryItem>[
+  InventoryItem(
+    id: 'catalog-risotto',
+    sku: 'SKU-RISOTTO',
+    name: 'Risotto',
+    description: 'Creamy mushroom risotto',
+    categoryId: 'mains',
+    emoji: '🍚',
+    stock: 10,
+    reorderLevel: 2,
+    unitCost: 4,
+    sellingPrice: 12,
+    isSellable: true,
+    itemType: 'sellable',
+  ),
+  InventoryItem(
+    id: 'catalog-cola',
+    sku: 'SKU-COLA',
+    name: 'Cola',
+    description: 'Chilled bottle',
+    categoryId: 'drinks',
+    emoji: '🥤',
+    stock: 20,
+    reorderLevel: 5,
+    unitCost: 1,
+    sellingPrice: 3,
+    isSellable: true,
+    itemType: 'both',
+  ),
+  InventoryItem(
+    id: 'catalog-flour',
+    sku: 'SKU-FLOUR',
+    name: 'Flour',
+    description: 'Baking flour',
+    categoryId: 'dry_goods',
+    emoji: '🌾',
+    stock: 5,
+    reorderLevel: 1,
+    unitCost: 2,
+    itemType: 'raw_material',
+  ),
+];
+
+ProviderContainer _menuContainer() => newTestContainer(
+  extraOverrides: [inventoryItemsListProvider.overrideWithValue(_catalog)],
 );
 
 void main() {
@@ -88,14 +141,12 @@ void main() {
   });
 
   group('Menu filtering', () {
-    // The menu is now derived from `inventoryItemsProvider`, an
-    // `AsyncNotifierProvider` — even its no-store-context (demo catalog)
-    // branch resolves one microtask later, so these need to wait for it
-    // rather than reading synchronously right after container creation.
-    test('search matches name and description', () async {
-      final container = newTestContainer();
+    // The menu is derived from `inventoryItemsListProvider`, which is empty
+    // with no store context (there is no bundled demo catalogue any more), so
+    // each test seeds a small catalogue via [_menuContainer].
+    test('search matches name and description', () {
+      final container = _menuContainer();
 
-      await container.read(inventoryItemsProvider.future);
       container.read(searchQueryProvider.notifier).state = 'risotto';
       final results = container.read(filteredMenuItemsProvider);
 
@@ -110,10 +161,9 @@ void main() {
       );
     });
 
-    test('category filter narrows to one category', () async {
-      final container = newTestContainer();
+    test('category filter narrows to one category', () {
+      final container = _menuContainer();
 
-      await container.read(inventoryItemsProvider.future);
       container.read(selectedCategoryProvider.notifier).state = 'drinks';
       final results = container.read(filteredMenuItemsProvider);
 
@@ -124,7 +174,16 @@ void main() {
 
   group('Shell navigation adapts to width', () {
     /// Drives the app at a fixed logical window size.
-    Future<void> pumpAt(WidgetTester tester, Size size) async {
+    ///
+    /// Seeds an onboarded session: `SessionNotifier.build()` now returns a
+    /// fresh *signed-out* device, so without this the app lands on OTP login
+    /// rather than the shell. [overrides] lets a test grant permissions (the
+    /// POS tab, for one, is `pos.access`-gated).
+    Future<void> pumpAt(
+      WidgetTester tester,
+      Size size, {
+      List<Override> overrides = const [],
+    }) async {
       tester.view.physicalSize = size * tester.view.devicePixelRatio;
       tester.view.devicePixelRatio = tester.view.devicePixelRatio;
       addTearDown(tester.view.reset);
@@ -135,9 +194,13 @@ void main() {
       final database = AppDatabase(NativeDatabase.memory());
       addTearDown(database.close);
       final container = ProviderContainer(
-        overrides: [appDatabaseProvider.overrideWithValue(database)],
+        overrides: [
+          appDatabaseProvider.overrideWithValue(database),
+          ...overrides,
+        ],
       );
       addTearDown(container.dispose);
+      container.read(sessionProvider.notifier).state = SessionNotifier.seed;
 
       await tester.pumpWidget(
         UncontrolledProviderScope(
@@ -149,7 +212,13 @@ void main() {
     }
 
     testWidgets('phone width shows the bottom navigation bar', (tester) async {
-      await pumpAt(tester, const Size(390, 844));
+      await pumpAt(
+        tester,
+        const Size(390, 844),
+        // POS is permission-gated, so grant it for this one — the point is
+        // that a phone shows the bottom bar with its primary destinations.
+        overrides: [hasPermissionProvider.overrideWith((ref, code) => true)],
+      );
 
       expect(find.text('POS'), findsWidgets);
       expect(find.byType(NavigationBar), findsOneWidget);

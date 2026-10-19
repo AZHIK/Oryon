@@ -31,6 +31,7 @@ abstract final class BusinessProfileKeys {
   static const cuisineType = Key('businessProfile.cuisineType');
   static const licenseDocumentUrl = Key('businessProfile.licenseDocumentUrl');
   static const brandColor = Key('businessProfile.brandColor');
+  static const receiptFooter = Key('businessProfile.receiptFooter');
   static const save = Key('businessProfile.save');
 }
 

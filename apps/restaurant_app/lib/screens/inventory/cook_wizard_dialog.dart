@@ -69,10 +69,15 @@ class _CookWizardState extends ConsumerState<_CookWizard> {
   RunDto? _run;
   ProductionEventDto? _published;
   bool _busy = false;
+  // Simple words: how exact must this be? Normal / Exact / Relaxed.
+  double _howExact = 5;
+  // Simple words: use the plan number, or type what you really got?
+  bool _usePlanNumber = true;
 
   final _target = TextEditingController();
   final _actual = TextEditingController();
   final _waste = TextEditingController();
+  final _search = TextEditingController();
   final Map<String, TextEditingController> _measured = {};
 
   @override
@@ -93,6 +98,7 @@ class _CookWizardState extends ConsumerState<_CookWizard> {
       RunStatusDto.pending => 2,
       RunStatusDto.inProgress => 3,
       RunStatusDto.completed => 5,
+      RunStatusDto.cancelled => 0,
     };
   }
 
@@ -101,6 +107,7 @@ class _CookWizardState extends ConsumerState<_CookWizard> {
     _target.dispose();
     _actual.dispose();
     _waste.dispose();
+    _search.dispose();
     for (final c in _measured.values) {
       c.dispose();
     }
@@ -134,7 +141,10 @@ class _CookWizardState extends ConsumerState<_CookWizard> {
     return true;
   }
 
-  bool get _recordValid => (parseQuantity(_actual.text) ?? 0) > 0;
+  bool get _recordValid {
+    if (_usePlanNumber) return true;
+    return (parseQuantity(_actual.text) ?? 0) > 0;
+  }
 
   double _stockOf(String catalogItemId) {
     for (final item in ref.read(inventoryItemsListProvider)) {
@@ -159,8 +169,15 @@ class _CookWizardState extends ConsumerState<_CookWizard> {
     if (!mounted) return;
     setState(() => _busy = false);
     final message = e is InventoryApiException ? e.message : e.toString();
+    final offline = message.toLowerCase().contains('socket') ||
+        message.toLowerCase().contains('connection') ||
+        message.toLowerCase().contains('timeout') ||
+        message.toLowerCase().contains('network');
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppStrings.runFailed(message))),
+      SnackBar(
+        content: Text(offline ? AppStrings.noInternetCook : 'Could not save: $message'),
+        action: SnackBarAction(label: AppStrings.tryAgain, onPressed: () {}),
+      ),
     );
   }
 
@@ -172,12 +189,14 @@ class _CookWizardState extends ConsumerState<_CookWizard> {
     try {
       final run = await ref
           .read(productionRunsProvider.notifier)
-          .createRun(recipeId: recipe.id, targetOutput: target);
+          .createRun(recipeId: recipe.id, targetOutput: target, yieldTolerancePercent: _howExact);
       if (!mounted) return;
       setState(() {
         _busy = false;
         _run = run;
         _seedMeasured(run);
+        _actual.text = _plain(target);
+        _usePlanNumber = true;
         _step = 2;
       });
     } catch (e) {
@@ -188,6 +207,33 @@ class _CookWizardState extends ConsumerState<_CookWizard> {
   Future<void> _startRun() async {
     final run = _run;
     if (run == null || !_weighValid) return;
+    // Simple words: warn first when short, then cook anyway or stop.
+    final shorts = <String>[
+      for (final line in run.components)
+        if ((_measuredOf(line.rawMaterialItemId) ?? 0) >
+            _stockOf(line.rawMaterialItemId))
+          '• ${line.rawMaterialName}',
+    ];
+    if (shorts.isNotEmpty && mounted) {
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          title: Text(AppStrings.notEnoughStockTitle),
+          content: Text(AppStrings.notEnoughStockBody(shorts.join('\n'))),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(d).pop(false),
+              child: Text(AppStrings.buyFirst),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(d).pop(true),
+              child: Text(AppStrings.cookAnyway),
+            ),
+          ],
+        ),
+      );
+      if (go != true || !mounted) return;
+    }
     final leadingId = run.components.first.rawMaterialItemId;
     setState(() => _busy = true);
     try {
@@ -213,7 +259,10 @@ class _CookWizardState extends ConsumerState<_CookWizard> {
 
   Future<void> _completeRun() async {
     final run = _run;
-    final actual = parseQuantity(_actual.text);
+    // Simple words: "Use plan number" means actual = plan. No blank magic.
+    final actual = _usePlanNumber
+        ? double.tryParse(run?.targetOutputQuantity.toString() ?? '')
+        : parseQuantity(_actual.text);
     if (run == null || actual == null || actual <= 0) return;
     setState(() => _busy = true);
     try {
@@ -264,7 +313,7 @@ class _CookWizardState extends ConsumerState<_CookWizard> {
     if (_published != null) return _donePage();
     return ResponsiveFormDialog(
       key: CookWizardKeys.dialog,
-      title: AppStrings.cookWizardTitle,
+      title: 'Cook food',
       width: kStockDialogWidth,
       actions: _actions,
       child: Column(
@@ -274,11 +323,18 @@ class _CookWizardState extends ConsumerState<_CookWizard> {
           _WizardHeader(step: _step + 1, total: _totalSteps, label: _stepLabel),
           const SizedBox(height: Insets.md),
           switch (_step) {
-            0 => _RecipeStep(onPick: _pickRecipe),
+            0 => _RecipeStep(
+                onPick: _pickRecipe,
+                search: _search,
+                onSearch: () => setState(() {}),
+              ),
             1 => _PlanStep(
                 recipeName: _recipe?.name ?? _run?.recipeName ?? '',
                 target: _target,
                 onChanged: () => setState(() {}),
+                howExact: _howExact,
+                onExact: (v) => setState(() => _howExact = v),
+                recipe: _recipe,
               ),
             2 => _WeighStep(
                 run: _run,
@@ -292,8 +348,11 @@ class _CookWizardState extends ConsumerState<_CookWizard> {
                 actual: _actual,
                 waste: _waste,
                 onChanged: () => setState(() {}),
+                usePlan: _usePlanNumber,
+                onUsePlan: (v) => setState(() => _usePlanNumber = v),
+                recipe: _recipe,
               ),
-            _ => _ReviewStep(run: _run),
+            _ => _ReviewStep(run: _run, recipe: _recipe),
           },
         ],
       ),
@@ -480,23 +539,31 @@ class _WizardHeader extends StatelessWidget {
   }
 }
 
-/// Step 1 — choose what to cook.
+/// Step 1 — choose what to cook. Simple search box on top.
 class _RecipeStep extends ConsumerWidget {
-  const _RecipeStep({required this.onPick});
+  const _RecipeStep({required this.onPick, required this.search, required this.onSearch});
 
   final ValueChanged<RecipeDto> onPick;
+  final TextEditingController search;
+  final VoidCallback onSearch;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // Runs stock an output item, so only linked recipes can be cooked —
     // standalone formulas 422 server-side until linked to a menu item.
-    final recipes = ref.watch(linkedRecipesProvider);
-    if (recipes.isEmpty) {
+    final all = ref.watch(linkedRecipesProvider);
+    final q = search.text.trim().toLowerCase();
+    final recipes = [
+      for (final r in all)
+        if (q.isEmpty || r.name.toLowerCase().contains(q)) r,
+    ];
+    if (all.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: Insets.lg),
         child: Text(
-          AppStrings.noRecipesYet,
-          style: context.text.bodyMedium?.copyWith(
+          AppStrings.askManagerCook,
+          textAlign: TextAlign.center,
+          style: context.text.bodyLarge?.copyWith(
             color: context.colors.onSurfaceVariant,
           ),
         ),
@@ -506,11 +573,18 @@ class _RecipeStep extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          AppStrings.chooseRecipeHint,
-          style: context.text.bodySmall?.copyWith(
-            color: context.colors.onSurfaceVariant,
+        TextFormField(
+          controller: search,
+          decoration: InputDecoration(
+            hintText: AppStrings.searchHint,
+            prefixIcon: const Icon(Icons.search_rounded),
           ),
+          onChanged: (_) => onSearch(),
+        ),
+        const SizedBox(height: Insets.md),
+        Text(
+          'What are we cooking?',
+          style: context.text.bodyLarge,
         ),
         const SizedBox(height: Insets.md),
         for (final recipe in recipes)
@@ -522,13 +596,9 @@ class _RecipeStep extends ConsumerWidget {
                 Icons.soup_kitchen_outlined,
                 color: context.colors.primary,
               ),
-              title: Text(recipe.name),
+              title: Text(recipe.name, style: context.text.bodyLarge),
               subtitle: Text(
-                AppStrings.batchYieldLine(
-                  Fmt.quantity(
-                      double.parse(recipe.targetYieldQuantity.toString())),
-                  recipe.targetYieldUnit,
-                ),
+                'Makes ${Fmt.quantity(double.parse(recipe.targetYieldQuantity.toString()))} ${recipe.targetYieldUnit} · ${Fmt.money(double.parse(recipe.costPerUnit.toString()))} each',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -536,34 +606,46 @@ class _RecipeStep extends ConsumerWidget {
               onTap: () => onPick(recipe),
             ),
           ),
+        if (recipes.isEmpty) const Text('Nothing found. Try another word.'),
       ],
     );
   }
 }
 
 /// Step 2 — how many to make. Planning moves no stock.
+/// Simple words + how-exact picker + cost preview.
 class _PlanStep extends StatelessWidget {
   const _PlanStep({
     required this.recipeName,
     required this.target,
     required this.onChanged,
+    required this.howExact,
+    required this.onExact,
+    required this.recipe,
   });
 
   final String recipeName;
   final TextEditingController target;
   final VoidCallback onChanged;
+  final double howExact;
+  final ValueChanged<double> onExact;
+  final RecipeDto? recipe;
 
   @override
   Widget build(BuildContext context) {
+    final qty = parseQuantity(target.text) ?? 0;
+    final each = recipe == null
+        ? 0.0
+        : double.parse(recipe!.costPerUnit.toString());
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(recipeName, style: context.text.titleSmall),
+        Text(recipeName, style: context.text.titleMedium),
         const SizedBox(height: Insets.md),
         LabeledFormField(
-          label: AppStrings.howManyToday,
-          helper: AppStrings.howManyTodayHint,
+          label: 'How many do you need?',
+          helper: 'Just the number — we work out the rest.',
           isRequired: true,
           child: TextFormField(
             key: CookWizardKeys.targetField,
@@ -574,16 +656,46 @@ class _PlanStep extends StatelessWidget {
             inputFormatters: [
               FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
             ],
+            style: Theme.of(context).textTheme.titleLarge,
             decoration: const InputDecoration(hintText: '50'),
             onChanged: (_) => onChanged(),
           ),
         ),
+        const SizedBox(height: Insets.md),
+        Text(AppStrings.howExact, style: context.text.bodyMedium),
+        const SizedBox(height: Insets.xs),
+        Wrap(
+          spacing: Insets.sm,
+          children: [
+            for (final (label, value) in [
+              (AppStrings.exactNormal, 5.0),
+              (AppStrings.exactStrict, 2.0),
+              (AppStrings.exactRelaxed, 10.0),
+            ])
+              FilterChip(
+                label: Text(label),
+                selected: howExact == value,
+                onSelected: (_) => onExact(value),
+              ),
+          ],
+        ),
+        if (qty > 0 && each > 0) ...[
+          const SizedBox(height: Insets.md),
+          Text(
+            'Cost for this batch: ${Fmt.money(each * qty)} (each one: ${Fmt.money(each)})',
+            style: context.text.bodyMedium?.copyWith(
+              color: context.semantic.success,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ],
     );
   }
 }
 
 /// Step 3 — weigh every line, then start (this deducts stock now).
+/// Uses the shared SimpleWeighLine: main item tagged, big text.
 class _WeighStep extends StatelessWidget {
   const _WeighStep({
     required this.run,
@@ -600,104 +712,29 @@ class _WeighStep extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final components = run?.components ?? const <RunComponentDto>[];
+    final mainId = components.isEmpty ? null : components.first.rawMaterialItemId;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          AppStrings.startCookingHint,
+          AppStrings.mainItemLabel,
           style: context.text.bodySmall?.copyWith(
-            color: context.colors.onSurfaceVariant,
+            color: context.colors.primary,
+            fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: Insets.md),
         for (final line in components)
-          _WeighLine(
-            line: line,
+          SimpleWeighLine(
+            name: line.rawMaterialName,
+            unit: line.rawMaterialUnit,
             controller: measured[line.rawMaterialItemId],
             onHand: stockOf(line.rawMaterialItemId),
             onChanged: onChanged,
+            isMainItem: line.rawMaterialItemId == mainId,
           ),
       ],
-    );
-  }
-}
-
-class _WeighLine extends StatelessWidget {
-  const _WeighLine({
-    required this.line,
-    required this.controller,
-    required this.onHand,
-    required this.onChanged,
-  });
-
-  final RunComponentDto line;
-  final TextEditingController? controller;
-  final double onHand;
-  final VoidCallback onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final needed = parseQuantity(controller?.text ?? '') ?? 0;
-    final short = needed > onHand;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: Insets.xs),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  line.rawMaterialName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: context.text.bodyMedium,
-                ),
-                Text(
-                  AppStrings.consumptionLine(
-                    Fmt.quantity(onHand),
-                    line.rawMaterialUnit,
-                    'in stock',
-                  ),
-                  style: context.text.bodySmall?.copyWith(
-                    color: short
-                        ? context.semantic.warning
-                        : context.colors.onSurfaceVariant,
-                    fontWeight: short ? FontWeight.w700 : null,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: Insets.sm),
-          SizedBox(
-            width: 130,
-            child: TextFormField(
-              controller: controller,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
-              ],
-              decoration: InputDecoration(
-                suffixText: line.rawMaterialUnit,
-                isDense: true,
-              ),
-              onChanged: (_) => onChanged(),
-            ),
-          ),
-          const SizedBox(width: Insets.sm),
-          Icon(
-            short
-                ? Icons.warning_amber_rounded
-                : Icons.check_circle_outline_rounded,
-            size: 16,
-            color:
-                short ? context.semantic.warning : context.semantic.success,
-          ),
-        ],
-      ),
     );
   }
 }
@@ -737,72 +774,127 @@ class _CookStep extends StatelessWidget {
 }
 
 /// Step 5 — what came out of the pot, plus anything lost.
+/// Simple words: two big buttons (Use plan number / Type real number),
+/// live difference preview, loss quick-picks, cost preview.
 class _RecordStep extends StatelessWidget {
   const _RecordStep({
     required this.run,
     required this.actual,
     required this.waste,
     required this.onChanged,
+    required this.usePlan,
+    required this.onUsePlan,
+    required this.recipe,
   });
 
   final RunDto? run;
   final TextEditingController actual;
   final TextEditingController waste;
   final VoidCallback onChanged;
+  final bool usePlan;
+  final ValueChanged<bool> onUsePlan;
+  final RecipeDto? recipe;
 
   @override
   Widget build(BuildContext context) {
     final target = run == null
-        ? ''
-        : Fmt.quantity(double.parse(run!.targetOutputQuantity.toString()));
+        ? 0.0
+        : double.parse(run!.targetOutputQuantity.toString());
+    final typed = parseQuantity(actual.text) ?? target;
+    final got = usePlan ? target : typed;
+    final diff = got - target;
+    final diffText = diff == 0
+        ? 'Same as plan'
+        : '${diff > 0 ? '+' : ''}${Fmt.quantity(diff)} vs plan';
+    final each = recipe == null
+        ? 0.0
+        : double.parse(recipe!.costPerUnit.toString());
+    const losses = ['Spilled', 'Burnt', 'Too much made', 'Taste bad'];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          AppStrings.targetWasLine(target, run?.recipeName ?? ''),
-          style: context.text.bodySmall?.copyWith(
-            color: context.colors.onSurfaceVariant,
-          ),
+          'Plan was ${Fmt.quantity(target)} × ${run?.recipeName ?? ''}',
+          style: context.text.bodyLarge,
         ),
         const SizedBox(height: Insets.md),
-        LabeledFormField(
-          label: AppStrings.howManyGot,
-          helper: AppStrings.actualYieldHint,
-          isRequired: true,
-          child: TextFormField(
-            key: CookWizardKeys.actualField,
-            controller: actual,
-            autofocus: true,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
-            ],
-            onChanged: (_) => onChanged(),
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: FilterChip(
+                label: Text(AppStrings.usePlanNumber),
+                selected: usePlan,
+                onSelected: (_) => onUsePlan(true),
+              ),
+            ),
+            const SizedBox(width: Insets.sm),
+            Expanded(
+              child: FilterChip(
+                label: Text(AppStrings.typeRealNumber),
+                selected: !usePlan,
+                onSelected: (_) => onUsePlan(false),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: Insets.lg),
-        LabeledFormField(
-          label: AppStrings.anythingLost,
-          helper: AppStrings.anythingLostHint,
-          child: TextFormField(
-            key: CookWizardKeys.wasteField,
-            controller: waste,
-            textCapitalization: TextCapitalization.sentences,
-            onChanged: (_) => onChanged(),
+        if (!usePlan) ...[
+          const SizedBox(height: Insets.md),
+          LabeledFormField(
+            label: 'How many did you get?',
+            isRequired: true,
+            child: TextFormField(
+              key: CookWizardKeys.actualField,
+              controller: actual,
+              autofocus: true,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
+              ],
+              style: Theme.of(context).textTheme.titleLarge,
+              onChanged: (_) => onChanged(),
+            ),
           ),
+        ],
+        const SizedBox(height: Insets.sm),
+        Text(diffText, style: context.text.bodyMedium),
+        if (each > 0 && got > 0)
+          Text(
+            'Worth about ${Fmt.money(each * got)}',
+            style: context.text.bodyMedium?.copyWith(
+              color: context.semantic.success,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        const SizedBox(height: Insets.lg),
+        Text(AppStrings.pickLossReason, style: context.text.bodyMedium),
+        const SizedBox(height: Insets.xs),
+        Wrap(
+          spacing: Insets.sm,
+          children: [
+            for (final loss in losses)
+              FilterChip(
+                label: Text(loss),
+                selected: waste.text == loss,
+                onSelected: (_) {
+                  waste.text = waste.text == loss ? '' : loss;
+                  onChanged();
+                },
+              ),
+          ],
         ),
       ],
     );
   }
 }
 
-/// Step 6 — verify the numbers, then publish to POS & inventory.
+/// Step 6 — check the numbers, then sell. Simple words + cost.
 class _ReviewStep extends StatelessWidget {
-  const _ReviewStep({required this.run});
+  const _ReviewStep({required this.run, required this.recipe});
 
   final RunDto? run;
+  final RecipeDto? recipe;
 
   @override
   Widget build(BuildContext context) {
@@ -813,30 +905,39 @@ class _ReviewStep extends StatelessWidget {
         ? '—'
         : Fmt.quantity(double.parse(run!.actualOutputQuantity.toString()));
     final verdict = switch (run?.yieldStatus) {
-      YieldStatusDto.above => AppStrings.yieldAbove,
-      YieldStatusDto.withinThreshold => AppStrings.yieldWithin,
-      YieldStatusDto.below => AppStrings.yieldBelow,
+      YieldStatusDto.above => 'Got more than planned',
+      YieldStatusDto.withinThreshold => 'Got what we planned',
+      YieldStatusDto.below => 'Got less than planned',
       null => '',
     };
+    final each = recipe == null
+        ? 0.0
+        : double.parse(recipe!.costPerUnit.toString());
+    final gotQty = run?.actualOutputQuantity == null
+        ? 0.0
+        : double.parse(run!.actualOutputQuantity.toString());
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          AppStrings.reviewPublishTitle,
-          style: context.text.titleSmall,
+          'Check, then sell',
+          style: context.text.titleMedium,
         ),
         const SizedBox(height: Insets.md),
         _SummaryRow(label: run?.recipeName ?? '', value: '$target → $actual'),
         if (verdict.isNotEmpty)
-          _SummaryRow(label: AppStrings.yieldLabel, value: verdict),
+          _SummaryRow(label: 'Result', value: verdict),
+        if (each > 0 && gotQty > 0)
+          _SummaryRow(
+            label: 'Worth about',
+            value: Fmt.money(each * gotQty),
+          ),
         if (run?.wasteReason != null && run!.wasteReason!.trim().isNotEmpty)
-          _SummaryRow(label: AppStrings.wasteLabel, value: run!.wasteReason!),
+          _SummaryRow(label: 'Lost', value: run!.wasteReason!),
         _SummaryRow(
-          label: AppStrings.statusLabel,
-          value: (run?.published ?? false)
-              ? AppStrings.publishedBadge
-              : AppStrings.awaitingPublish,
+          label: 'Now',
+          value: (run?.published ?? false) ? 'Selling' : 'Wait to sell',
         ),
       ],
     );

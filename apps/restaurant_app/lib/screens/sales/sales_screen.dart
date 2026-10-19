@@ -5,12 +5,14 @@ import 'package:go_router/go_router.dart';
 import '../../models/order.dart';
 import '../../constants/app_strings.dart';
 import '../../providers/orders_provider.dart';
+import '../../providers/outbox_status_provider.dart';
 import '../../router/app_router.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/formatters.dart';
 import '../../widgets/data_page/data_column_spec.dart';
 import '../../widgets/data_page/data_page_scaffold.dart';
 import '../../widgets/data_page/data_table_toolbar.dart';
+import '../../widgets/connection_status_pill.dart';
 import '../../widgets/data_page/export_actions.dart';
 import '../../widgets/data_page/reusable_data_table.dart';
 import '../../widgets/data_page/summary_metric_card.dart';
@@ -129,6 +131,13 @@ class SalesScreen extends ConsumerWidget {
         query: query,
         onSort: notifier.toggleSort,
         onPageChanged: notifier.setPage,
+        groupedItems: ref.watch(filteredOrdersProvider),
+        onGroupChanged: notifier.setGroup,
+        header: PendingSyncBanner(
+          pendingCount:
+              ref.watch(outboxStatusProvider).valueOrNull?.pendingSales ?? 0,
+          itemWord: 'sale',
+        ),
         onRowTap: (order) => context.go(AppRoute.orderDetail(order.id)),
         rowActions: _actions(ref),
       ),
@@ -257,6 +266,7 @@ List<DataColumnSpec<Order>> get salesColumns => <DataColumnSpec<Order>>[
     label: AppStrings.paymentSort,
     field: SalesSort.payment,
     flex: 3,
+    groupable: true,
     minTableWidth: 900,
     value: (order) => order.paymentType.label,
   ),
@@ -265,6 +275,7 @@ List<DataColumnSpec<Order>> get salesColumns => <DataColumnSpec<Order>>[
     field: SalesSort.fulfillment,
     role: ColumnRole.status,
     width: 124,
+    groupable: true,
     minTableWidth: 1000,
     value: (order) => order.fulfillmentStatus.label,
     cellBuilder: (context, order) =>
@@ -275,6 +286,7 @@ List<DataColumnSpec<Order>> get salesColumns => <DataColumnSpec<Order>>[
     field: SalesSort.status,
     role: ColumnRole.status,
     width: 124,
+    groupable: true,
     value: (order) => order.status.label,
     cellBuilder: (context, order) =>
         OrderStatusBadge(status: order.status, dense: true),
@@ -334,6 +346,12 @@ class _OrderCell extends StatelessWidget {
             color: context.colors.onSurfaceVariant,
           ),
         ),
+        // Delivery state in plain sight: two green ticks = safely on the
+        // server, amber tag = still on this device only.
+        if (order.serverSaleId == null)
+          const NotSentTag()
+        else
+          const SentTicks(),
       ],
     );
   }

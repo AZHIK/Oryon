@@ -13,6 +13,7 @@ class TableQuery {
     this.search = '',
     this.sortField,
     this.ascending = true,
+    this.groupField,
     this.page = 0,
     this.pageSize = AppLimits.tablePageSize,
   });
@@ -23,6 +24,11 @@ class TableQuery {
   final String? sortField;
   final bool ascending;
 
+  /// Matches [DataColumnSpec.field] on the group-by column, or null for a
+  /// flat list. Grouping shows every matching row under its value header,
+  /// so it resets pagination like search and sort do.
+  final String? groupField;
+
   /// Zero-based.
   final int page;
   final int pageSize;
@@ -31,6 +37,8 @@ class TableQuery {
     String? search,
     String? sortField,
     bool? ascending,
+    String? groupField,
+    bool clearGroup = false,
     int? page,
     int? pageSize,
   }) {
@@ -38,6 +46,7 @@ class TableQuery {
       search: search ?? this.search,
       sortField: sortField ?? this.sortField,
       ascending: ascending ?? this.ascending,
+      groupField: clearGroup ? null : (groupField ?? this.groupField),
       page: page ?? this.page,
       pageSize: pageSize ?? this.pageSize,
     );
@@ -52,18 +61,25 @@ class TableQuery {
       ? copyWith(ascending: !ascending, page: 0)
       : copyWith(sortField: field, ascending: true, page: 0);
 
+  /// Picking a group (or clearing it with null) shows the whole list from
+  /// the top — grouped view pages nothing away.
+  TableQuery withGroup(String? field) => field == null
+      ? copyWith(clearGroup: true, page: 0)
+      : copyWith(groupField: field, page: 0);
+
   @override
   bool operator ==(Object other) =>
       other is TableQuery &&
       other.search == search &&
       other.sortField == sortField &&
       other.ascending == ascending &&
+      other.groupField == groupField &&
       other.page == page &&
       other.pageSize == pageSize;
 
   @override
   int get hashCode =>
-      Object.hash(search, sortField, ascending, page, pageSize);
+      Object.hash(search, sortField, ascending, groupField, page, pageSize);
 }
 
 /// One page of results plus the counts the pagination footer needs.

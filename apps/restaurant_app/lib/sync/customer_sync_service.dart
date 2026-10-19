@@ -20,6 +20,7 @@ import '../constants/app_limits.dart';
 import '../database/app_database.dart';
 import 'customer_sync_api.dart';
 import 'customer_sync_dtos.dart';
+import 'sync_tick.dart';
 
 /// Core sync engine for customers.
 class CustomerSyncService {
@@ -63,6 +64,7 @@ class CustomerSyncService {
         }
 
         lastSyncTime = DateTime.now();
+        await recordSyncTick(_db, SyncArea.customers);
 
         if (claimed.length < _maxBatchSize) break;
       } catch (e) {

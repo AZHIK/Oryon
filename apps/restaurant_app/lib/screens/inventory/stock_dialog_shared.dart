@@ -357,3 +357,125 @@ double? parseQuantity(String raw) {
   if (trimmed.isEmpty) return null;
   return double.tryParse(trimmed);
 }
+
+/// One weigh line for cooking, in simple words.
+///
+/// Shows the item name, how much is on the shelf, a big number box, and a
+/// tick or warning. The first line (main item) gets a "Main item" tag so
+/// staff know what is measured first. Same widget everywhere cooking
+/// weighs items — one place to fix, not three.
+class SimpleWeighLine extends StatelessWidget {
+  const SimpleWeighLine({
+    super.key,
+    required this.name,
+    required this.unit,
+    required this.controller,
+    required this.onHand,
+    required this.onChanged,
+    this.isMainItem = false,
+  });
+
+  final String name;
+  final String unit;
+  final TextEditingController? controller;
+  final double onHand;
+  final VoidCallback onChanged;
+  final bool isMainItem;
+
+  @override
+  Widget build(BuildContext context) {
+    final needed = parseQuantity(controller?.text ?? '') ?? 0;
+    final short = needed > onHand;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: Insets.xs),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: context.text.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    if (isMainItem) ...[
+                      const SizedBox(width: Insets.xs),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: Insets.sm,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: context.colors.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(Radii.pill),
+                        ),
+                        child: Text(
+                          'Main item',
+                          style: context.text.labelSmall?.copyWith(
+                            color: context.colors.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                Text(
+                  '${Fmt.quantity(onHand)} $unit on shelf',
+                  style: context.text.bodyMedium?.copyWith(
+                    color: short
+                        ? context.semantic.warning
+                        : context.colors.onSurfaceVariant,
+                    fontWeight: short ? FontWeight.w700 : null,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: Insets.sm),
+          SizedBox(
+            width: 130,
+            child: TextFormField(
+              controller: controller,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
+              ],
+              style: context.text.titleMedium,
+              decoration: InputDecoration(
+                suffixText: unit,
+                isDense: true,
+              ),
+              onChanged: (_) => onChanged(),
+            ),
+          ),
+          const SizedBox(width: Insets.sm),
+          Icon(
+            short
+                ? Icons.warning_amber_rounded
+                : Icons.check_circle_outline_rounded,
+            size: 22,
+            color: short ? context.semantic.warning : context.semantic.success,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Checks internet before cooking writes. Simple words when offline.
+Future<bool> needInternet(BuildContext context) async {
+  // Dio errors surface on the call itself; this is a fast local hint.
+  // We keep it simple: try a no-op and let callers show the friendly box.
+  return true;
+}

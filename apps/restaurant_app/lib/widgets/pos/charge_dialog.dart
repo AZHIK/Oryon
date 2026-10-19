@@ -9,6 +9,7 @@ import '../../constants/app_strings.dart';
 import '../../models/permission.dart';
 import '../../models/store_settings.dart';
 import '../../providers/cart_provider.dart';
+import '../../providers/connectivity_provider.dart';
 import '../../providers/order_session_provider.dart';
 import '../../providers/orders_provider.dart';
 import '../../providers/permissions_provider.dart';
@@ -101,10 +102,18 @@ Future<void> chargeOpenOrder(BuildContext context, WidgetRef ref) async {
 
   final messenger = ScaffoldMessenger.of(context);
   messenger.hideCurrentSnackBar();
+  // Plain words about where the sale lives: on the server, or on this
+  // device only until internet is back (serverSaleId is set on sync).
+  final online = ref.read(isOnlineProvider).valueOrNull ?? true;
+  final queuedPart = order.serverSaleId == null
+      ? (online
+          ? ' Saved on this device — sending now.'
+          : ' Saved on this device — will send when internet is back.')
+      : '';
   messenger.showSnackBar(
     SnackBar(
       content: Text(
-        AppStrings.orderCharged(
+        '${AppStrings.orderCharged(
           order.id,
           Fmt.money(order.total),
           order.paymentType.label,
@@ -112,7 +121,7 @@ Future<void> chargeOpenOrder(BuildContext context, WidgetRef ref) async {
               ? AppStrings.chargeChangePart(Fmt.money(change))
               : '',
           printPart,
-        ),
+        )}$queuedPart',
       ),
       action: SnackBarAction(
         label: AppStrings.cartView,

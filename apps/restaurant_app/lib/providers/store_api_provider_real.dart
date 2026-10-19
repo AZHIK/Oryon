@@ -79,20 +79,17 @@ final storeSettingProvider = FutureProvider.family<StoreSettingReadDto?, String>
 /// Refreshes all stores data.
 ///
 /// Call this to manually refresh store data after updates.
-Future<void> refreshStores(WidgetRef ref) async {
-  await ref.refresh(storesProvider.future);
-}
+Future<void> refreshStores(WidgetRef ref) =>
+    ref.refresh(storesProvider.future);
 
 /// Refreshes a specific store's details.
 ///
 /// Call this to manually refresh a store's details after updates.
-Future<void> refreshStoreDetail(WidgetRef ref, String storeId) async {
-  await ref.refresh(storeDetailProvider(storeId).future);
-}
+Future<void> refreshStoreDetail(WidgetRef ref, String storeId) =>
+    ref.refresh(storeDetailProvider(storeId).future);
 
 /// Refreshes a specific store's settings.
 ///
 /// Call this to manually refresh store settings after updates.
-Future<void> refreshStoreSetting(WidgetRef ref, String storeId) async {
-  await ref.refresh(storeSettingProvider(storeId).future);
-}
+Future<void> refreshStoreSetting(WidgetRef ref, String storeId) =>
+    ref.refresh(storeSettingProvider(storeId).future);

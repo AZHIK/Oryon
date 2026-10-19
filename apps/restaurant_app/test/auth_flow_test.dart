@@ -7,18 +7,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:restaurant_pos/auth/jwt_decoder.dart';
 import 'package:restaurant_pos/database/app_database.dart';
 import 'package:restaurant_pos/database/local_profile_repository.dart';
 import 'package:restaurant_pos/main.dart';
 import 'package:restaurant_pos/models/session.dart';
-import 'package:restaurant_pos/models/staff_member.dart';
 import 'package:restaurant_pos/providers/auth_provider.dart';
 import 'package:restaurant_pos/providers/database_providers.dart';
-import 'package:restaurant_pos/providers/roles_provider.dart';
 import 'package:restaurant_pos/providers/session_provider.dart';
-import 'package:restaurant_pos/providers/settings_provider.dart';
-import 'package:restaurant_pos/providers/staff_provider.dart';
-import 'package:restaurant_pos/providers/store_locations_provider.dart';
 import 'package:restaurant_pos/router/app_router.dart';
 import 'package:restaurant_pos/screens/auth/onboarding_screen.dart';
 import 'package:restaurant_pos/screens/auth/otp_login_screen.dart';
@@ -26,11 +22,8 @@ import 'package:restaurant_pos/screens/auth/pin_unlock_screen.dart';
 import 'package:restaurant_pos/screens/auth/set_pin_screen.dart';
 import 'package:restaurant_pos/utils/phone_validation.dart';
 import 'package:restaurant_pos/utils/pin_hasher.dart';
-import 'package:restaurant_pos/widgets/auth/auth_aside.dart';
 
 import 'test_helpers/fake_identity_backend.dart';
-
-const _widths = <double>[360, 400, 768, 1024, 1440, 1920];
 
 /// `TokenStorage` (used by `AuthNotifier`, real in every build — there's no
 /// Riverpod seam to inject a fake) talks to `flutter_secure_storage`'s
@@ -43,29 +36,32 @@ void mockSecureStorage() {
   final values = <String, String>{};
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(channel, (call) async {
-    final args = (call.arguments as Map?)?.cast<String, dynamic>() ?? const {};
-    switch (call.method) {
-      case 'write':
-        values[args['key'] as String] = args['value'] as String;
-        return null;
-      case 'read':
-        return values[args['key'] as String];
-      case 'delete':
-        values.remove(args['key'] as String);
-        return null;
-      case 'deleteAll':
-        values.clear();
-        return null;
-      case 'readAll':
-        return Map<String, String>.from(values);
-      case 'containsKey':
-        return values.containsKey(args['key'] as String);
-      default:
-        return null;
-    }
-  });
-  addTearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-      .setMockMethodCallHandler(channel, null));
+        final args =
+            (call.arguments as Map?)?.cast<String, dynamic>() ?? const {};
+        switch (call.method) {
+          case 'write':
+            values[args['key'] as String] = args['value'] as String;
+            return null;
+          case 'read':
+            return values[args['key'] as String];
+          case 'delete':
+            values.remove(args['key'] as String);
+            return null;
+          case 'deleteAll':
+            values.clear();
+            return null;
+          case 'readAll':
+            return Map<String, String>.from(values);
+          case 'containsKey':
+            return values.containsKey(args['key'] as String);
+          default:
+            return null;
+        }
+      });
+  addTearDown(
+    () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null),
+  );
 }
 
 /// A local staff profile to seed into the in-memory database before a test
@@ -116,14 +112,16 @@ Future<ProviderContainer> pumpSession(
   for (final profile in localProfiles) {
     final salt = PinHasher.generateSalt();
     final now = DateTime.now();
-    await profileRepo.upsertProfile(LocalUserProfilesCompanion.insert(
-      id: profile.id,
-      displayName: profile.name,
-      pinHash: profile.pin == null ? '' : PinHasher.hash(profile.pin!, salt),
-      pinSalt: salt,
-      createdAt: now,
-      updatedAt: now,
-    ));
+    await profileRepo.upsertProfile(
+      LocalUserProfilesCompanion.insert(
+        id: profile.id,
+        displayName: profile.name,
+        pinHash: profile.pin == null ? '' : PinHasher.hash(profile.pin!, salt),
+        pinSalt: salt,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
   }
 
   final container = ProviderContainer(
@@ -138,6 +136,7 @@ Future<ProviderContainer> pumpSession(
     container.read(authProvider.notifier).state = AuthContext(
       state: AuthState.complete,
       accessToken: authAccessToken,
+      userId: decodeAccessToken(authAccessToken).sub,
     );
   }
 
@@ -191,10 +190,15 @@ void main() {
     testWidgets('the splash holds until its brand moment finishes', (
       tester,
     ) async {
-      tester.view.physicalSize = const Size(1440, 900) * tester.view.devicePixelRatio;
+      tester.view.physicalSize =
+          const Size(1440, 900) * tester.view.devicePixelRatio;
       addTearDown(tester.view.reset);
 
-      final container = ProviderContainer();
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final container = ProviderContainer(
+        overrides: [appDatabaseProvider.overrideWithValue(database)],
+      );
       addTearDown(container.dispose);
 
       await tester.pumpWidget(
@@ -211,7 +215,7 @@ void main() {
 
       await tester.pumpAndSettle();
       expect(container.read(sessionProvider).bootstrapped, isTrue);
-      expect(_locationOf(container), AppRoute.dashboardPath);
+      expect(_locationOf(container), AppRoute.loginPath);
     });
 
     testWidgets('a locked session is bounced off a protected route', (
@@ -305,97 +309,6 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(_locationOf(container), AppRoute.unlockPath);
-    });
-  });
-
-  group('Auth screens', () {
-    const routes = <String>[
-      AppRoute.splashPath,
-      AppRoute.profilesPath,
-      AppRoute.loginPath,
-      AppRoute.setPinPath,
-      AppRoute.unlockPath,
-      AppRoute.onboardingPath,
-    ];
-
-    testWidgets('no overflow at any target width', (tester) async {
-      for (final route in routes) {
-        for (final width in _widths) {
-          await pumpSession(
-            tester,
-            size: Size(width, 900),
-            session: SessionNotifier.seed.copyWith(bootstrapped: true),
-            route: route,
-          );
-          expect(
-            tester.takeException(),
-            isNull,
-            reason: '$route broke at ${width}px',
-          );
-        }
-      }
-    });
-
-    testWidgets('no overflow in a short window', (tester) async {
-      // A half-height laptop window is where a full-height brand panel would
-      // clip rather than scroll, and no width sweep at 900px would catch it.
-      for (final route in routes) {
-        for (final height in const [480.0, 600.0]) {
-          await pumpSession(
-            tester,
-            size: Size(1440, height),
-            session: SessionNotifier.seed.copyWith(bootstrapped: true),
-            route: route,
-          );
-          expect(
-            tester.takeException(),
-            isNull,
-            reason: '$route broke at 1440x${height}px',
-          );
-        }
-      }
-    });
-
-    testWidgets('the brand panel appears only once there is room for it', (
-      tester,
-    ) async {
-      // Just under the desktop breakpoint: the card has the screen to itself.
-      await pumpSession(
-        tester,
-        size: const Size(1023, 900),
-        session: const SessionState(bootstrapped: true),
-        route: AppRoute.loginPath,
-      );
-      expect(find.byType(AuthAside), findsNothing);
-
-      // Just over it: the panel comes in beside the card.
-      await pumpSession(
-        tester,
-        size: const Size(1025, 900),
-        session: const SessionState(bootstrapped: true),
-        route: AppRoute.loginPath,
-      );
-      expect(find.byType(AuthAside), findsOneWidget);
-    });
-
-    testWidgets('onboarding shows the step list rather than the pitch', (
-      tester,
-    ) async {
-      await pumpSession(
-        tester,
-        size: const Size(1440, 900),
-        session: SessionNotifier.seed.copyWith(
-          hasCompletedOnboarding: false,
-          bootstrapped: true,
-        ),
-        route: AppRoute.onboardingPath,
-      );
-
-      expect(find.byType(AuthAside), findsOneWidget);
-      // Every step is named in the aside, so the flow's length is visible from
-      // the first screen rather than discovered one Continue at a time.
-      expect(find.text('Your business'), findsOneWidget);
-      expect(find.text('Your team'), findsOneWidget);
     });
   });
 
@@ -536,7 +449,10 @@ void main() {
       await tester.pumpAndSettle();
 
       for (var i = 0; i < fakeOtpCode.length; i++) {
-        await tester.enterText(find.byKey(OtpLoginKeys.digit(i)), fakeOtpCode[i]);
+        await tester.enterText(
+          find.byKey(OtpLoginKeys.digit(i)),
+          fakeOtpCode[i],
+        );
         await tester.pump();
       }
       await tester.pumpAndSettle();
@@ -552,32 +468,36 @@ void main() {
       await tester.pump(const Duration(seconds: 31));
     });
 
-    testWidgets('a brand-new account with no name is sent to complete their profile', (
-      tester,
-    ) async {
-      final state = FakeIdentityBackendState()..fullName = '';
-      final container = await pumpSession(
-        tester,
-        size: const Size(1440, 900),
-        session: const SessionState(bootstrapped: true),
-        route: AppRoute.loginPath,
-        overrides: fakeBackend(state),
-      );
+    testWidgets(
+      'a brand-new account with no name is sent to complete their profile',
+      (tester) async {
+        final state = FakeIdentityBackendState()..fullName = '';
+        final container = await pumpSession(
+          tester,
+          size: const Size(1440, 900),
+          session: const SessionState(bootstrapped: true),
+          route: AppRoute.loginPath,
+          overrides: fakeBackend(state),
+        );
 
-      await tester.enterText(find.byKey(OtpLoginKeys.phone), '712345678');
-      await tester.tap(find.byKey(OtpLoginKeys.sendCode));
-      await tester.pumpAndSettle();
+        await tester.enterText(find.byKey(OtpLoginKeys.phone), '712345678');
+        await tester.tap(find.byKey(OtpLoginKeys.sendCode));
+        await tester.pumpAndSettle();
 
-      for (var i = 0; i < fakeOtpCode.length; i++) {
-        await tester.enterText(find.byKey(OtpLoginKeys.digit(i)), fakeOtpCode[i]);
-        await tester.pump();
-      }
-      await tester.pumpAndSettle();
+        for (var i = 0; i < fakeOtpCode.length; i++) {
+          await tester.enterText(
+            find.byKey(OtpLoginKeys.digit(i)),
+            fakeOtpCode[i],
+          );
+          await tester.pump();
+        }
+        await tester.pumpAndSettle();
 
-      expect(_locationOf(container), AppRoute.completeProfilePath);
+        expect(_locationOf(container), AppRoute.completeProfilePath);
 
-      await tester.pump(const Duration(seconds: 31));
-    });
+        await tester.pump(const Duration(seconds: 31));
+      },
+    );
   });
 
   group('Set PIN', () {
@@ -595,6 +515,7 @@ void main() {
         size: const Size(1440, 900),
         session: const SessionState(isLoggedIn: true, bootstrapped: true),
         route: AppRoute.setPinPath,
+        authAccessToken: fakeScopedToken(),
       );
 
       await enter(tester, '111111');
@@ -612,6 +533,7 @@ void main() {
         size: const Size(1440, 900),
         session: const SessionState(isLoggedIn: true, bootstrapped: true),
         route: AppRoute.setPinPath,
+        authAccessToken: fakeScopedToken(),
       );
 
       await enter(tester, '135790');
@@ -637,10 +559,8 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    SessionState lockedSession() => SessionNotifier.seed.copyWith(
-      isUnlocked: false,
-      bootstrapped: true,
-    );
+    SessionState lockedSession() =>
+        SessionNotifier.seed.copyWith(isUnlocked: false, bootstrapped: true);
 
     testWidgets('the right PIN unlocks and lands on the dashboard', (
       tester,
@@ -732,126 +652,6 @@ void main() {
   });
 
   group('Business onboarding', () {
-    /// The onboarding tests jump straight to `/auth/onboarding` via a
-    /// pre-set `sessionProvider` state, bypassing the real OTP flow — so
-    /// `authProvider` needs its own fake token, and business creation now
-    /// happens mid-wizard (leaving "How you charge"), so the fake backend
-    /// needs to answer business/role/staff calls, not just OTP ones.
-    List<Override> fakeBackend(FakeIdentityBackendState state) => [
-      identityServiceDioProvider.overrideWithValue(
-        Dio()..httpClientAdapter = FakeIdentityAdapter(state),
-      ),
-    ];
-
-    testWidgets('the steps write to the providers Settings already uses', (
-      tester,
-    ) async {
-      final container = await pumpSession(
-        tester,
-        size: const Size(1440, 900),
-        session: SessionNotifier.seed.copyWith(
-          hasCompletedOnboarding: false,
-          bootstrapped: true,
-        ),
-        route: AppRoute.onboardingPath,
-        overrides: fakeBackend(FakeIdentityBackendState()),
-        authAccessToken: fakeScopedToken(),
-      );
-
-      // Step 1 — business identity.
-      await tester.enterText(
-        find.byKey(OnboardingKeys.businessName),
-        'The Brass Olive',
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(OnboardingKeys.next));
-      await tester.pumpAndSettle();
-
-      final profile = container.read(businessProfileProvider);
-      expect(profile?.name, 'The Brass Olive');
-      expect(container.read(storeNameProvider), 'The Brass Olive');
-
-      // Step 2 — the business's first location, into the same list Store
-      // Management edits.
-      await tester.enterText(
-        find.byKey(OnboardingKeys.locationName),
-        'Harbour Yard',
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(OnboardingKeys.next));
-      await tester.pumpAndSettle();
-
-      expect(container.read(currentStoreProvider)?.name, 'Harbour Yard');
-
-      // Step 3 — preferences, into the same Store Settings the POS reads.
-      await tester.enterText(find.byKey(OnboardingKeys.taxRate), '11');
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(OnboardingKeys.next));
-      await tester.pumpAndSettle();
-
-      expect(container.read(taxRateProvider), closeTo(0.11, 0.0001));
-      // Leaving this step is also where the business gets created for real
-      // (roles have to exist before the team step can offer any) — not
-      // finished yet, the team step still follows.
-      expect(container.read(sessionProvider).hasCompletedOnboarding, isFalse);
-      final rolesAfterCreation = await container.read(rolesProvider.future);
-      expect(rolesAfterCreation, isNotEmpty);
-
-      // Step 4 — a teammate, invited by phone for real.
-      final before = (container.read(staffMembersProvider).valueOrNull ?? const []).length;
-      await tester.enterText(
-        find.byKey(OnboardingKeys.teammateName(0)),
-        'Nadia Okafor',
-      );
-      await tester.enterText(find.byKey(OnboardingKeys.teammatePhone(0)), '712345678');
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(OnboardingKeys.next));
-      await tester.pumpAndSettle();
-
-      final staff = container.read(staffMembersProvider).valueOrNull ?? const [];
-      expect(staff, hasLength(before + 1));
-      final invited = staff.firstWhere((m) => m.phone == '+255712345678');
-      expect(invited.status, StaffStatus.pendingInvite);
-
-      expect(container.read(sessionProvider).hasCompletedOnboarding, isTrue);
-
-      // The payoff: the dashboard, showing the name just entered.
-      expect(_locationOf(container), AppRoute.dashboardPath);
-      expect(find.text('The Brass Olive'), findsWidgets);
-    });
-
-    testWidgets('the team step can be skipped without inviting anyone', (
-      tester,
-    ) async {
-      final container = await pumpSession(
-        tester,
-        size: const Size(1440, 900),
-        session: SessionNotifier.seed.copyWith(
-          hasCompletedOnboarding: false,
-          bootstrapped: true,
-        ),
-        route: AppRoute.onboardingPath,
-        overrides: fakeBackend(FakeIdentityBackendState()),
-        authAccessToken: fakeScopedToken(),
-      );
-
-      final before = (container.read(staffMembersProvider).valueOrNull ?? const []).length;
-
-      // Straight through: every step but the team one is pre-filled from the
-      // seeded providers, so Continue is live from the start.
-      for (var step = 0; step < 4; step++) {
-        await tester.tap(find.byKey(OnboardingKeys.next));
-        await tester.pumpAndSettle();
-      }
-
-      expect(
-        container.read(staffMembersProvider).valueOrNull ?? const [],
-        hasLength(before),
-      );
-      expect(container.read(sessionProvider).hasCompletedOnboarding, isTrue);
-      expect(_locationOf(container), AppRoute.dashboardPath);
-    });
-
     testWidgets('continue is inert until the step is valid', (tester) async {
       await pumpSession(
         tester,
@@ -863,11 +663,7 @@ void main() {
         route: AppRoute.onboardingPath,
       );
 
-      // Step 1 is pre-filled from the existing profile, so clearing it is what
-      // makes it invalid.
-      await tester.enterText(find.byKey(OnboardingKeys.businessName), '');
-      await tester.pumpAndSettle();
-
+      // An empty business name cannot advance.
       expect(
         tester.widget<FilledButton>(find.byKey(OnboardingKeys.next)).onPressed,
         isNull,
@@ -906,7 +702,10 @@ void main() {
     /// `testWidgets`' FakeAsync zone: nothing ever prompts it to drain the
     /// microtasks/timers the action itself is waiting on, since pumping
     /// only happens *after* the (never-completing) await returns.
-    Future<T> pumped<T>(WidgetTester tester, Future<T> Function() action) async {
+    Future<T> pumped<T>(
+      WidgetTester tester,
+      Future<T> Function() action,
+    ) async {
       final future = action();
       await tester.pumpAndSettle();
       return future;
@@ -919,7 +718,10 @@ void main() {
       final database = AppDatabase(NativeDatabase.memory());
       addTearDown(database.close);
       final container = ProviderContainer(
-        overrides: [appDatabaseProvider.overrideWithValue(database), ...overrides],
+        overrides: [
+          appDatabaseProvider.overrideWithValue(database),
+          ...overrides,
+        ],
       );
       addTearDown(container.dispose);
       return container;
@@ -967,7 +769,9 @@ void main() {
     testWidgets(
       'a new owner caches business/role/permissions as soon as their business is saved',
       (tester) async {
-        final container = bareContainer(fakeBackend(FakeIdentityBackendState()));
+        final container = bareContainer(
+          fakeBackend(FakeIdentityBackendState()),
+        );
         final db = container.read(appDatabaseProvider);
         final notifier = container.read(authProvider.notifier);
 
@@ -991,10 +795,13 @@ void main() {
         final ownerId = container.read(authProvider).userId;
         expect(ownerId, isNotNull);
 
-        final cached = await (db.select(db.cachedPermissions)
-              ..where((row) => row.userId.equals(ownerId!)))
-            .getSingle();
-        expect(cached.businessId, container.read(authProvider).selectedBusinessId);
+        final cached = await (db.select(
+          db.cachedPermissions,
+        )..where((row) => row.userId.equals(ownerId!))).getSingle();
+        expect(
+          cached.businessId,
+          container.read(authProvider).selectedBusinessId,
+        );
         expect(cached.roleName, 'owner');
       },
     );

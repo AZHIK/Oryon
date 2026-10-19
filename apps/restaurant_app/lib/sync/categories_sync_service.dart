@@ -21,8 +21,8 @@ class CategoriesSyncService {
 
   CategoriesSyncService({
     required this._db,
-    required CategoriesCatalogApi api,
-  })  : _api = api;
+    required this._api,
+  });
 
   /// Pulls the full category taxonomy and upserts into cache. No
   /// missing-row handling — categories are never hard-deleted server-side

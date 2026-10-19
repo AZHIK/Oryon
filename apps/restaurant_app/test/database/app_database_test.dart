@@ -33,11 +33,11 @@ void main() {
       // The schema is created in `onCreate` when `MigrationStrategy` is applied.
       // No explicit call needed; just opening the database triggers it.
       // If we get here without an exception, the schema was created successfully.
-      expect(database != null, true);
+      expect(database, isA<AppDatabase>());
     });
 
-    test('schema version is 13', () async {
-      expect(database.schemaVersion, 13);
+    test('schema version is 15', () async {
+      expect(database.schemaVersion, 15);
     });
 
     test('LocalUserProfiles table exists and can be queried', () async {

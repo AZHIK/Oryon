@@ -94,7 +94,9 @@ List<ThermalLine> buildThermalReceipt({
   if (email != null && email.trim().isNotEmpty) {
     lines.add(ThermalLine.text(email.trim(), align: ThermalAlign.center));
   }
-  if (taxId != null && taxId.trim().isNotEmpty) {
+  // TIN only when this sale actually charged tax — tax switch off means
+  // nothing about tax anywhere on the paper.
+  if (taxId != null && taxId.trim().isNotEmpty && order.taxRate > 0) {
     lines.add(
       ThermalLine.text('TIN: ${taxId.trim()}', align: ThermalAlign.center),
     );
@@ -147,15 +149,17 @@ List<ThermalLine> buildThermalReceipt({
       ),
     );
   }
-  lines.add(
-    ThermalLine.text(
-      _pair(
-        'Tax (${Fmt.percent(order.taxRate)})',
-        Fmt.money(order.tax),
-        lineWidth,
+  if (order.taxRate > 0) {
+    lines.add(
+      ThermalLine.text(
+        _pair(
+          'Tax (${Fmt.percent(order.taxRate)})',
+          Fmt.money(order.tax),
+          lineWidth,
+        ),
       ),
-    ),
-  );
+    );
+  }
   lines.add(
     ThermalLine.text(
       _pair('TOTAL', Fmt.money(order.total), lineWidth),

@@ -33,6 +33,9 @@ class TableQueryNotifier extends Notifier<TableQuery> {
   void setSort(String field, {required bool ascending}) =>
       state = state.copyWith(sortField: field, ascending: ascending, page: 0);
 
+  /// Groups identical values together (or clears back to a flat list).
+  void setGroup(String? field) => state = state.withGroup(field);
+
   void setPage(int page) => state = state.copyWith(page: page < 0 ? 0 : page);
 
   void nextPage() => setPage(state.page + 1);

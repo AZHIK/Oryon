@@ -1417,6 +1417,51 @@ abstract final class AppStrings {
   static String get wasteReasonDropped =>
       L10n.t('wasteReasonDropped', 'Dropped / damaged');
   static String get wasteReasonOther => L10n.t('wasteReasonOther', 'Other');
+  // -- Simple words for cooking (plain language for all staff) --
+  static String get cookTab => 'Cook';
+  static String get todayTab => 'Today';
+  static String get readyTab => 'Ready';
+  static String get pastTab => 'Past';
+  static String get undoAction => 'Undo';
+  static String get stopAction => 'Stop';
+  static String get searchHint => 'Search...';
+  static String get mainItemLabel => 'Main item (we measure this first)';
+  static String get notEnoughStockTitle => 'Not enough in stock';
+  static String notEnoughStockBody(String items) =>
+      'These items are short:\n$items\n\nYou can still cook, or stop and buy first.';
+  static String get cookAnyway => 'Cook anyway';
+  static String get buyFirst => 'Stop — buy first';
+  static String get usePlanNumber => 'Use plan number';
+  static String get typeRealNumber => 'Type real number';
+  static String get howExact => 'How exact must this be?';
+  static String get exactNormal => 'Normal (5%)';
+  static String get exactStrict => 'Exact (2%)';
+  static String get exactRelaxed => 'Relaxed (10%)';
+  static String get noInternetCook =>
+      'No internet. Cooking needs internet — your work is NOT saved. Try again.';
+  static String get tryAgain => 'Try again';
+  static String get askManagerCook =>
+      'Ask your manager to add a recipe first.';
+  static String get needPermissionCook =>
+      'You do not have cooking permission. Ask your manager.';
+  static String get costLine => 'Cost';
+  static String costForBatch(String cost) => 'Cost for this batch: $cost';
+  static String costEachOne(String cost) => 'Each one costs: $cost';
+  static String get pickLossReason => 'What happened? Pick one:';
+  static String get lossSpilled => 'Spilled';
+  static String get lossBurnt => 'Burnt';
+  static String get lossTooMuch => 'Too much made';
+  static String get lossTasteBad => 'Taste bad';
+  static String get undoCookTitle => 'Undo this cooking?';
+  static String undoCookBody(String name) =>
+      'The items used for "$name" go back on the shelf. The made food is taken back too.';
+  static String get stopBatchTitle => 'Stop this batch?';
+  static String get stopBatchBody =>
+      'The weighed items go back on the shelf. Nothing is lost.';
+  static String get undoneOk => 'Undone — stock is back.';
+  static String get stoppedOk => 'Stopped — items are back on the shelf.';
+  static String get whatWasUsed => 'What was used';
+  static String get tapToSeeDetails => 'Tap to see details';
   static String onlyInStock(String quantity, String unit) =>
       'Only $quantity $unit in stock';
   static String wasteLogged(String amount, String unit, String name) =>
@@ -2493,6 +2538,8 @@ abstract final class AppStrings {
   static String get evidenceThisLine => L10n.t('evidenceThisLine', 'This line');
   static String get evidenceAllWaste =>
       L10n.t('evidenceAllWaste', 'All waste, 30d');
+  static String get evidenceWasteRecords =>
+      L10n.t('evidenceWasteRecords', 'Waste records, 30d');
   static String get evidenceUnitsLost =>
       L10n.t('evidenceUnitsLost', 'Units lost');
   static String get evidenceToday => L10n.t('evidenceToday', 'Today');

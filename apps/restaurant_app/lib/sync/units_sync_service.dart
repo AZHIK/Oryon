@@ -19,8 +19,8 @@ class UnitsSyncService {
 
   UnitsSyncService({
     required this._db,
-    required UnitsCatalogApi api,
-  })  : _api = api;
+    required this._api,
+  });
 
   /// Pulls the full unit taxonomy and upserts into cache. No missing-row
   /// handling — units are never hard-deleted server-side (see

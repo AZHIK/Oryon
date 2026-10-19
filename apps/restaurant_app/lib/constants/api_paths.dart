@@ -94,6 +94,8 @@ abstract final class InventoryApiPaths {
       '/businesses/$businessId/production-events';
   static String productionEvent(String businessId, String eventId) =>
       '/businesses/$businessId/production-events/$eventId';
+  static String voidProductionEvent(String businessId, String eventId) =>
+      '/businesses/$businessId/production-events/$eventId/void';
   static String wasteSummary(String businessId) =>
       '/businesses/$businessId/waste-summary';
   static String productionSummary(String businessId) =>

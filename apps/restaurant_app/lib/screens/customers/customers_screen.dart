@@ -6,10 +6,12 @@ import '../../models/customer.dart';
 import '../../constants/app_strings.dart';
 import '../../models/permission.dart';
 import '../../providers/customers_provider.dart';
+import '../../providers/outbox_status_provider.dart';
 import '../../providers/permissions_provider.dart';
 import '../../router/app_router.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/formatters.dart';
+import '../../widgets/connection_status_pill.dart';
 import '../../widgets/data_page/data_column_spec.dart';
 import '../../widgets/data_page/data_page_scaffold.dart';
 import '../../widgets/data_page/data_table_toolbar.dart';
@@ -115,6 +117,12 @@ class CustomersScreen extends ConsumerWidget {
         query: query,
         onSort: notifier.toggleSort,
         onPageChanged: notifier.setPage,
+        header: PendingSyncBanner(
+          pendingCount:
+              ref.watch(outboxStatusProvider).valueOrNull?.pendingCustomers ??
+                  0,
+          itemWord: 'customer',
+        ),
         onRowTap: (customer) =>
             context.go(AppRoute.customerDetail(customer.id)),
         rowActions: _actions(ref, canUpdate: canUpdate, canDelete: canDelete),
@@ -210,6 +218,25 @@ List<DataColumnSpec<Customer>> get _columns => <DataColumnSpec<Customer>>[
     role: ColumnRole.primary,
     flex: 4,
     value: (customer) => customer.name,
+    cellBuilder: (context, customer) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          customer.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: context.text.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        // Sent ticks = safely on the server, amber tag = this device only.
+        if (customer.syncStatus != 'synced')
+          const NotSentTag()
+        else
+          const SentTicks(),
+      ],
+    ),
   ),
   DataColumnSpec(
     label: AppStrings.phoneColumn,

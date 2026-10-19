@@ -47,10 +47,11 @@ class SettingsScreen extends ConsumerWidget {
         icon: Icons.percent_rounded,
         title: AppStrings.storeSettingsEntry,
         subtitle: AppStrings.storeSettingsBlurb,
-        value:
-            '${Fmt.percent(settings.taxRate)} '
-            '${settings.taxInclusive ? AppStrings.taxInclusive : AppStrings.taxOnTop} · '
-            '${settings.currency.code}',
+        value: settings.taxEnabled
+            ? '${Fmt.percent(settings.taxRate)} '
+                '${settings.taxInclusive ? AppStrings.taxInclusive : AppStrings.taxOnTop} · '
+                '${settings.currency.code}'
+            : 'No tax · ${settings.currency.code}',
         onTap: () => context.goNamed(AppRoute.storeSettingsName),
       ),
       _SettingsEntry(

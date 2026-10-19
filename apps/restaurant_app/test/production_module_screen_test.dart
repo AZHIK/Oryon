@@ -200,10 +200,11 @@ void main() {
       expect(find.byKey(ProductionModuleKeys.runsTab), findsOneWidget);
       expect(find.byKey(ProductionModuleKeys.outputTab), findsOneWidget);
 
-      // Tabs read as a numbered flow, not separate sections.
-      expect(find.text('Recipes'), findsOneWidget);
-      expect(find.text('Production Zone'), findsOneWidget);
-      expect(find.text('Output'), findsOneWidget);
+      // Tabs read as a numbered flow in simple words.
+      expect(find.text('Cook'), findsWidgets);
+      expect(find.text('Today'), findsOneWidget);
+      expect(find.text('Ready'), findsOneWidget);
+      expect(find.text('Past'), findsOneWidget);
 
       // Default landing is the zone (hit-testable), not the recipes list.
       expect(
@@ -282,7 +283,7 @@ void main() {
       await tester.tap(find.byKey(ProductionModuleKeys.runPublish('r3')));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Could not update run'), findsOneWidget);
+      expect(find.textContaining('Could not sell'), findsOneWidget);
     });
 
     testWidgets('wizard plans, then weighs in one place', (tester) async {
@@ -329,6 +330,12 @@ void main() {
       expect(find.text('Rice'), findsOneWidget);
       await tester.tap(find.byKey(CookWizardKeys.startCooking));
       await tester.pumpAndSettle();
+      // Stock is empty in tests, so the short-stock question appears —
+      // answer it with "Cook anyway" in simple words.
+      if (find.text('Cook anyway').hitTestable().evaluate().isNotEmpty) {
+        await tester.tap(find.text('Cook anyway'));
+        await tester.pumpAndSettle();
+      }
 
       // Cooking takes hours — the wizard says so and offers both exits.
       expect(find.text('Step 4 of 6'), findsOneWidget);
@@ -355,9 +362,16 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(CookWizardKeys.startCooking));
       await tester.pumpAndSettle();
+      if (find.text('Cook anyway').hitTestable().evaluate().isNotEmpty) {
+        await tester.tap(find.text('Cook anyway'));
+        await tester.pumpAndSettle();
+      }
       await tester.tap(find.byKey(CookWizardKeys.recordNow));
       await tester.pumpAndSettle();
 
+      // Simple words: pick "Type real number" to reveal the amount box.
+      await tester.tap(find.text('Type real number'));
+      await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(CookWizardKeys.actualField),
         '10',
@@ -368,7 +382,7 @@ void main() {
 
       // Review step: numbers to verify, then publish in the same dialog.
       expect(find.text('Step 6 of 6'), findsOneWidget);
-      expect(find.text('Review & publish'), findsOneWidget);
+      expect(find.text('Check, then sell'), findsOneWidget);
       await tester.tap(find.byKey(CookWizardKeys.publish));
       await tester.pumpAndSettle();
 
@@ -388,6 +402,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Welcome back!'), findsOneWidget);
+      // Simple words: plan number is used unless staff picks otherwise.
+      expect(find.text('Use plan number'), findsOneWidget);
+      await tester.tap(find.text('Type real number'));
+      await tester.pumpAndSettle();
       expect(
         find.byKey(ProductionModuleKeys.runActual),
         findsOneWidget,

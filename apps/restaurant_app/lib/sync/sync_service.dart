@@ -14,6 +14,7 @@ import '../constants/app_limits.dart';
 import '../database/app_database.dart';
 import 'pos_sync_api.dart';
 import 'sync_dtos.dart';
+import 'sync_tick.dart';
 
 /// Core sync engine for POS sales.
 class SyncService {
@@ -149,6 +150,7 @@ class SyncService {
         }
 
         lastSyncTime = DateTime.now();
+        await recordSyncTick(_db, SyncArea.sales);
 
         // If we got fewer than max batch size, we're done.
         if (claimed.length < _maxBatchSize) {

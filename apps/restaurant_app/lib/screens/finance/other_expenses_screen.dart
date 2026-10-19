@@ -5,9 +5,11 @@ import '../../constants/app_strings.dart';
 import '../../models/other_expense.dart';
 import '../../models/permission.dart';
 import '../../providers/other_expenses_provider.dart';
+import '../../providers/outbox_status_provider.dart';
 import '../../providers/permissions_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/formatters.dart';
+import '../../widgets/connection_status_pill.dart';
 import '../../widgets/data_page/data_column_spec.dart';
 import '../../widgets/data_page/data_page_scaffold.dart';
 import '../../widgets/data_page/data_table_toolbar.dart';
@@ -124,6 +126,14 @@ class OtherExpensesScreen extends ConsumerWidget {
               query: query,
               onSort: notifier.toggleSort,
               onPageChanged: notifier.setPage,
+              groupedItems: ref.watch(filteredOtherExpensesProvider),
+              onGroupChanged: notifier.setGroup,
+              header: PendingSyncBanner(
+                pendingCount:
+                    ref.watch(outboxStatusProvider).valueOrNull?.pendingExpenses ??
+                        0,
+                itemWord: 'expense',
+              ),
               rowActions: [
                 if (canUpdate)
                   DataRowAction(
@@ -198,8 +208,8 @@ class OtherExpensesScreen extends ConsumerWidget {
 final otherExpenseColumns = <DataColumnSpec<OtherExpense>>[
   DataColumnSpec(label: AppStrings.dateSort, field: OtherExpenseSort.date, flex: 2, value: (e) => Fmt.dayMonth(e.date)),
   DataColumnSpec(label: AppStrings.descriptionSort, field: OtherExpenseSort.description, role: ColumnRole.primary, flex: 5, value: (e) => e.description, cellBuilder: (c, e) => _DescriptionCell(expense: e)),
-  DataColumnSpec(label: AppStrings.categorySort, field: OtherExpenseSort.category, flex: 3, minTableWidth: 700, value: (e) => FinanceCategories.expenseLabel(e.categoryId)),
-  DataColumnSpec(label: AppStrings.paymentSort, field: OtherExpenseSort.payment, flex: 2, minTableWidth: 860, value: (e) => e.paymentType.label),
+  DataColumnSpec(label: AppStrings.categorySort, field: OtherExpenseSort.category, flex: 3, groupable: true, minTableWidth: 700, value: (e) => FinanceCategories.expenseLabel(e.categoryId)),
+  DataColumnSpec(label: AppStrings.paymentSort, field: OtherExpenseSort.payment, flex: 2, groupable: true, minTableWidth: 860, value: (e) => e.paymentType.label),
   DataColumnSpec(label: AppStrings.amountSort, field: OtherExpenseSort.amount, flex: 2, numeric: true, value: (e) => Fmt.money(e.amount)),
 ];
 
@@ -220,6 +230,11 @@ class _DescriptionCell extends StatelessWidget {
           ],
         ),
         Text(expense.payee.isNotEmpty ? expense.payee : AppStrings.emDash, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(color: context.colors.onSurfaceVariant)),
+        // Sent ticks = safely on the server, amber tag = this device only.
+        if (expense.syncStatus != 'synced')
+          const NotSentTag()
+        else
+          const SentTicks(),
       ],
     );
   }

@@ -312,7 +312,7 @@ abstract final class ExportHelper {
         title: title,
         subtitle: subtitle,
       );
-      return _save(
+      return await _save(
         bytes: bytes,
         title: title,
         extension: 'pdf',
@@ -338,7 +338,7 @@ abstract final class ExportHelper {
         rows: rows,
         title: title,
       );
-      return _save(
+      return await _save(
         bytes: bytes,
         title: title,
         extension: 'xlsx',

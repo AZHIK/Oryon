@@ -411,6 +411,8 @@ class StoreSettingReadDto {
   final bool offerRetail;
   final bool offerWholesale;
   final bool displayPricesInclusiveOfTax;
+  final bool taxEnabled;
+  final double taxRate;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -430,6 +432,8 @@ class StoreSettingReadDto {
     required this.offerRetail,
     required this.offerWholesale,
     required this.displayPricesInclusiveOfTax,
+    this.taxEnabled = false,
+    this.taxRate = 0,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -451,6 +455,8 @@ class StoreSettingReadDto {
       offerRetail: json['offer_retail'] as bool? ?? true,
       offerWholesale: json['offer_wholesale'] as bool? ?? false,
       displayPricesInclusiveOfTax: json['display_prices_inclusive_of_tax'] as bool? ?? false,
+      taxEnabled: json['tax_enabled'] as bool? ?? false,
+      taxRate: (json['tax_rate'] as num?)?.toDouble() ?? 0,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );

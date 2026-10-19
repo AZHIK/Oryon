@@ -23,6 +23,7 @@ import 'inventory_provider.dart';
 import 'permissions_provider.dart';
 import 'pos_api_provider.dart';
 import 'production_provider.dart';
+import 'settings_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Shared date window
@@ -499,6 +500,8 @@ class TaxReportNotifier extends AsyncNotifier<List<TaxDayDto>> {
     final businessId = ref.watch(currentBusinessIdProvider);
     final filter = ref.watch(reportsDateFilterProvider);
     if (businessId == null) return const [];
+    // Tax switch off = nothing collected, no fetch.
+    if (!ref.watch(taxEnabledProvider)) return const [];
     return ref.watch(posReportsApiServiceProvider).fetchTaxReport(
           businessId: businessId,
           from: filter.from,
@@ -873,7 +876,9 @@ final activityLogProvider =
     );
 
 /// Re-reads every section — pull-to-refresh on the Reports screen.
+/// Skips the tax report when the tax switch is off (nothing to collect).
 Future<void> refreshAllReports(WidgetRef ref) async {
+  final taxOn = ref.read(taxEnabledProvider);
   await Future.wait([
     ref.read(dailyTakingsProvider.notifier).refresh(),
     ref.read(itemMixProvider.notifier).refresh(),
@@ -883,7 +888,7 @@ Future<void> refreshAllReports(WidgetRef ref) async {
     ref.read(productionSummaryProvider.notifier).refresh(),
     ref.read(stockValuationProvider.notifier).refresh(),
     ref.read(sellPaymentsProvider.notifier).refresh(),
-    ref.read(taxReportProvider.notifier).refresh(),
+    if (taxOn) ref.read(taxReportProvider.notifier).refresh(),
     ref.read(profitLossProvider.notifier).refresh(),
     ref.read(trendingProductsProvider.notifier).refresh(),
     ref.read(customerGroupsProvider.notifier).refresh(),

@@ -167,6 +167,8 @@ class StaffScreen extends ConsumerWidget {
         query: query,
         onSort: notifier.toggleSort,
         onPageChanged: notifier.setPage,
+        groupedItems: ref.watch(filteredStaffProvider),
+        onGroupChanged: notifier.setGroup,
         onRowTap: (member) => context.pushNamed(
           AppRoute.staffDetailName,
           pathParameters: {'staffId': member.id},
@@ -292,6 +294,7 @@ List<DataColumnSpec<StaffMember>> staffColumns(
     label: AppStrings.roleCol,
     field: StaffSort.role,
     flex: 3,
+    groupable: true,
     // A staff member can hold more than one role — join every name for
     // sorting/search/export, and render every badge in the cell.
     value: (member) => member.roles.map((r) => r.label).join(', '),
@@ -334,6 +337,7 @@ List<DataColumnSpec<StaffMember>> staffColumns(
     field: StaffSort.status,
     role: ColumnRole.status,
     width: 150,
+    groupable: true,
     value: (member) => member.status.label,
     cellBuilder: (context, member) => StatusBadge(
       label: member.status.label,

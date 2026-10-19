@@ -5,11 +5,8 @@ import '../models/store_settings.dart';
 
 /// Adopts a newly selected store's backend settings onto the terminal.
 ///
-/// Only fields with a backend home move: the preferred currency and the
-/// tax-inclusive display flag. Everything else (tax *rate*, receipt prefix,
-/// auto-print, print mode, hours) has no `StoreSetting` column yet, so the
-/// terminal keeps its local values for those — see `StoreSettingReadDto`.
-/// Pure function so the mapping is unit-testable without providers.
+/// Tax switch + rate now have a backend home, so they roam with the store:
+/// off stays off everywhere until switched on in Store Settings.
 StoreSettings hydrateStoreSettings({
   required StoreSettings current,
   required StoreSettingReadDto dto,
@@ -22,6 +19,8 @@ StoreSettings hydrateStoreSettings({
   return current.copyWith(
     currency: currency,
     taxInclusive: dto.displayPricesInclusiveOfTax,
+    taxEnabled: dto.taxEnabled,
+    taxRate: dto.taxRate,
   );
 }
 

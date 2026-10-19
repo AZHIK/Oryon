@@ -12,7 +12,6 @@ import '../../router/app_router.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/breakpoints.dart';
 import '../../utils/api_errors.dart';
-import '../../widgets/data_page/data_page_scaffold.dart';
 import '../settings/store_settings_screen.dart' show SettingSwitchTile;
 
 /// Detailed view of a single store with tabs for settings and staff.
@@ -37,7 +36,14 @@ class StoreDetailsScreen extends ConsumerWidget {
           (s) => s.id == storeId,
           orElse: () => StoreLocation(
             id: storeId,
+            businessId: businessId,
             name: 'Unknown Store',
+            token: '',
+            locationType: LocationType.restaurantBranch,
+            status: StoreStatus.active,
+            countryCode: '',
+            timezone: '',
+            isPrimary: false,
           ),
         ),
       ),
@@ -45,29 +51,40 @@ class StoreDetailsScreen extends ConsumerWidget {
 
     return DefaultTabController(
       length: 3,
-      child: DataPageScaffold(
-        title: store.name,
-        subtitle: store.address.isEmpty ? 'No address set' : store.address,
-        actions: [
-          OutlinedButton.icon(
-            onPressed: () => context.canPop()
-                ? context.pop()
-                : context.goNamed(
-                    AppRoute.settingsName,
-                  ),
-            icon: const Icon(Icons.arrow_back_rounded, size: 18),
-            label: Text(AppStrings.back),
+      child: Scaffold(
+        appBar: AppBar(
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(store.name),
+              Text(
+                store.address?.isEmpty ?? true ? 'No address set' : store.address!,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ),
-        ],
-        bottom: TabBar(
-          tabs: const [
-            Tab(text: 'Overview'),
-            Tab(text: 'Settings'),
-            Tab(text: 'Staff'),
+          actions: [
+            OutlinedButton.icon(
+              onPressed: () => context.canPop()
+                  ? context.pop()
+                  : context.goNamed(
+                      AppRoute.settingsName,
+                    ),
+              icon: const Icon(Icons.arrow_back_rounded, size: 18),
+              label: Text(AppStrings.back),
+            ),
           ],
-          indicatorSize: TabBarIndicatorSize.tab,
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Overview'),
+              Tab(text: 'Settings'),
+              Tab(text: 'Staff'),
+            ],
+            indicatorSize: TabBarIndicatorSize.tab,
+          ),
         ),
-        child: TabBarView(
+        body: TabBarView(
           children: [
             _OverviewTab(store: store, businessId: businessId),
             _SettingsTab(store: store, businessId: businessId),

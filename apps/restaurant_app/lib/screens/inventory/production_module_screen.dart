@@ -212,10 +212,10 @@ class _ProductionModuleScreenState extends ConsumerState<ProductionModuleScreen>
   @override
   void initState() {
     super.initState();
-    // The daily work happens in the Production Zone (index 1) — recipes
-    // are set up once and rarely touched, so the module lands there.
-    _tabs = TabController(length: 3, vsync: this, initialIndex: 1);
-    _tabs.addListener(_syncFilterWithTab);
+    // Simple words, simple order: Cook (recipes) → Today (batches) →
+    // Ready (check + sell) → Past (what we cooked + Undo).
+    // Opens on Today, where the daily work happens.
+    _tabs = TabController(length: 4, vsync: this, initialIndex: 1);
     // The FAB depends on the selected tab — rebuild as it changes.
     _tabs.addListener(_refreshAction);
   }
@@ -224,23 +224,9 @@ class _ProductionModuleScreenState extends ConsumerState<ProductionModuleScreen>
     if (mounted) setState(() {});
   }
 
-  /// The Output tab IS the completed filter — switching tabs keeps the two
-  /// in agreement instead of fighting over the shared filter.
-  void _syncFilterWithTab() {
-    if (!_tabs.indexIsChanging) return;
-    final filter = ref.read(productionRunStatusFilterProvider.notifier);
-    if (_tabs.index == 2) {
-      filter.set(RunStatusDto.completed);
-    } else if (_tabs.index == 1 &&
-        ref.read(productionRunStatusFilterProvider) ==
-            RunStatusDto.completed) {
-      filter.clear();
-    }
-  }
-
   @override
   void dispose() {
-    _tabs.removeListener(_syncFilterWithTab);
+    _tabs.removeListener(_refreshAction);
     _tabs.dispose();
     super.dispose();
   }
@@ -251,10 +237,28 @@ class _ProductionModuleScreenState extends ConsumerState<ProductionModuleScreen>
         ref.watch(hasPermissionProvider(AppPermissions.productionCreate));
     final canEditRecipes =
         ref.watch(hasPermissionProvider(AppPermissions.recipesCreate));
+    final canView =
+        ref.watch(hasPermissionProvider(AppPermissions.productionView));
+    if (!canView) {
+      // Simple words, not an empty screen.
+      return Scaffold(
+        appBar: AppBar(title: Text(AppStrings.productionTitle)),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(Insets.xl),
+            child: Text(
+              AppStrings.needPermissionCook,
+              textAlign: TextAlign.center,
+              style: context.text.bodyLarge,
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(AppStrings.productionTitle),
+        title: const Text('Cooking'),
         elevation: 0,
         bottom: TabBar(
           controller: _tabs,
@@ -263,7 +267,7 @@ class _ProductionModuleScreenState extends ConsumerState<ProductionModuleScreen>
               key: ProductionModuleKeys.recipesTab,
               child: _FlowTab(
                 number: 1,
-                label: AppStrings.recipesTab,
+                label: AppStrings.cookTab,
                 active: _tabs.index == 0,
               ),
             ),
@@ -271,7 +275,7 @@ class _ProductionModuleScreenState extends ConsumerState<ProductionModuleScreen>
               key: ProductionModuleKeys.runsTab,
               child: _FlowTab(
                 number: 2,
-                label: AppStrings.productionZoneTab,
+                label: AppStrings.todayTab,
                 active: _tabs.index == 1,
               ),
             ),
@@ -279,8 +283,15 @@ class _ProductionModuleScreenState extends ConsumerState<ProductionModuleScreen>
               key: ProductionModuleKeys.outputTab,
               child: _FlowTab(
                 number: 3,
-                label: AppStrings.outputTab,
+                label: AppStrings.readyTab,
                 active: _tabs.index == 2,
+              ),
+            ),
+            Tab(
+              child: _FlowTab(
+                number: 4,
+                label: AppStrings.pastTab,
+                active: _tabs.index == 3,
               ),
             ),
           ],
@@ -295,20 +306,23 @@ class _ProductionModuleScreenState extends ConsumerState<ProductionModuleScreen>
                   label: Text(AppStrings.addRecipe),
                 )
               : null)
-          : (canProduce
-              ? FloatingActionButton.extended(
-                  key: ProductionModuleKeys.newRun,
-                  onPressed: () => showCookWizard(context),
-                  icon: const Icon(Icons.add_rounded),
-                  label: Text(AppStrings.newRun),
-                )
-              : null),
+          : (_tabs.index == 3
+              ? null
+              : (canProduce
+                  ? FloatingActionButton.extended(
+                      key: ProductionModuleKeys.newRun,
+                      onPressed: () => showCookWizard(context),
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Cook'),
+                    )
+                  : null)),
       body: TabBarView(
         controller: _tabs,
         children: const [
           _RecipesTab(),
           _ProductionZoneTab(),
           _OutputTab(),
+          _PastTab(),
         ],
       ),
     );
@@ -341,8 +355,9 @@ class _RecipesTab extends ConsumerWidget {
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: Insets.xl),
                 child: Text(
-                  AppStrings.noRecipesYet,
-                  style: context.text.bodyMedium?.copyWith(
+                  AppStrings.askManagerCook,
+                  textAlign: TextAlign.center,
+                  style: context.text.bodyLarge?.copyWith(
                     color: context.colors.onSurfaceVariant,
                   ),
                 ),
@@ -523,11 +538,12 @@ class _RunCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final target = Fmt.quantity(double.parse(run.targetOutputQuantity.toString()));
     final (badge, tone) = switch (run.status) {
-      RunStatusDto.pending => (AppStrings.pendingBadge, context.colors.primary),
+      RunStatusDto.pending => ('Planned', context.colors.primary),
       RunStatusDto.inProgress =>
-        (AppStrings.inProgressBadge, context.semantic.warning),
+        ('Cooking', context.semantic.warning),
       RunStatusDto.completed =>
-        (AppStrings.completedBadge, context.semantic.success),
+        ('Done', context.semantic.success),
+      RunStatusDto.cancelled => ('Stopped', context.colors.onSurfaceVariant),
     };
 
     return Card(
@@ -591,23 +607,32 @@ class _RunCard extends ConsumerWidget {
                         context,
                         builder: (_) => _StartRunDialog(run: run),
                       ),
-                      child: Text(AppStrings.startRun),
+                      child: const Text('Start cooking'),
                     ),
                     TextButton(
                       key: ProductionModuleKeys.runDelete(run.id),
                       onPressed: () => _confirmDelete(context, ref),
                       child: Text(AppStrings.deleteAction),
                     ),
+                    TextButton(
+                      onPressed: () => _confirmStop(context, ref),
+                      child: const Text('Stop'),
+                    ),
                   ],
-                  if (run.status == RunStatusDto.inProgress)
+                  if (run.status == RunStatusDto.inProgress) ...[
                     FilledButton.tonal(
                       key: ProductionModuleKeys.runComplete(run.id),
                       onPressed: () => showResponsiveFormDialog<void>(
                         context,
                         builder: (_) => _CompleteRunDialog(run: run),
                       ),
-                      child: Text(AppStrings.completeRun),
+                      child: const Text('Write what you got'),
                     ),
+                    TextButton(
+                      onPressed: () => _confirmStop(context, ref),
+                      child: const Text('Stop'),
+                    ),
+                  ],
                   // Guided path: resumes the cook wizard at this run's
                   // step (weigh → cook → record → publish in one place).
                   TextButton(
@@ -629,14 +654,12 @@ class _RunCard extends ConsumerWidget {
   String _nextAction(BuildContext context, RunDto run, String target) {
     final base = '$target × ${run.sellableItemName}';
     return switch (run.status) {
-      RunStatusDto.pending => AppStrings.plannedNext(target, run.sellableItemName),
-      RunStatusDto.inProgress => run.startedAt == null
-          ? '$base · tap Record output when done'
-          : AppStrings.cookingNext(
-              Fmt.dayMonthTime(run.startedAt!.toLocal())),
+      RunStatusDto.pending => 'Planned $base. Tap Start cooking when you begin.',
+      RunStatusDto.inProgress => 'Cooking $base. Tap Write what you got when done.',
       RunStatusDto.completed => run.published
-          ? '$base · ${AppStrings.publishedBadge}'
-          : '$base · verify on the ${AppStrings.outputTab} tab',
+          ? '$base. Done and selling.'
+          : '$base. Check the Ready tab.',
+      RunStatusDto.cancelled => '$base. Stopped — items are back.',
     };
   }
 
@@ -676,6 +699,50 @@ class _RunCard extends ConsumerWidget {
           SnackBar(content: Text(AppStrings.runFailed(message))));
     }
   }
+
+  Future<void> _confirmStop(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await showAppDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(AppStrings.stopBatchTitle),
+        content: Text(AppStrings.stopBatchBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Keep cooking'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Stop'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    try {
+      await ref.read(productionRunsProvider.notifier).cancelRun(runId: run.id);
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.stoppedOk),
+          action: SnackBarAction(
+            label: AppStrings.tryAgain,
+            onPressed: () {},
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      final message = e is InventoryApiException ? e.message : e.toString();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Could not stop: $message'),
+          action: SnackBarAction(label: AppStrings.tryAgain, onPressed: () {}),
+        ),
+      );
+    }
+  }
 }
 
 class _YieldLine extends StatelessWidget {
@@ -685,10 +752,11 @@ class _YieldLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Simple words: Got more / Got what we planned / Got less.
     final label = switch (run.yieldStatus) {
-      YieldStatusDto.above => AppStrings.yieldAbove,
-      YieldStatusDto.withinThreshold => AppStrings.yieldWithin,
-      YieldStatusDto.below => AppStrings.yieldBelow,
+      YieldStatusDto.above => 'Got more than planned',
+      YieldStatusDto.withinThreshold => 'Got what we planned',
+      YieldStatusDto.below => 'Got less than planned',
       null => '',
     };
     final tone = switch (run.yieldStatus) {
@@ -763,6 +831,33 @@ class _StartRunDialogState extends ConsumerState<_StartRunDialog> {
     final leadingId = widget.run.components.first.rawMaterialItemId;
     final leadingQty = _of(leadingId);
     if (leadingQty == null || leadingQty <= 0) return;
+    // Simple words: if anything is short, ask first (cook anyway or stop).
+    final shorts = <String>[
+      for (final line in widget.run.components)
+        if ((_of(line.rawMaterialItemId) ?? 0) >
+            _stockOf(line.rawMaterialItemId))
+          '• ${line.rawMaterialName}: need ${_ctrls[line.rawMaterialItemId]?.text}, have ${Fmt.quantity(_stockOf(line.rawMaterialItemId))} ${line.rawMaterialUnit}',
+    ];
+    if (shorts.isNotEmpty) {
+      final go = await showAppDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          title: Text(AppStrings.notEnoughStockTitle),
+          content: Text(AppStrings.notEnoughStockBody(shorts.join('\n'))),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(d).pop(false),
+              child: Text(AppStrings.buyFirst),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(d).pop(true),
+              child: Text(AppStrings.cookAnyway),
+            ),
+          ],
+        ),
+      );
+      if (go != true || !mounted) return;
+    }
     setState(() => _submitting = true);
     try {
       await ref.read(productionRunsProvider.notifier).startRun(
@@ -786,7 +881,11 @@ class _StartRunDialogState extends ConsumerState<_StartRunDialog> {
       setState(() => _submitting = false);
       final message = e is InventoryApiException ? e.message : e.toString();
       messenger.showSnackBar(
-          SnackBar(content: Text(AppStrings.runFailed(message))));
+        SnackBar(
+          content: Text('Could not start: $message'),
+          action: SnackBarAction(label: AppStrings.tryAgain, onPressed: _submit),
+        ),
+      );
     }
   }
 
@@ -795,7 +894,7 @@ class _StartRunDialogState extends ConsumerState<_StartRunDialog> {
     if (_started) {
       return ResponsiveFormDialog(
         key: ProductionModuleKeys.cookingDone,
-        title: AppStrings.startRunTitle,
+        title: 'Cooking...',
         width: kStockDialogWidth,
         actions: [
           FilledButton(
@@ -810,8 +909,11 @@ class _StartRunDialogState extends ConsumerState<_StartRunDialog> {
         ),
       );
     }
+    final mainId = widget.run.components.isEmpty
+        ? null
+        : widget.run.components.first.rawMaterialItemId;
     return ResponsiveFormDialog(
-      title: AppStrings.weighAndStart,
+      title: 'Weigh and start',
       width: kStockDialogWidth,
       actions: [
         OutlinedButton(
@@ -821,7 +923,7 @@ class _StartRunDialogState extends ConsumerState<_StartRunDialog> {
         FilledButton(
           key: ProductionModuleKeys.startSubmit,
           onPressed: _submitting || !_valid ? null : _submit,
-          child: Text(AppStrings.startRun),
+          child: const Text('Start cooking'),
         ),
       ],
       child: Column(
@@ -831,97 +933,22 @@ class _StartRunDialogState extends ConsumerState<_StartRunDialog> {
           const _StepsHeader(step: 2, total: 3),
           const SizedBox(height: Insets.sm),
           Text(
-            AppStrings.startCookingHint,
+            AppStrings.mainItemLabel,
             style: context.text.bodySmall?.copyWith(
-              color: context.colors.onSurfaceVariant,
+              color: context.colors.primary,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: Insets.md),
           for (final line in widget.run.components)
-            _MeasuredLine(
-              line: line,
+            SimpleWeighLine(
+              name: line.rawMaterialName,
+              unit: line.rawMaterialUnit,
               controller: _ctrls[line.rawMaterialItemId],
               onHand: _stockOf(line.rawMaterialItemId),
               onChanged: () => setState(() {}),
+              isMainItem: line.rawMaterialItemId == mainId,
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MeasuredLine extends StatelessWidget {
-  const _MeasuredLine({
-    required this.line,
-    required this.controller,
-    required this.onHand,
-    required this.onChanged,
-  });
-
-  final RunComponentDto line;
-  final TextEditingController? controller;
-  final double onHand;
-  final VoidCallback onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final needed = parseQuantity(controller?.text ?? '') ?? 0;
-    final short = needed > onHand;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: Insets.xs),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  line.rawMaterialName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: context.text.bodyMedium,
-                ),
-                Text(
-                  AppStrings.consumptionLine(
-                    Fmt.quantity(onHand),
-                    line.rawMaterialUnit,
-                    'in stock',
-                  ),
-                  style: context.text.bodySmall?.copyWith(
-                    color: short
-                        ? context.semantic.warning
-                        : context.colors.onSurfaceVariant,
-                    fontWeight: short ? FontWeight.w700 : null,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: Insets.sm),
-          SizedBox(
-            width: 130,
-            child: TextFormField(
-              controller: controller,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
-              ],
-              decoration: InputDecoration(
-                suffixText: line.rawMaterialUnit,
-                isDense: true,
-              ),
-              onChanged: (_) => onChanged(),
-            ),
-          ),
-          const SizedBox(width: Insets.sm),
-          Icon(
-            short
-                ? Icons.warning_amber_rounded
-                : Icons.check_circle_outline_rounded,
-            size: 16,
-            color: short ? context.semantic.warning : context.semantic.success,
-          ),
         ],
       ),
     );
@@ -942,6 +969,8 @@ class _CompleteRunDialogState extends ConsumerState<_CompleteRunDialog> {
   late final TextEditingController _actual;
   final _waste = TextEditingController();
   bool _submitting = false;
+  // Simple words: use the plan number unless staff picks otherwise.
+  bool _usePlan = true;
 
   @override
   void initState() {
@@ -960,7 +989,9 @@ class _CompleteRunDialogState extends ConsumerState<_CompleteRunDialog> {
 
   Future<void> _submit() async {
     final messenger = ScaffoldMessenger.of(context);
-    final actual = parseQuantity(_actual.text);
+    final actual = _usePlan
+        ? double.parse(widget.run.targetOutputQuantity.toString())
+        : parseQuantity(_actual.text);
     if (actual == null || actual <= 0) return;
     setState(() => _submitting = true);
     try {
@@ -992,11 +1023,12 @@ class _CompleteRunDialogState extends ConsumerState<_CompleteRunDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final valid = (parseQuantity(_actual.text) ?? 0) > 0;
+    final valid = _usePlan || (parseQuantity(_actual.text) ?? 0) > 0;
     final target =
         Fmt.quantity(double.parse(widget.run.targetOutputQuantity.toString()));
+    const losses = ['Spilled', 'Burnt', 'Too much made', 'Taste bad'];
     return ResponsiveFormDialog(
-      title: AppStrings.welcomeBack,
+      title: 'Welcome back!',
       width: kStockDialogWidth,
       actions: [
         OutlinedButton(
@@ -1006,7 +1038,7 @@ class _CompleteRunDialogState extends ConsumerState<_CompleteRunDialog> {
         FilledButton(
           key: ProductionModuleKeys.completeSubmit,
           onPressed: _submitting || !valid ? null : _submit,
-          child: Text(AppStrings.completeRun),
+          child: const Text('Save'),
         ),
       ],
       child: Column(
@@ -1016,32 +1048,65 @@ class _CompleteRunDialogState extends ConsumerState<_CompleteRunDialog> {
           const _StepsHeader(step: 3, total: 3),
           const SizedBox(height: Insets.sm),
           Text(
-            AppStrings.targetWasLine(target, widget.run.recipeName),
-            style: context.text.bodySmall?.copyWith(
-              color: context.colors.onSurfaceVariant,
-            ),
+            'Plan was $target × ${widget.run.recipeName}. How many did you get?',
+            style: context.text.bodyLarge,
           ),
           const SizedBox(height: Insets.md),
-          LabeledFormField(
-            label: AppStrings.howManyGot,
-            helper: AppStrings.actualYieldHint,
-            isRequired: true,
-            child: TextFormField(
-              key: ProductionModuleKeys.runActual,
-              controller: _actual,
-              autofocus: true,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
-              ],
-              onChanged: (_) => setState(() {}),
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: FilterChip(
+                  label: Text(AppStrings.usePlanNumber),
+                  selected: _usePlan,
+                  onSelected: (_) => setState(() => _usePlan = true),
+                ),
+              ),
+              const SizedBox(width: Insets.sm),
+              Expanded(
+                child: FilterChip(
+                  label: Text(AppStrings.typeRealNumber),
+                  selected: !_usePlan,
+                  onSelected: (_) => setState(() => _usePlan = false),
+                ),
+              ),
+            ],
           ),
+          if (!_usePlan) ...[
+            const SizedBox(height: Insets.md),
+            LabeledFormField(
+              label: 'How many did you get?',
+              isRequired: true,
+              child: TextFormField(
+                key: ProductionModuleKeys.runActual,
+                controller: _actual,
+                autofocus: true,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
+                ],
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+          ],
           const SizedBox(height: Insets.lg),
+          Text(AppStrings.pickLossReason, style: context.text.bodyMedium),
+          const SizedBox(height: Insets.xs),
+          Wrap(
+            spacing: Insets.sm,
+            children: [
+              for (final loss in losses)
+                FilterChip(
+                  label: Text(loss),
+                  selected: _waste.text == loss,
+                  onSelected: (_) => setState(() => _waste.text =
+                      _waste.text == loss ? '' : loss),
+                ),
+            ],
+          ),
+          const SizedBox(height: Insets.sm),
           LabeledFormField(
-            label: AppStrings.anythingLost,
-            helper: AppStrings.anythingLostHint,
+            label: 'More details (optional)',
             child: TextFormField(
               key: ProductionModuleKeys.runWaste,
               controller: _waste,
@@ -1064,8 +1129,7 @@ class _OutputTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // The tab switch already scoped the shared filter to completed; the
-    // local filter below is a backstop, never a second fetch.
+    // Simple: this tab always shows done batches. No shared filter to jump.
     final runs = [
       for (final r in ref.watch(productionRunsListProvider))
         if (r.status == RunStatusDto.completed) r,
@@ -1080,8 +1144,8 @@ class _OutputTab extends ConsumerWidget {
         padding: const EdgeInsets.all(Insets.lg),
         children: [
           Text(
-            AppStrings.verifyQueueHint,
-            style: context.text.bodySmall?.copyWith(
+            'Check, then tap Sell to put food on sale.',
+            style: context.text.bodyMedium?.copyWith(
               color: context.colors.onSurfaceVariant,
             ),
           ),
@@ -1095,8 +1159,8 @@ class _OutputTab extends ConsumerWidget {
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: Insets.xl),
                 child: Text(
-                  AppStrings.noRunsYetFilter,
-                  style: context.text.bodyMedium?.copyWith(
+                  'Nothing to check yet.',
+                  style: context.text.bodyLarge?.copyWith(
                     color: context.colors.onSurfaceVariant,
                   ),
                 ),
@@ -1130,29 +1194,30 @@ class _OutputCardState extends ConsumerState<_OutputCard> {
           .publishRun(runId: widget.run.id);
       if (!mounted) return;
       setState(() => _publishing = false);
-      final verdict = switch (event.yieldStatus) {
-        YieldStatusDto.above => AppStrings.yieldAbove,
-        YieldStatusDto.withinThreshold => AppStrings.yieldWithin,
-        YieldStatusDto.below => AppStrings.yieldBelow,
-      };
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            AppStrings.runPublishedVerdict(
-              Fmt.quantity(
-                  double.parse(event.actualOutputQuantity.toString())),
-              event.sellableItemName,
-              verdict,
-            ),
+            '${Fmt.quantity(double.parse(event.actualOutputQuantity.toString()))} × ${event.sellableItemName} is now selling.',
           ),
+          action: SnackBarAction(label: AppStrings.tryAgain, onPressed: () {}),
         ),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _publishing = false);
       final message = e is InventoryApiException ? e.message : e.toString();
+      final offline = message.toLowerCase().contains('socket') ||
+          message.toLowerCase().contains('connection') ||
+          message.toLowerCase().contains('timeout') ||
+          message.toLowerCase().contains('network');
       messenger.showSnackBar(
-          SnackBar(content: Text(AppStrings.runFailed(message))));
+        SnackBar(
+          content: Text(offline
+              ? AppStrings.noInternetCook
+              : 'Could not sell: $message'),
+          action: SnackBarAction(label: AppStrings.tryAgain, onPressed: _publish),
+        ),
+      );
     }
   }
 
@@ -1168,101 +1233,381 @@ class _OutputCardState extends ConsumerState<_OutputCard> {
     return Card(
       key: ProductionModuleKeys.runCard('output-${run.id}'),
       margin: const EdgeInsets.only(bottom: Insets.md),
-      child: Padding(
-        padding: const EdgeInsets.all(Insets.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    run.recipeName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: context.text.titleSmall,
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Insets.sm,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: (run.published
-                            ? context.semantic.success
-                            : context.semantic.warning)
-                        .withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(Radii.pill),
-                  ),
-                  child: Text(
-                    run.published
-                        ? AppStrings.publishedBadge
-                        : AppStrings.awaitingPublish,
-                    style: context.text.labelSmall?.copyWith(
-                      color: run.published
-                          ? context.semantic.success
-                          : context.semantic.warning,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: Insets.xs),
-            Text(
-              'Target $target × ${run.sellableItemName} · achieved $actual',
-              style: context.text.bodySmall?.copyWith(
-                color: context.colors.onSurfaceVariant,
-              ),
-            ),
-            if (run.yieldStatus != null) ...[
-              const SizedBox(height: Insets.xs),
-              _YieldLine(run: run),
-            ],
-            if (run.wasteReason != null &&
-                run.wasteReason!.trim().isNotEmpty) ...[
-              const SizedBox(height: Insets.xs),
+      child: InkWell(
+        borderRadius: Radii.card,
+        onTap: () => showRunDetail(context, run),
+        child: Padding(
+          padding: const EdgeInsets.all(Insets.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
               Row(
                 children: [
-                  Icon(
-                    Icons.delete_outline_rounded,
-                    size: 16,
-                    color: context.semantic.warning,
-                  ),
-                  const SizedBox(width: Insets.xs),
                   Expanded(
                     child: Text(
-                      run.wasteReason!,
-                      style: context.text.bodySmall?.copyWith(
-                        color: context.colors.onSurfaceVariant,
-                        fontStyle: FontStyle.italic,
+                      run.recipeName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.text.titleMedium,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Insets.sm,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: (run.published
+                              ? context.semantic.success
+                              : context.semantic.warning)
+                          .withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(Radii.pill),
+                    ),
+                    child: Text(
+                      run.published ? 'Selling' : 'Wait to sell',
+                      style: context.text.labelSmall?.copyWith(
+                        color: run.published
+                            ? context.semantic.success
+                            : context.semantic.warning,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
                 ],
               ),
-            ],
-            if (widget.canProduce && !run.published) ...[
-              const SizedBox(height: Insets.sm),
-              FilledButton.icon(
-                key: ProductionModuleKeys.runPublish(run.id),
-                onPressed: _publishing ? null : _publish,
-                icon: const Icon(Icons.publish_rounded, size: 18),
-                label: Text(AppStrings.publishAction),
-              ),
               const SizedBox(height: Insets.xs),
-              TextButton(
-                key: ProductionModuleKeys.runContinue(run.id),
-                onPressed: () => showCookWizard(context, run: run),
-                child: Text(AppStrings.continueAction),
+              Text(
+                'Plan $target, got $actual × ${run.sellableItemName}',
+                style: context.text.bodyLarge,
               ),
+              Text(
+                AppStrings.tapToSeeDetails,
+                style: context.text.bodySmall?.copyWith(
+                  color: context.colors.primary,
+                ),
+              ),
+              if (run.yieldStatus != null) ...[
+                const SizedBox(height: Insets.xs),
+                _YieldLine(run: run),
+              ],
+              if (run.wasteReason != null &&
+                  run.wasteReason!.trim().isNotEmpty) ...[
+                const SizedBox(height: Insets.xs),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.delete_outline_rounded,
+                      size: 16,
+                      color: context.semantic.warning,
+                    ),
+                    const SizedBox(width: Insets.xs),
+                    Expanded(
+                      child: Text(
+                        run.wasteReason!,
+                        style: context.text.bodySmall?.copyWith(
+                          color: context.colors.onSurfaceVariant,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              if (widget.canProduce && !run.published) ...[
+                const SizedBox(height: Insets.sm),
+                FilledButton.icon(
+                  key: ProductionModuleKeys.runPublish(run.id),
+                  onPressed: _publishing ? null : _publish,
+                  icon: const Icon(Icons.storefront_rounded, size: 18),
+                  label: const Text('Sell'),
+                ),
+                const SizedBox(height: Insets.xs),
+                TextButton(
+                  key: ProductionModuleKeys.runContinue(run.id),
+                  onPressed: () => showCookWizard(context, run: run),
+                  child: const Text('Open'),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
   }
+}
+
+/// Tap a batch to see everything: what was planned, weighed, got, lost.
+/// Simple words, big text. Same sheet from Today and Ready tabs.
+void showRunDetail(BuildContext context, RunDto run) {
+  showResponsiveFormDialog<void>(
+    context,
+    builder: (_) => ResponsiveFormDialog(
+      title: run.recipeName,
+      width: kStockDialogWidth,
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(AppStrings.gotIt),
+        ),
+      ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Plan ${Fmt.quantity(double.parse(run.targetOutputQuantity.toString()))} × ${run.sellableItemName}',
+            style: Theme.of(context).textTheme.bodyLarge,
+          ),
+          if (run.actualOutputQuantity != null)
+            Text(
+              'Got ${Fmt.quantity(double.parse(run.actualOutputQuantity.toString()))}',
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          const SizedBox(height: Insets.md),
+          const Text('What was weighed:'),
+          for (final line in run.components)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                children: [
+                  Expanded(child: Text(line.rawMaterialName)),
+                  Text(
+                    '${line.measuredQuantity == null ? Fmt.quantity(double.parse(line.plannedQuantity.toString())) : Fmt.quantity(double.parse(line.measuredQuantity.toString()))} ${line.rawMaterialUnit}',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ),
+          if (run.wasteReason != null && run.wasteReason!.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: Insets.sm),
+              child: Text('Lost: ${run.wasteReason}'),
+            ),
+          if (run.stopReason != null)
+            Padding(
+              padding: const EdgeInsets.only(top: Insets.sm),
+              child: Text('Stopped: ${run.stopReason}'),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Past cooking: every done record, with search, cost, and Undo.
+/// Simple words. Undone records stay in the list but say Undone.
+class _PastTab extends ConsumerStatefulWidget {
+  const _PastTab();
+
+  @override
+  ConsumerState<_PastTab> createState() => _PastTabState();
+}
+
+class _PastTabState extends ConsumerState<_PastTab> {
+  final _search = TextEditingController();
+  bool _undoing = false;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _undo(ProductionEventDto event) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final go = await showAppDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(AppStrings.undoCookTitle),
+        content: Text(AppStrings.undoCookBody(event.recipeName)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(d).pop(false),
+            child: const Text('Keep'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(d).pop(true),
+            child: const Text('Undo'),
+          ),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    setState(() => _undoing = true);
+    try {
+      await ref
+          .read(productionHistoryProvider.notifier)
+          .voidProduction(eventId: event.id);
+      if (!mounted) return;
+      setState(() => _undoing = false);
+      messenger.showSnackBar(SnackBar(content: Text(AppStrings.undoneOk)));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _undoing = false);
+      final message = e is InventoryApiException ? e.message : e.toString();
+      messenger.showSnackBar(SnackBar(content: Text('Could not undo: $message')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final all = ref.watch(productionHistoryListProvider);
+    final loading = ref.watch(productionHistoryProvider).isLoading;
+    final canProduce =
+        ref.watch(hasPermissionProvider(AppPermissions.productionCreate));
+    final q = _search.text.trim().toLowerCase();
+    final events = [
+      for (final e in all)
+        if (q.isEmpty ||
+            e.recipeName.toLowerCase().contains(q) ||
+            e.sellableItemName.toLowerCase().contains(q))
+          e,
+    ];
+    return RefreshIndicator(
+      onRefresh: () => ref.read(productionHistoryProvider.notifier).refresh(),
+      child: ListView(
+        padding: const EdgeInsets.all(Insets.lg),
+        children: [
+          TextFormField(
+            controller: _search,
+            decoration: InputDecoration(
+              hintText: AppStrings.searchHint,
+              prefixIcon: const Icon(Icons.search_rounded),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: Insets.md),
+          if (loading && events.isEmpty)
+            const Center(child: CircularProgressIndicator()),
+          for (final event in events)
+            Card(
+              margin: const EdgeInsets.only(bottom: Insets.md),
+              child: InkWell(
+                borderRadius: Radii.card,
+                onTap: () => showPastDetail(context, event),
+                child: Padding(
+                  padding: const EdgeInsets.all(Insets.md),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              event.recipeName,
+                              style: context.text.titleMedium,
+                            ),
+                          ),
+                          if (event.undone)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: Insets.sm,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: context.colors.onSurfaceVariant
+                                    .withValues(alpha: 0.12),
+                                borderRadius:
+                                    BorderRadius.circular(Radii.pill),
+                              ),
+                              child: const Text('Undone'),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${Fmt.quantity(double.parse(event.actualOutputQuantity.toString()))} × ${event.sellableItemName}',
+                        style: context.text.bodyLarge,
+                      ),
+                      if (event.costPerOne != null)
+                        Text(
+                          'Each one costs: ${Fmt.money(double.parse(event.costPerOne.toString()))}',
+                          style: context.text.bodySmall?.copyWith(
+                            color: context.semantic.success,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      if (canProduce && !event.undone) ...[
+                        const SizedBox(height: Insets.sm),
+                        OutlinedButton(
+                          onPressed: _undoing ? null : () => _undo(event),
+                          child: const Text('Undo'),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          if (!loading && events.isEmpty)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: Insets.xl),
+                child: Text('Nothing here yet.'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Past record detail: what was used, what it cost, when it happened.
+void showPastDetail(BuildContext context, ProductionEventDto event) {
+  showResponsiveFormDialog<void>(
+    context,
+    builder: (_) => ResponsiveFormDialog(
+      title: event.recipeName,
+      width: kStockDialogWidth,
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(AppStrings.gotIt),
+        ),
+      ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${Fmt.quantity(double.parse(event.actualOutputQuantity.toString()))} × ${event.sellableItemName}',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          if (event.costTotal != null)
+            Text(
+              'Cost for this batch: ${Fmt.money(double.parse(event.costTotal.toString()))}',
+            ),
+          if (event.costPerOne != null)
+            Text(
+              'Each one costs: ${Fmt.money(double.parse(event.costPerOne.toString()))}',
+            ),
+          const SizedBox(height: Insets.md),
+          const Text('What was used:'),
+          for (final c in event.components)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                children: [
+                  Expanded(child: Text(c.rawMaterialName)),
+                  Text(
+                    '${Fmt.quantity(double.parse(c.quantityConsumed.toString()))} ${c.rawMaterialUnit}',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ),
+          if (event.wasteReason != null && event.wasteReason!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: Insets.sm),
+              child: Text('Lost: ${event.wasteReason}'),
+            ),
+          if (event.undone) const Text('Undone — stock was put back.'),
+        ],
+      ),
+    ),
+  );
 }
 
 /// Display-plain number for prefilling: `10`, not `10.0`, never grouped.

@@ -166,6 +166,7 @@ import 'tables/cached_suppliers.dart';
 import 'tables/cached_categories.dart';
 import 'tables/cached_units.dart';
 import 'tables/local_audit_log.dart';
+import 'tables/sync_state.dart';
 
 part 'app_database.g.dart';
 
@@ -192,13 +193,14 @@ part 'app_database.g.dart';
   CachedCategories,
   CachedUnits,
   LocalAuditLog,
+  SyncState,
 ])
 class AppDatabase extends _$AppDatabase {
   /// Creates an instance using the provided connection.
   AppDatabase(super.connection);
 
   @override
-  int get schemaVersion => 14;
+  int get schemaVersion => 15;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -319,6 +321,12 @@ class AppDatabase extends _$AppDatabase {
           cachedSaleLineItems,
           cachedSaleLineItems.unitCost,
         );
+      }
+      if (from < 15) {
+        // v14→v15: last-good-sync stamps per area (sales/finance/customers/
+        // pull). Fresh table — backfill is just "no stamp yet", which the
+        // UI reads as "Never synced yet".
+        await m.createTable(syncState);
       }
     },
     beforeOpen: (details) async {

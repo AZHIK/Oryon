@@ -125,7 +125,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   BusinessType _businessType = BusinessType.restaurant;
   final _cuisineType = TextEditingController();
   final _licenseDocumentUrl = TextEditingController();
-  String? _logoName;
   Uint8List? _logoBytes;
 
   // Step 2
@@ -134,9 +133,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _phone = TextEditingController();
 
   // Step 3
-  final _taxRate = TextEditingController(text: '8.25');
+  final _taxRate = TextEditingController();
   final _taxId = TextEditingController();
   final _registrationNumber = TextEditingController();
+  // Tax switch — off by default. No rate needed until switched on.
+  bool _chargeTax = false;
   Currency _currency = Currency.tzs;
   OrderType _orderType = OrderType.dineIn;
 
@@ -168,7 +169,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final settings = ref.read(storeSettingsProvider);
     _currency = settings.currency;
     _orderType = settings.defaultOrderType;
-    _taxRate.text = (settings.taxRate * 100).toStringAsFixed(2);
+    _chargeTax = settings.taxEnabled;
+    _taxRate.text = settings.taxEnabled
+        ? (settings.taxRate * 100).toStringAsFixed(2)
+        : '';
 
     _team.add(_Teammate(roleId: _defaultRoleId));
   }
@@ -218,7 +222,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _locationName.text.trim().isNotEmpty &&
           _address.text.trim().isNotEmpty &&
           _phoneIsValidOrEmpty,
-    2 => _parsedRate != null,
+    // Tax step never blocks: tax is off by default, and a rate is only
+    // needed when the switch is on (empty = invalid only then).
+    2 => !_chargeTax || _taxRate.text.trim().isEmpty || _parsedRate != null,
     // The team step never blocks: an owner opening alone on a Tuesday has
     // nobody to invite yet, and hiring is not a setup task.
     3 => true,
@@ -226,7 +232,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   };
 
   double? get _parsedRate {
-    final parsed = double.tryParse(_taxRate.text.trim());
+    final text = _taxRate.text.trim();
+    if (text.isEmpty) return 0;
+    final parsed = double.tryParse(text);
     if (parsed == null || parsed < 0 || parsed > 100) return null;
     return parsed / 100;
   }
@@ -270,7 +278,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   .read(storeSettingsProvider)
                   .copyWith(
                     currency: _currency,
-                    taxRate: _parsedRate,
+                    taxEnabled: _chargeTax,
+                    taxRate: _chargeTax ? (_parsedRate ?? 0) : 0,
                     defaultOrderType: _orderType,
                   ),
             );
@@ -518,11 +527,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             label: AppStrings.addLogo,
             hint: '',
             onPicked: (name, bytes) => setState(() {
-              _logoName = name;
               _logoBytes = bytes;
             }),
             onRemoved: () => setState(() {
-              _logoName = null;
               _logoBytes = null;
             }),
           ),
@@ -707,40 +714,53 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           ),
         ),
         const SizedBox(height: Insets.lg),
-        LabeledFormField(
-          label: AppStrings.taxRate,
-          isRequired: true,
-          helper: AppStrings.taxPreview(
-            Fmt.moneyIn(
-              _currency,
-              _currency.decimalDigits == 0 ? 48000 : 48,
-            ),
-          ),
-          child: TextField(
-            key: OnboardingKeys.taxRate,
-            controller: _taxRate,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(
-                RegExp(
-                  r'^\d{0,'
-                  '${AppLimits.taxWholeDigits}'
-                  r'}\.?\d{0,'
-                  '${AppLimits.taxFractionDigits}'
-                  r'}',
-                ),
-              ),
-            ],
-            decoration: InputDecoration(
-              hintText: AppStrings.taxExample,
-              suffixText: AppStrings.percentSuffix,
-              errorText: _taxRate.text.trim().isEmpty || _parsedRate != null
-                  ? null
-                  : AppStrings.taxRangeError,
-            ),
-            onChanged: (_) => setState(() {}),
+        SwitchListTile(
+          value: _chargeTax,
+          onChanged: (value) => setState(() => _chargeTax = value),
+          title: const Text('Charge tax'),
+          subtitle: Text(
+            _chargeTax
+                ? 'Tax is added at checkout'
+                : 'Off — no tax is charged or shown',
           ),
         ),
+        if (_chargeTax) ...[
+          const SizedBox(height: Insets.lg),
+          LabeledFormField(
+            label: AppStrings.taxRate,
+            isRequired: true,
+            helper: AppStrings.taxPreview(
+              Fmt.moneyIn(
+                _currency,
+                _currency.decimalDigits == 0 ? 48000 : 48,
+              ),
+            ),
+            child: TextField(
+              key: OnboardingKeys.taxRate,
+              controller: _taxRate,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(
+                  RegExp(
+                    r'^\d{0,'
+                    '${AppLimits.taxWholeDigits}'
+                    r'}\.?\d{0,'
+                    '${AppLimits.taxFractionDigits}'
+                    r'}',
+                  ),
+                ),
+              ],
+              decoration: InputDecoration(
+                hintText: AppStrings.taxExample,
+                suffixText: AppStrings.percentSuffix,
+                errorText: _taxRate.text.trim().isEmpty || _parsedRate != null
+                    ? null
+                    : AppStrings.taxRangeError,
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+        ],
         const SizedBox(height: Insets.lg),
         LabeledFormField(
           label: AppStrings.taxId,

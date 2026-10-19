@@ -443,11 +443,15 @@ class _StockHistoryPanel extends StatefulWidget {
 
 class _StockHistoryPanelState extends State<_StockHistoryPanel> {
   int _page = 0;
+  String? _group;
 
   @override
   Widget build(BuildContext context) {
-    final query =
-        TableQuery(page: _page, pageSize: AppLimits.tablePageSizeDense);
+    final query = TableQuery(
+      page: _page,
+      pageSize: AppLimits.tablePageSizeDense,
+      groupField: _group,
+    );
     final slice = PageSlice.of(widget.history, query);
 
     return DetailPanel(
@@ -464,6 +468,11 @@ class _StockHistoryPanelState extends State<_StockHistoryPanel> {
         query: query,
         onSort: (_) {},
         onPageChanged: (page) => setState(() => _page = page),
+        groupedItems: widget.history,
+        onGroupChanged: (field) => setState(() {
+          _group = field;
+          _page = 0;
+        }),
         emptyState: const _NoHistory(),
       ),
     );
@@ -484,6 +493,7 @@ class _StockHistoryPanelState extends State<_StockHistoryPanel> {
       field: 'type',
       role: ColumnRole.status,
       sortable: false,
+      groupable: true,
       width: 132,
       value: (m) => m.type.label,
       cellBuilder: (context, m) => StatusBadge(

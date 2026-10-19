@@ -118,7 +118,8 @@ enum CheckoutPrintMode {
 @immutable
 class StoreSettings {
   const StoreSettings({
-    this.taxRate = 0.0825,
+    this.taxEnabled = false,
+    this.taxRate = 0,
     this.taxInclusive = false,
     this.serviceChargeRate = 0,
     this.currency = Currency.tzs,
@@ -131,8 +132,14 @@ class StoreSettings {
     this.hours = defaultHours,
   });
 
-  /// Stored as a fraction (0.0825), entered as a percentage. Keeping the
+  /// Tax switch — off by default. When off, no tax is charged or shown
+  /// anywhere (POS, sales, receipts, reports). When on, tickets charge
+  /// subtotal * taxRate.
+  final bool taxEnabled;
+
+  /// Stored as a fraction (0.18), entered as a percentage. Keeping the
   /// fraction canonical means the checkout maths never divides by 100.
+  /// Only used when [taxEnabled] is true.
   final double taxRate;
 
   /// Whether menu prices already include tax. Changes what a receipt says, not
@@ -195,6 +202,7 @@ class StoreSettings {
   }
 
   StoreSettings copyWith({
+    bool? taxEnabled,
     double? taxRate,
     bool? taxInclusive,
     double? serviceChargeRate,
@@ -206,6 +214,7 @@ class StoreSettings {
     List<DayHours>? hours,
   }) {
     return StoreSettings(
+      taxEnabled: taxEnabled ?? this.taxEnabled,
       taxRate: taxRate ?? this.taxRate,
       taxInclusive: taxInclusive ?? this.taxInclusive,
       serviceChargeRate: serviceChargeRate ?? this.serviceChargeRate,
@@ -229,6 +238,7 @@ class StoreSettings {
   @override
   bool operator ==(Object other) =>
       other is StoreSettings &&
+      other.taxEnabled == taxEnabled &&
       other.taxRate == taxRate &&
       other.taxInclusive == taxInclusive &&
       other.serviceChargeRate == serviceChargeRate &&
@@ -241,6 +251,7 @@ class StoreSettings {
 
   @override
   int get hashCode => Object.hash(
+    taxEnabled,
     taxRate,
     taxInclusive,
     serviceChargeRate,

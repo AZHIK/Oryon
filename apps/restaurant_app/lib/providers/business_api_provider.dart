@@ -38,9 +38,8 @@ final currentBusinessProvider = FutureProvider<BusinessReadDto?>((ref) async {
 /// Refreshes the current business data.
 ///
 /// Call this to manually refresh business data after updates.
-Future<void> refreshCurrentBusiness(WidgetRef ref) async {
-  await ref.refresh(currentBusinessProvider.future);
-}
+Future<void> refreshCurrentBusiness(WidgetRef ref) =>
+    ref.refresh(currentBusinessProvider.future);
 
 /// Mutations for the current business, following the same
 /// call-API-then-refresh pattern as RolesNotifier/StaffNotifier.

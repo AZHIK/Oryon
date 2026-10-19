@@ -15,14 +15,14 @@ import 'package:restaurant_pos/providers/session_provider.dart';
 import '../test_helpers/test_container.dart';
 
 SessionState _signedIn() => const SessionState(
-      savedProfileIds: ['stf-01'],
-      activeStaffId: 'stf-01',
-      isLoggedIn: true,
-      pin: '246813',
-      isUnlocked: true,
-      hasCompletedOnboarding: true,
-      bootstrapped: true,
-    );
+  savedProfileIds: ['stf-01'],
+  activeStaffId: 'stf-01',
+  isLoggedIn: true,
+  pin: '246813',
+  isUnlocked: true,
+  hasCompletedOnboarding: true,
+  bootstrapped: true,
+);
 
 void main() {
   group('endShift (offline only)', () {
@@ -51,9 +51,9 @@ void main() {
       expect(session.isLoggedIn, isFalse);
       expect(session.isUnlocked, isFalse);
       expect(session.activeStaffId, isNull);
-      // Saved profiles stay, so the next person gets the picker.
-      expect(session.hasSavedProfiles, isTrue);
-      expect(session.entryRoute, '/auth/profiles');
+      // Logout deactivates and removes this profile from the picker.
+      expect(session.hasSavedProfiles, isFalse);
+      expect(session.entryRoute, '/auth/login');
 
       final auth = container.read(authProvider);
       expect(auth.state, AuthState.unauthenticated);

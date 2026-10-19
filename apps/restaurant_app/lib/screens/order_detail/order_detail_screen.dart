@@ -381,10 +381,11 @@ class _PaymentPanel extends StatelessWidget {
               value: AppStrings.discountAmount(Fmt.money(order.discount)),
               valueColor: context.semantic.success,
             ),
-          _Line(
-            label: AppStrings.taxRow(Fmt.percent(order.taxRate)),
-            value: Fmt.money(order.tax),
-          ),
+          if (order.taxRate > 0)
+            _Line(
+              label: AppStrings.taxRow(Fmt.percent(order.taxRate)),
+              value: Fmt.money(order.tax),
+            ),
           const Padding(
             padding: EdgeInsets.symmetric(vertical: Insets.sm),
             child: Divider(height: 1),

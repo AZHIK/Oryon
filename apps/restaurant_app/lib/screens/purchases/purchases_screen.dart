@@ -72,7 +72,7 @@ final _filteredPurchasesProvider = Provider<List<PurchaseOrderRow>>((ref) {
   }).toList();
 });
 
-final _purchasesSliceProvider = Provider<PageSlice<PurchaseOrderRow>>((ref) {
+final _sortedPurchasesProvider = Provider<List<PurchaseOrderRow>>((ref) {
   final rows = ref.watch(_filteredPurchasesProvider);
   final query = ref.watch(purchasesQueryProvider);
   var sorted = [...rows]
@@ -83,7 +83,14 @@ final _purchasesSliceProvider = Provider<PageSlice<PurchaseOrderRow>>((ref) {
   if (query.sortField != null && !query.ascending) {
     sorted = sorted.reversed.toList();
   }
-  return PageSlice.of(sorted, query);
+  return sorted;
+});
+
+final _purchasesSliceProvider = Provider<PageSlice<PurchaseOrderRow>>((ref) {
+  return PageSlice.of(
+    ref.watch(_sortedPurchasesProvider),
+    ref.watch(purchasesQueryProvider),
+  );
 });
 
 /// Purchase-order tracking, built on the shared data-page layer like
@@ -216,6 +223,8 @@ class _PurchasesDataPage extends ConsumerWidget {
         query: query,
         onSort: notifier.toggleSort,
         onPageChanged: notifier.setPage,
+        groupedItems: ref.watch(_sortedPurchasesProvider),
+        onGroupChanged: notifier.setGroup,
         onRowTap: (row) =>
             context.push(AppRoute.purchaseDetail(row.order.id)),
         rowActions: _actions(ref, canCreate: canCreate),
@@ -396,12 +405,14 @@ List<DataColumnSpec<PurchaseOrderRow>> get _columns =>
         label: AppStrings.supplierColumn,
         field: 'supplier',
         flex: 4,
+        groupable: true,
         value: (row) => row.supplierName,
       ),
       DataColumnSpec(
         label: AppStrings.statusColumn,
         field: 'status',
         flex: 3,
+        groupable: true,
         value: (row) => row.order.status.label,
       ),
       DataColumnSpec(

@@ -31,6 +31,7 @@ class DataColumnSpec<T> {
     required this.value,
     this.cellBuilder,
     this.sortable = true,
+    this.groupable = false,
     this.role = ColumnRole.secondary,
     this.flex = 3,
     this.width,
@@ -56,6 +57,11 @@ class DataColumnSpec<T> {
   final Widget Function(BuildContext context, T row)? cellBuilder;
 
   final bool sortable;
+
+  /// Whether "Group by" can gather this column's identical values together.
+  /// Only low-cardinality text columns (status, category, supplier) earn
+  /// this — grouping by a unique id or an amount makes one group per row.
+  final bool groupable;
   final ColumnRole role;
 
   /// Share of the leftover width. Ignored when [width] is set.

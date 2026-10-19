@@ -69,10 +69,13 @@ void main() {
       final sheet = _decode(bytes);
 
       expect(sheet.maxRows, 3, reason: 'header + two rows');
-      expect(
-        sheet.row(0).map((c) => c?.value.toString()).toList(),
-        ['Name', 'Count', 'Price', 'Stock', 'State'],
-      );
+      expect(sheet.row(0).map((c) => c?.value.toString()).toList(), [
+        'Name',
+        'Count',
+        'Price',
+        'Stock',
+        'State',
+      ]);
       expect(sheet.row(1).first?.value.toString(), 'Alpha');
       expect(sheet.row(2).first?.value.toString(), 'Beta');
     });
@@ -150,50 +153,56 @@ void main() {
   });
 
   group('Export guards', () {
-    test('an empty result set refuses rather than writing a blank file', () async {
-      final pdf = await ExportHelper.exportToPdf(
-        columns: _columns,
-        rows: const <DemoRow>[],
-        title: 'Test',
-      );
-      final excel = await ExportHelper.exportToExcel(
-        columns: _columns,
-        rows: const <DemoRow>[],
-        title: 'Test',
-      );
+    test(
+      'an empty result set refuses rather than writing a blank file',
+      () async {
+        final pdf = await ExportHelper.exportToPdf(
+          columns: _columns,
+          rows: const <DemoRow>[],
+          title: 'Test',
+        );
+        final excel = await ExportHelper.exportToExcel(
+          columns: _columns,
+          rows: const <DemoRow>[],
+          title: 'Test',
+        );
 
-      expect(pdf.ok, isFalse);
-      expect(pdf.message, contains('Nothing to export'));
-      expect(excel.ok, isFalse);
-    });
+        expect(pdf.ok, isFalse);
+        expect(pdf.message, contains('Nothing to export'));
+        expect(excel.ok, isFalse);
+      },
+    );
 
-    test('falls back to an automatic location when no dialog is reachable', () async {
-      // A unit test has no platform channels, so neither the save dialog nor
-      // getDownloadsDirectory works — the same failure that made exports report
-      // "Functionality only available on macOS" on Linux. The directory
-      // cascade must still land the file somewhere.
-      final result = await ExportHelper.exportToExcel(
-        columns: _columns,
-        rows: _rows,
-        title: 'Cascade Test',
-      );
+    test(
+      'falls back to an automatic location when no dialog is reachable',
+      () async {
+        // A unit test has no platform channels, so neither the save dialog nor
+        // getDownloadsDirectory works — the same failure that made exports report
+        // "Functionality only available on macOS" on Linux. The directory
+        // cascade must still land the file somewhere.
+        final result = await ExportHelper.exportToExcel(
+          columns: _columns,
+          rows: _rows,
+          title: 'Cascade Test',
+        );
 
-      expect(result.ok, isTrue, reason: result.message);
-      expect(result.path, isNotNull);
+        expect(result.ok, isTrue, reason: result.message);
+        expect(result.path, isNotNull);
 
-      final written = File(result.path!);
-      addTearDown(() async {
-        if (written.existsSync()) await written.delete();
-      });
+        final written = File(result.path!);
+        addTearDown(() async {
+          if (written.existsSync()) await written.delete();
+        });
 
-      expect(written.existsSync(), isTrue);
-      expect(await written.length(), greaterThan(0));
-      expect(result.path, endsWith('.xlsx'));
+        expect(written.existsSync(), isTrue);
+        expect(await written.length(), greaterThan(0));
+        expect(result.path, endsWith('.xlsx'));
 
-      // The file on disk is the workbook we generated, not an empty stub.
-      final sheet = _decode(await written.readAsBytes());
-      expect(sheet.row(1).first?.value.toString(), 'Alpha');
-    });
+        // The file on disk is the workbook we generated, not an empty stub.
+        final sheet = _decode(await written.readAsBytes());
+        expect(sheet.row(1).first?.value.toString(), 'Alpha');
+      },
+    );
 
     test('the written PDF is a real document on disk', () async {
       final result = await ExportHelper.exportToPdf(
@@ -237,13 +246,19 @@ void main() {
         ),
       );
 
-      expect(
-        sheet.row(0).map((c) => c?.value.toString()).toList(),
-        ['Item', 'Category', 'Unit', 'Stock', 'Reorder at', 'Status', 'Active'],
-      );
+      expect(sheet.row(0).map((c) => c?.value.toString()).toList(), [
+        'Item',
+        'Category',
+        'Unit',
+        'Stock',
+        'Reorder at',
+        'Status',
+        'Active',
+      ]);
       final row = sheet.row(1).map((c) => c?.value.toString()).toList();
       expect(row[0], 'Test Item');
-      expect(row[1], 'Dry goods');
+      // Without a loaded taxonomy the exporter preserves the category id.
+      expect(row[1], 'dry');
       expect(row[2], 'kg');
       expect(row[3], '14 kg');
       expect(row[4], '20');
@@ -278,10 +293,15 @@ void main() {
         ),
       );
 
-      expect(
-        sheet.row(0).map((c) => c?.value.toString()).toList(),
-        ['Order', 'Date & time', 'Items', 'Total', 'Payment', 'Fulfillment', 'Status'],
-      );
+      expect(sheet.row(0).map((c) => c?.value.toString()).toList(), [
+        'Order',
+        'Date & time',
+        'Items',
+        'Total',
+        'Payment',
+        'Fulfillment',
+        'Status',
+      ]);
       final row = sheet.row(1).map((c) => c?.value.toString()).toList();
       expect(row[0], 'ORD-9001');
       expect(row[2], '2');

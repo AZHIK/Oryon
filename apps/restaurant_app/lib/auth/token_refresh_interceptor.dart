@@ -67,9 +67,9 @@ class TokenRefreshInterceptor extends Interceptor {
   TokenRefreshInterceptor({
     required this._tokenStorage,
     required String baseUrl,
-    LocalProfileRepository? profileRepo,
+    this._profileRepo,
     this._onPermissionsSynced,
-  })  : _profileRepo = profileRepo {
+  }) {
     // Create a bare Dio instance (no interceptors) for refresh calls.
     // This prevents reentrancy if the refresh call itself fails.
     final bareDio = Dio(BaseOptions(

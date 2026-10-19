@@ -22,8 +22,8 @@ class PurchasingSyncService {
 
   PurchasingSyncService({
     required this._db,
-    required SuppliersCatalogApi suppliersApi,
-  })  : _suppliersApi = suppliersApi;
+    required this._suppliersApi,
+  });
 
   /// Pulls the full supplier directory and upserts into cache. Suppliers
   /// have no soft-delete-on-missing logic to run here — deletion is a

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../constants/app_strings.dart';
 import '../models/order_totals.dart';
 import '../models/payment.dart';
+import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import '../theme/breakpoints.dart';
 import '../utils/formatters.dart';
@@ -87,7 +89,7 @@ class TotalsRow extends StatelessWidget {
 /// this widget with different arguments, which is what stops the tax line
 /// drifting between the screen a customer is shown and the receipt they take
 /// away.
-class PaymentBreakdown extends StatelessWidget {
+class PaymentBreakdown extends ConsumerWidget {
   const PaymentBreakdown({
     super.key,
     required this.totals,
@@ -111,9 +113,12 @@ class PaymentBreakdown extends StatelessWidget {
   final bool highlightChange;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final payment = this.payment;
     final change = payment?.changeFor(totals);
+    // Tax switch: off = no tax row anywhere this widget is used
+    // (POS footer, charge dialog, cart sheet, receipt preview).
+    final showTax = ref.watch(taxEnabledProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -131,11 +136,12 @@ class PaymentBreakdown extends StatelessWidget {
             muted: true,
             valueColor: context.semantic.success,
           ),
-        TotalsRow(
-          label: AppStrings.taxLabel(Fmt.percent(totals.taxRate)),
-          value: Fmt.money(totals.tax),
-          muted: true,
-        ),
+        if (showTax)
+          TotalsRow(
+            label: AppStrings.taxLabel(Fmt.percent(totals.taxRate)),
+            value: Fmt.money(totals.tax),
+            muted: true,
+          ),
         const _Rule(),
         Row(
           crossAxisAlignment: CrossAxisAlignment.end,

@@ -6,20 +6,92 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:restaurant_pos/database/app_database.dart';
 import 'package:restaurant_pos/main.dart';
 import 'package:restaurant_pos/models/inventory_item.dart';
+import 'package:restaurant_pos/models/order.dart';
 import 'package:restaurant_pos/providers/dashboard_metrics_provider.dart';
 import 'package:restaurant_pos/providers/database_providers.dart';
 import 'package:restaurant_pos/providers/inventory_provider.dart';
 import 'package:restaurant_pos/providers/orders_provider.dart';
+import 'package:restaurant_pos/providers/session_provider.dart';
 import 'package:restaurant_pos/router/app_router.dart';
 import 'package:restaurant_pos/widgets/dashboard/colorful_metric_card.dart';
 import 'package:restaurant_pos/widgets/dashboard/low_stock_alert_banner.dart';
 
 const _widths = <double>[360, 400, 768, 1024, 1440, 1920];
 
+/// A low-stock sellable plus a healthy one, so the low-stock banner and the
+/// category donut have something real to show.
+const _pizza = InventoryItem(
+  id: 'item-pizza',
+  sku: 'SKU-PIZZA',
+  name: 'Pizza',
+  categoryId: 'mains',
+  emoji: '🍕',
+  stock: 1,
+  reorderLevel: 5,
+  unitCost: 2,
+  sellingPrice: 10,
+  isSellable: true,
+  itemType: 'sellable',
+);
+
+const _water = InventoryItem(
+  id: 'item-water',
+  sku: 'SKU-WATER',
+  name: 'Water',
+  categoryId: 'drinks',
+  emoji: '💧',
+  stock: 50,
+  reorderLevel: 5,
+  unitCost: 0.5,
+  sellingPrice: 2,
+  isSellable: true,
+  itemType: 'both',
+);
+
+Order _todayOrder() {
+  final now = DateTime.now();
+  return Order(
+    id: 'ORD-1000',
+    lines: const [
+      OrderLine(
+        itemId: 'item-pizza',
+        name: 'Pizza',
+        emoji: '🍕',
+        unitPrice: 10,
+        quantity: 2,
+      ),
+      OrderLine(
+        itemId: 'item-water',
+        name: 'Water',
+        emoji: '💧',
+        unitPrice: 2,
+        quantity: 1,
+      ),
+    ],
+    placedAt: DateTime(now.year, now.month, now.day, 12),
+    paymentType: PaymentType.cash,
+    status: OrderStatus.paid,
+    taxRate: 0,
+  );
+}
+
+class _FixtureOrdersNotifier extends OrdersNotifier {
+  @override
+  Future<List<Order>> build() async => [_todayOrder()];
+}
+
+/// Feeds the dashboard a small, self-consistent set of orders and stock —
+/// the real providers return nothing without a store context.
+List<Override> _dataOverrides() => [
+  inventoryItemsListProvider.overrideWithValue(const [_pizza, _water]),
+  ordersProvider.overrideWith(_FixtureOrdersNotifier.new),
+];
+
 Future<ProviderContainer> pumpDashboard(
   WidgetTester tester,
-  Size size,
-) async {
+  Size size, {
+  List<Override> overrides = const [],
+}) async {
   tester.view.physicalSize = size * tester.view.devicePixelRatio;
   addTearDown(tester.view.reset);
 
@@ -30,9 +102,12 @@ Future<ProviderContainer> pumpDashboard(
   addTearDown(database.close);
 
   final container = ProviderContainer(
-    overrides: [appDatabaseProvider.overrideWithValue(database)],
+    overrides: [appDatabaseProvider.overrideWithValue(database), ...overrides],
   );
   addTearDown(container.dispose);
+  // `SessionNotifier.build()` now returns a signed-out device, so seed an
+  // onboarded one or the guard bounces the app to OTP login.
+  container.read(sessionProvider.notifier).state = SessionNotifier.seed;
 
   await tester.pumpWidget(
     UncontrolledProviderScope(
@@ -50,7 +125,7 @@ void main() {
       await pumpDashboard(tester, const Size(1440, 900));
 
       // No navigation was performed — this is where the shell starts.
-      expect(find.byType(ColorfulMetricCard), findsNWidgets(4));
+      expect(find.byType(ColorfulMetricCard), findsNWidgets(5));
       expect(find.textContaining('Good '), findsOneWidget);
     });
   });
@@ -70,12 +145,12 @@ void main() {
       }
     });
 
-    testWidgets('all four KPI cards render at every width', (tester) async {
+    testWidgets('all five KPI cards render at every width', (tester) async {
       for (final width in _widths) {
         await pumpDashboard(tester, Size(width, 1000));
         expect(
           find.byType(ColorfulMetricCard),
-          findsNWidgets(4),
+          findsNWidgets(5),
           reason: 'a KPI card went missing at ${width}px',
         );
       }
@@ -141,10 +216,12 @@ void main() {
     });
 
     testWidgets('category shares add up to the whole', (tester) async {
-      final container = await pumpDashboard(tester, const Size(1440, 900));
-      final slices = container
-          .read(dashboardMetricsProvider)
-          .categoryBreakdown;
+      final container = await pumpDashboard(
+        tester,
+        const Size(1440, 900),
+        overrides: _dataOverrides(),
+      );
+      final slices = container.read(dashboardMetricsProvider).categoryBreakdown;
 
       expect(slices, isNotEmpty);
       // Sorted largest first, so the chart and the legend lead with the
@@ -192,7 +269,11 @@ void main() {
 
   group('Low stock banner', () {
     testWidgets('shows when lines are below threshold', (tester) async {
-      final container = await pumpDashboard(tester, const Size(1440, 900));
+      final container = await pumpDashboard(
+        tester,
+        const Size(1440, 900),
+        overrides: _dataOverrides(),
+      );
       final metrics = container.read(dashboardMetricsProvider);
 
       expect(metrics.lowStockItems, isNotEmpty);
@@ -230,7 +311,11 @@ void main() {
     testWidgets('tapping it opens Inventory filtered to low stock', (
       tester,
     ) async {
-      final container = await pumpDashboard(tester, const Size(1440, 900));
+      final container = await pumpDashboard(
+        tester,
+        const Size(1440, 900),
+        overrides: _dataOverrides(),
+      );
 
       await tester.tap(find.byType(LowStockAlertBanner));
       await tester.pumpAndSettle();
@@ -240,9 +325,9 @@ void main() {
       expect(filters.statuses, contains(StockStatus.outOfStock));
       // And the rows behind the filter are the ones the banner named.
       expect(
-        container.read(filteredInventoryProvider).every(
-          (i) => i.status != StockStatus.inStock,
-        ),
+        container
+            .read(filteredInventoryProvider)
+            .every((i) => i.status != StockStatus.inStock),
         isTrue,
       );
     });

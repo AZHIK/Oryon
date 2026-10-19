@@ -170,14 +170,18 @@ class _OrderHistoryPanel extends StatefulWidget {
 
 class _OrderHistoryPanelState extends State<_OrderHistoryPanel> {
   int _page = 0;
+  String? _group;
 
   @override
   Widget build(BuildContext context) {
     final orders = [...widget.orders];
     orders.sort((a, b) => b.placedAt.compareTo(a.placedAt));
 
-    final tableQuery =
-        TableQuery(page: _page, pageSize: AppLimits.tablePageSizeDense);
+    final tableQuery = TableQuery(
+      page: _page,
+      pageSize: AppLimits.tablePageSizeDense,
+      groupField: _group,
+    );
     final slice = PageSlice.of(orders, tableQuery);
 
     return DetailPanel(
@@ -206,6 +210,11 @@ class _OrderHistoryPanelState extends State<_OrderHistoryPanel> {
               query: tableQuery,
               onSort: (_) {},
               onPageChanged: (page) => setState(() => _page = page),
+              groupedItems: orders,
+              onGroupChanged: (field) => setState(() {
+                _group = field;
+                _page = 0;
+              }),
             ),
     );
   }

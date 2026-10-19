@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../auth/permission_enforcement.dart';
-import '../models/permission.dart';
 import '../router/app_router.dart';
 
 /// Guard a route: if user lacks permission, redirect to dashboard or deny screen.

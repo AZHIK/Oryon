@@ -13,6 +13,7 @@ import '../router/app_router.dart';
 import '../theme/app_theme.dart';
 import '../theme/breakpoints.dart';
 import 'chat_dialog.dart';
+import 'connection_status_pill.dart';
 
 abstract final class AppTopBarKeys {
   static const accountMenu = Key('appTopBar.accountMenu');
@@ -62,112 +63,129 @@ class AppTopBar extends ConsumerWidget {
               ),
               child: Row(
                 children: [
-                  // Spacer for alignment with nav rail/drawer on larger screens
-                  const SizedBox.shrink(),
                   // Desktop gets an explicit refresh action for the visible tab;
                   // phones and tablets pull down at the top of any list instead.
                   if (context.isDesktop) const _RefreshButton(),
                   if (context.isDesktop) const SizedBox(width: Insets.md),
-                  const Spacer(),
-                  // Actions on the right
-                  _IconButton(
-                    icon: Icons.chat_outlined,
-                    tooltip: AppStrings.chatWithAssistant,
-                    onPressed: () => ChatDialog.show(context),
-                  ),
-                  const SizedBox(width: Insets.md),
-                  _NotificationButton(
-                    onPressed: () =>
-                        context.goNamed(AppRoute.notificationsName),
-                  ),
-                  const SizedBox(width: Insets.md),
-                  _IconButton(
-                    icon: Icons.help_outline_rounded,
-                    tooltip: AppStrings.help,
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(AppStrings.helpComingSoon)),
-                      );
-                    },
-                  ),
-                  const SizedBox(width: Insets.md),
-                  _IconButton(
-                    icon: isSw ? Icons.terrain_rounded : Icons.language_rounded,
-                    tooltip: isSw ? 'Kiingereza' : 'English',
-                    onPressed: () {
-                      final next = isSw
-                          ? AppLanguage.english
-                          : AppLanguage.swahili;
-                      ref.read(appLanguageProvider.notifier).set(next);
-                    },
-                  ),
-                  const SizedBox(width: Insets.md),
-                  PopupMenuButton<String>(
-                    key: AppTopBarKeys.accountMenu,
-                    tooltip: AppStrings.accountAndOptions,
-                    onSelected: (value) async {
-                      if (value == 'end_shift') {
-                        // Offline session only: lock the till, keep tokens so a
-                        // PIN unlock resumes online access without a new OTP.
-                        ref.read(sessionProvider.notifier).endShift();
-                      } else if (value == 'logout') {
-                        // Online + offline: revoke backend session, clear stored
-                        // tokens, drop local session. Guard routes to picker/login.
-                        await ref.read(sessionProvider.notifier).logout();
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      PopupMenuItem(
-                        key: AppTopBarKeys.endShift,
-                        value: 'end_shift',
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.lock_outline_rounded, size: 18),
-                            const SizedBox(width: Insets.sm),
-                            Text(AppStrings.endShift),
-                          ],
+                  // The trailing cluster takes the rest of the bar and stays
+                  // right-aligned. The pill is Flexible so its label ellipsizes
+                  // rather than pushing the action buttons off a narrow phone.
+                  Expanded(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        // Online/offline + "not sent yet" count, everywhere.
+                        const Flexible(child: ConnectionStatusPill()),
+                        const SizedBox(width: Insets.md),
+                        // Actions on the right
+                        _IconButton(
+                          icon: Icons.chat_outlined,
+                          tooltip: AppStrings.chatWithAssistant,
+                          onPressed: () => ChatDialog.show(context),
                         ),
-                      ),
-                      const PopupMenuDivider(),
-                      PopupMenuItem(
-                        key: AppTopBarKeys.logout,
-                        value: 'logout',
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.logout_rounded,
-                              size: 18,
-                              color: colors.error,
+                        const SizedBox(width: Insets.md),
+                        _NotificationButton(
+                          onPressed: () =>
+                              context.goNamed(AppRoute.notificationsName),
+                        ),
+                        const SizedBox(width: Insets.md),
+                        _IconButton(
+                          icon: Icons.help_outline_rounded,
+                          tooltip: AppStrings.help,
+                          onPressed: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(AppStrings.helpComingSoon),
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(width: Insets.md),
+                        _IconButton(
+                          icon: isSw
+                              ? Icons.terrain_rounded
+                              : Icons.language_rounded,
+                          tooltip: isSw ? 'Kiingereza' : 'English',
+                          onPressed: () {
+                            final next = isSw
+                                ? AppLanguage.english
+                                : AppLanguage.swahili;
+                            ref.read(appLanguageProvider.notifier).set(next);
+                          },
+                        ),
+                        const SizedBox(width: Insets.md),
+                        PopupMenuButton<String>(
+                          key: AppTopBarKeys.accountMenu,
+                          tooltip: AppStrings.accountAndOptions,
+                          onSelected: (value) async {
+                            if (value == 'end_shift') {
+                              // Offline session only: lock the till, keep tokens so a
+                              // PIN unlock resumes online access without a new OTP.
+                              ref.read(sessionProvider.notifier).endShift();
+                            } else if (value == 'logout') {
+                              // Online + offline: revoke backend session, clear stored
+                              // tokens, drop local session. Guard routes to picker/login.
+                              await ref.read(sessionProvider.notifier).logout();
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            PopupMenuItem(
+                              key: AppTopBarKeys.endShift,
+                              value: 'end_shift',
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.lock_outline_rounded,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: Insets.sm),
+                                  Text(AppStrings.endShift),
+                                ],
+                              ),
                             ),
-                            const SizedBox(width: Insets.sm),
-                            Text(
-                              AppStrings.logout,
-                              style: TextStyle(color: colors.error),
+                            const PopupMenuDivider(),
+                            PopupMenuItem(
+                              key: AppTopBarKeys.logout,
+                              value: 'logout',
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.logout_rounded,
+                                    size: 18,
+                                    color: colors.error,
+                                  ),
+                                  const SizedBox(width: Insets.sm),
+                                  Text(
+                                    AppStrings.logout,
+                                    style: TextStyle(color: colors.error),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
-                        ),
-                      ),
-                    ],
-                    child: SizedBox(
-                      height: 40,
-                      width: 40,
-                      child: Material(
-                        color: colors.primaryContainer,
-                        clipBehavior: Clip.antiAlias,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Center(
-                          child: Text(
-                            staff.characters.first.toUpperCase(),
-                            style: context.text.titleSmall?.copyWith(
-                              color: colors.onPrimaryContainer,
+                          child: SizedBox(
+                            height: 40,
+                            width: 40,
+                            child: Material(
+                              color: colors.primaryContainer,
+                              clipBehavior: Clip.antiAlias,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  staff.characters.first.toUpperCase(),
+                                  style: context.text.titleSmall?.copyWith(
+                                    color: colors.onPrimaryContainer,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ],

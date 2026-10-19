@@ -354,6 +354,12 @@ class ProductionEventDto {
   final DateTime occurredAt;
   final DateTime createdAt;
   final List<ProductionComponentDto> components;
+  // Simple words: true = this cooking was undone (stock put back).
+  final bool undone;
+  final String? undoReason;
+  // Simple cost: what all used items cost, and per made item.
+  final Decimal? costTotal;
+  final Decimal? costPerOne;
 
   ProductionEventDto({
     required this.id,
@@ -379,6 +385,10 @@ class ProductionEventDto {
     required this.occurredAt,
     required this.createdAt,
     required this.components,
+    this.undone = false,
+    this.undoReason,
+    this.costTotal,
+    this.costPerOne,
   });
 
   factory ProductionEventDto.fromJson(Map<String, dynamic> json) {
@@ -426,6 +436,10 @@ class ProductionEventDto {
           .cast<Map<String, dynamic>>()
           .map(ProductionComponentDto.fromJson)
           .toList(),
+      undone: json['voided_at'] != null,
+      undoReason: json['void_reason'] as String?,
+      costTotal: optDecimal(json['production_cost_total']),
+      costPerOne: optDecimal(json['production_cost_per_unit']),
     );
   }
 }
@@ -434,12 +448,14 @@ class ProductionEventDto {
 enum RunStatusDto {
   pending,
   inProgress,
-  completed;
+  completed,
+  cancelled;
 
   static RunStatusDto fromJson(String value) => switch (value) {
         'pending' => RunStatusDto.pending,
         'in_progress' => RunStatusDto.inProgress,
         'completed' => RunStatusDto.completed,
+        'cancelled' => RunStatusDto.cancelled,
         _ => RunStatusDto.pending,
       };
 
@@ -447,6 +463,7 @@ enum RunStatusDto {
         RunStatusDto.pending => 'pending',
         RunStatusDto.inProgress => 'in_progress',
         RunStatusDto.completed => 'completed',
+        RunStatusDto.cancelled => 'cancelled',
       };
 }
 
@@ -508,6 +525,9 @@ class RunDto {
   final DateTime createdAt;
   final DateTime updatedAt;
   final List<RunComponentDto> components;
+  // Simple words: why this batch was stopped, if it was.
+  final String? stopReason;
+  final DateTime? stoppedAt;
 
   RunDto({
     required this.id,
@@ -534,6 +554,8 @@ class RunDto {
     required this.createdAt,
     required this.updatedAt,
     required this.components,
+    this.stopReason,
+    this.stoppedAt,
   });
 
   factory RunDto.fromJson(Map<String, dynamic> json) {
@@ -583,6 +605,10 @@ class RunDto {
           .cast<Map<String, dynamic>>()
           .map(RunComponentDto.fromJson)
           .toList(),
+      stopReason: json['cancel_reason'] as String?,
+      stoppedAt: json['cancelled_at'] == null
+          ? null
+          : DateTime.parse(json['cancelled_at'] as String),
     );
   }
 }
@@ -1204,6 +1230,7 @@ class InventoryApiService {
     List<MeasuredComponentInput>? components,
     Decimal? actualOutputQuantity,
     Decimal? yieldTolerancePercent,
+    String? idempotencyKey,
   }) async {
     try {
       final response = await _dio.post(
@@ -1219,7 +1246,26 @@ class InventoryApiService {
             'actual_output_quantity': actualOutputQuantity.toString(),
           if (yieldTolerancePercent != null)
             'yield_tolerance_percent': yieldTolerancePercent.toString(),
+          'idempotency_key': ?idempotencyKey,
         },
+      );
+      return ProductionEventDto.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      _rethrowAsInventoryError(e);
+    }
+  }
+
+  /// Undo a cooking record: puts used items back, takes made items back.
+  /// Simple words: the "Undo" button. History is kept, stock goes back.
+  Future<ProductionEventDto> voidProduction({
+    required String businessId,
+    required String eventId,
+    String? reason,
+  }) async {
+    try {
+      final response = await _dio.post(
+        InventoryApiPaths.voidProductionEvent(businessId, eventId),
+        data: {'reason': ?reason},
       );
       return ProductionEventDto.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
@@ -1617,6 +1663,7 @@ class InventoryApiService {
     required String recipeId,
     required Decimal targetOutputQuantity,
     Decimal? yieldTolerancePercent,
+    String? idempotencyKey,
   }) async {
     try {
       final response = await _dio.post(
@@ -1626,6 +1673,7 @@ class InventoryApiService {
           'target_output_quantity': targetOutputQuantity.toString(),
           if (yieldTolerancePercent != null)
             'yield_tolerance_percent': yieldTolerancePercent.toString(),
+          'idempotency_key': ?idempotencyKey,
         },
       );
       return RunDto.fromJson(response.data as Map<String, dynamic>);
@@ -1753,6 +1801,24 @@ class InventoryApiService {
   }) async {
     try {
       await _dio.delete(InventoryApiPaths.run(businessId, runId));
+    } on DioException catch (e) {
+      _rethrowAsInventoryError(e);
+    }
+  }
+
+  /// Stop a batch: puts weighed items back on the shelf.
+  /// Simple words: the "Stop" button. Works for planned and cooking batches.
+  Future<RunDto> cancelRun({
+    required String businessId,
+    required String runId,
+    String? reason,
+  }) async {
+    try {
+      final response = await _dio.post(
+        InventoryApiPaths.runAction(businessId, runId, 'cancel'),
+        data: {'reason': ?reason},
+      );
+      return RunDto.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
       _rethrowAsInventoryError(e);
     }

@@ -11,6 +11,7 @@ import '../../router/app_router.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/breakpoints.dart';
 import '../../utils/formatters.dart';
+import '../../widgets/connection_status_pill.dart';
 import '../../widgets/data_page/data_column_spec.dart';
 import '../../widgets/data_page/data_page_scaffold.dart';
 import '../../widgets/data_page/data_table_toolbar.dart';
@@ -169,6 +170,9 @@ class InventoryGroceriesScreen extends ConsumerWidget {
         query: query,
         onSort: notifier.toggleSort,
         onPageChanged: notifier.setPage,
+        groupedItems: ref.watch(filteredInventoryProvider),
+        onGroupChanged: notifier.setGroup,
+        header: const OfflineCacheNote(),
         // The row body opens the grocery detail screen; the row's
         // own "Edit" action still goes straight to the form.
         onRowTap: (item) => context.pushNamed(
@@ -317,6 +321,7 @@ final groceryColumns = <DataColumnSpec<InventoryItem>>[
     label: AppStrings.categoryColumn,
     field: InventorySort.category,
     flex: 2,
+    groupable: true,
     minTableWidth: 760,
     value: (item) => categoryLabelForId(item.categoryId),
   ),
@@ -350,6 +355,7 @@ final groceryColumns = <DataColumnSpec<InventoryItem>>[
     field: InventorySort.status,
     role: ColumnRole.status,
     width: 132,
+    groupable: true,
     value: (item) => item.status.label,
     cellBuilder: (context, item) => StatusBadge(
       label: item.status.label,

@@ -16,6 +16,7 @@ import '../../widgets/data_page/reusable_data_table.dart';
 import '../../widgets/data_page/summary_metric_card.dart';
 import '../../widgets/dialogs/supplier_form_dialog.dart';
 import '../../utils/dialog_helper.dart';
+import '../../widgets/connection_status_pill.dart';
 
 /// Live search text for the suppliers table.
 final supplierSearchProvider = StateProvider<String>((ref) => '');
@@ -112,6 +113,7 @@ class SuppliersScreen extends ConsumerWidget {
         query: query,
         onSort: notifier.toggleSort,
         onPageChanged: notifier.setPage,
+        header: const OfflineCacheNote(),
         rowActions: _actions(ref, canUpdate: canUpdate, canDelete: canDelete),
       ),
     );

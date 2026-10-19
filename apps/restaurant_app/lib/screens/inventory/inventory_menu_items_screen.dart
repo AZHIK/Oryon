@@ -17,6 +17,7 @@ import '../../services/inventory_api_service.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/breakpoints.dart';
 import '../../utils/formatters.dart';
+import '../../widgets/connection_status_pill.dart';
 import '../../widgets/data_page/data_column_spec.dart';
 import '../../widgets/data_page/data_page_scaffold.dart';
 import '../../widgets/data_page/data_table_toolbar.dart';
@@ -150,6 +151,9 @@ class InventoryMenuItemsScreen extends ConsumerWidget {
         query: query,
         onSort: notifier.toggleSort,
         onPageChanged: notifier.setPage,
+        groupedItems: ref.watch(filteredMenuCatalogProvider),
+        onGroupChanged: notifier.setGroup,
+        header: const OfflineCacheNote(),
         onRowTap: (item) => context.pushNamed(
           AppRoute.menuItemDetailName,
           pathParameters: {'itemId': item.id},
@@ -378,6 +382,7 @@ List<DataColumnSpec<InventoryItem>> menuItemColumns({
     label: AppStrings.categoryColumn,
     field: MenuItemSort.category,
     flex: 2,
+    groupable: true,
     minTableWidth: 700,
     value: (item) => categoryLabelForId(item.categoryId),
   ),
@@ -405,6 +410,7 @@ List<DataColumnSpec<InventoryItem>> menuItemColumns({
     sortable: false,
     role: ColumnRole.status,
     width: 128,
+    groupable: true,
     value: (item) =>
         item.isArchived ? AppStrings.archivedBadge : AppStrings.activeBadge,
     // Fixed-width cells get no gutter from the table (flex cells carry

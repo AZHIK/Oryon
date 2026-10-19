@@ -104,6 +104,8 @@ class RolesScreen extends ConsumerWidget {
         query: query,
         onSort: notifier.toggleSort,
         onPageChanged: notifier.setPage,
+        groupedItems: ref.watch(sortedRolesProvider),
+        onGroupChanged: notifier.setGroup,
         onRowTap: (role) => showRoleFormDialog(context, existingRole: role),
         rowActions: _actions(ref),
       ),
@@ -250,6 +252,7 @@ List<DataColumnSpec<BusinessRole>> roleColumns(Map<String, int> counts) => [
     role: ColumnRole.status,
     sortable: false,
     width: 120,
+    groupable: true,
     value: (role) =>
         role.isProtected ? AppStrings.builtInBadge : AppStrings.customBadge,
     // Says the same thing the column's value says — a badge showing the role's

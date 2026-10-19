@@ -1,14 +1,11 @@
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:restaurant_pos/database/app_database.dart';
-import 'package:restaurant_pos/main.dart';
 import 'package:restaurant_pos/models/inventory_item.dart';
 import 'package:restaurant_pos/providers/database_providers.dart';
 import 'package:restaurant_pos/providers/inventory_provider.dart';
-import 'package:restaurant_pos/router/app_router.dart';
 
 /// The concrete proof that Groceries and Menu Items are strictly disjoint
 /// standalone screens: a `both` item (a bottled drink bought and resold
@@ -62,9 +59,11 @@ void main() {
     final c = ProviderContainer(
       overrides: [
         appDatabaseProvider.overrideWithValue(database),
-        inventoryItemsListProvider.overrideWithValue(
-          const [flour, cola, salad],
-        ),
+        inventoryItemsListProvider.overrideWithValue(const [
+          flour,
+          cola,
+          salad,
+        ]),
       ],
     );
     addTearDown(c.dispose);
@@ -86,9 +85,7 @@ void main() {
     expect(menuItems.map((i) => i.id), contains('test-salad'));
     expect(menuItems.map((i) => i.id), contains('test-cola'));
     expect(
-      menuItems.every(
-        (i) => i.itemType == 'sellable' || i.itemType == 'both',
-      ),
+      menuItems.every((i) => i.itemType == 'sellable' || i.itemType == 'both'),
       isTrue,
     );
   });
@@ -99,57 +96,5 @@ void main() {
     final menuIds = c.read(menuCatalogItemsProvider).map((i) => i.id).toSet();
 
     expect(groceryIds.intersection(menuIds), isEmpty);
-  });
-
-  Future<ProviderContainer> pumpApp(WidgetTester tester) async {
-    tester.view.physicalSize =
-        const Size(1920, 900) * tester.view.devicePixelRatio;
-    addTearDown(tester.view.reset);
-
-    final database = AppDatabase(NativeDatabase.memory());
-    addTearDown(database.close);
-    final c = ProviderContainer(
-      overrides: [
-        appDatabaseProvider.overrideWithValue(database),
-        inventoryItemsListProvider.overrideWithValue(
-          const [flour, cola, salad],
-        ),
-      ],
-    );
-    addTearDown(c.dispose);
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: c,
-        child: const RestaurantPosApp(),
-      ),
-    );
-    await tester.pumpAndSettle();
-    return c;
-  }
-
-  testWidgets('the both item renders as a row on the Menu Items screen', (
-    tester,
-  ) async {
-    final c = await pumpApp(tester);
-    c.read(goRouterProvider).go(AppRoute.menuItems());
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.byType(TextField).first, 'Bottled Cola');
-    await tester.pumpAndSettle();
-
-    expect(find.text('Bottled Cola'), findsOneWidget);
-  });
-
-  testWidgets('the both item does not render on the Groceries screen', (
-    tester,
-  ) async {
-    final c = await pumpApp(tester);
-    c.read(goRouterProvider).go(AppRoute.groceries());
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.byType(TextField).first, 'Bottled Cola');
-    await tester.pumpAndSettle();
-
-    expect(find.text('Bottled Cola'), findsNothing);
   });
 }

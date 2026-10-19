@@ -8,20 +8,27 @@ import '../../theme/app_theme.dart';
 import '../../theme/breakpoints.dart';
 import 'data_column_spec.dart';
 import 'data_row_card.dart';
+import 'table_grouping.dart';
 
 /// A sortable, paginated table that collapses to cards on narrow widths.
+/// Now also groups identical items: pass [groupedItems] (the page's full
+/// filtered + sorted list) and [onGroupChanged], mark low-cardinality
+/// columns `groupable`, and the table offers a "Group by" picker that
+/// gathers matching rows under one header each.
 ///
 /// Generic over the row type and given its columns as config, so it holds no
 /// knowledge of any particular page. It is also *stateless* with respect to
 /// the data: sorting, filtering and paging all happen in the page's provider,
 /// and this widget renders the slice it is handed and reports intent back
-/// through [onSort] and [onPageChanged].
+/// through [onSort] and [onPageChanged]. The only state it owns is which
+/// group headers are collapsed — pure presentation, reset whenever the
+/// grouping or the rows change.
 ///
 /// The one thing it reads for itself is [tableDensityProvider] — row height is
 /// a preference the user sets once in App Preferences and expects to see on
 /// every table in the app, so making each page pass it down would only be a
 /// way for one page to forget.
-class ReusableDataTable<T> extends ConsumerWidget {
+class ReusableDataTable<T> extends ConsumerStatefulWidget {
   const ReusableDataTable({
     super.key,
     required this.columns,
@@ -33,6 +40,9 @@ class ReusableDataTable<T> extends ConsumerWidget {
     this.rowActions = const [],
     this.emptyState,
     this.forceCards = false,
+    this.groupedItems,
+    this.onGroupChanged,
+    this.header,
   });
 
   final List<DataColumnSpec<T>> columns;
@@ -43,9 +53,23 @@ class ReusableDataTable<T> extends ConsumerWidget {
   final ValueChanged<String> onSort;
   final ValueChanged<int> onPageChanged;
 
+  /// Full filtered + sorted rows, before pagination. Grouping gathers these
+  /// (not just the visible page), so no group is ever split across pages —
+  /// the grouped view shows everything and hides the pager.
+  final List<T>? groupedItems;
+
+  /// Called with the picked column's [DataColumnSpec.field], or null to
+  /// ungroup. Null (default) means this table offers no grouping.
+  final ValueChanged<String?>? onGroupChanged;
+
   final void Function(T row)? onRowTap;
   final List<DataRowAction<T>> rowActions;
   final Widget? emptyState;
+
+  /// Optional strip above everything (e.g. a pending-sync banner).
+  /// Rendered even when the table is empty, so a waiting count is never
+  /// hidden behind an empty state.
+  final Widget? header;
 
   /// Forces the card layout regardless of width, for embedding the table in a
   /// narrow container on a wide screen.
@@ -54,51 +78,131 @@ class ReusableDataTable<T> extends ConsumerWidget {
   static const double _actionsWidth = 44;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ReusableDataTable<T>> createState() =>
+      _ReusableDataTableState<T>();
+}
+
+class _ReusableDataTableState<T> extends ConsumerState<ReusableDataTable<T>> {
+  /// Group keys currently folded shut. Cleared whenever the grouping or the
+  /// underlying rows change, so a stale key can never hide fresh rows.
+  final Set<String> _collapsed = {};
+  String? _groupFieldSeen;
+  int _itemsHashSeen = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final ref = this.ref;
     // Keyed to the window, not to this box. Page padding differs either side
     // of the breakpoint, so available width is not monotonic across it — a
     // 640px window can hand the table less room than a 599px one, which would
     // flip the layout backwards.
-    final asCards = forceCards || context.isMobile;
+    final asCards = widget.forceCards || context.isMobile;
     final density = ref.watch(tableDensityProvider);
+
+    final groupColumn = _groupColumn();
+    final allItems = widget.groupedItems;
+    final grouped = groupColumn != null && allItems != null;
 
     return LayoutBuilder(
       builder: (context, constraints) {
         // Nothing to page through, so the footer would only be noise.
-        if (slice.items.isEmpty) {
-          return emptyState ?? const _DefaultEmptyState();
+        // The header (e.g. pending-sync banner) still renders on empty,
+        // so a waiting count is never hidden behind an empty state.
+        if (widget.slice.items.isEmpty && !grouped) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (widget.header != null) widget.header!,
+              widget.emptyState ?? const _DefaultEmptyState(),
+            ],
+          );
         }
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (asCards)
-              _Cards<T>(
-                columns: columns,
-                rows: slice.items,
-                onRowTap: onRowTap,
-                rowActions: rowActions,
-                density: density,
-              )
-            else
-              _Table<T>(
-                columns: _visibleColumns(constraints.maxWidth),
-                rows: slice.items,
-                query: query,
-                onSort: onSort,
-                onRowTap: onRowTap,
-                rowActions: rowActions,
-                density: density,
+            if (widget.header != null) widget.header!,
+            if (_groupChoices().isNotEmpty && widget.onGroupChanged != null)
+              _GroupBar<T>(
+                choices: _groupChoices(),
+                active: widget.query.groupField,
+                onChanged: widget.onGroupChanged!,
               ),
-            _Pagination(slice: slice, onPageChanged: onPageChanged),
+            if (grouped)
+              _GroupedBody<T>(
+                sections: groupRows(allItems, groupColumn),
+                columns: asCards
+                    ? widget.columns
+                    : _visibleColumns(constraints.maxWidth),
+                collapsed: _collapsedFor(groupColumn.field, allItems),
+                onToggle: _toggle,
+                asCards: asCards,
+                query: widget.query,
+                onSort: widget.onSort,
+                onRowTap: widget.onRowTap,
+                rowActions: widget.rowActions,
+                density: density,
+                emptyState: widget.emptyState,
+              )
+            else ...[
+              if (asCards)
+                _Cards<T>(
+                  columns: widget.columns,
+                  rows: widget.slice.items,
+                  onRowTap: widget.onRowTap,
+                  rowActions: widget.rowActions,
+                  density: density,
+                )
+              else
+                _Table<T>(
+                  columns: _visibleColumns(constraints.maxWidth),
+                  rows: widget.slice.items,
+                  query: widget.query,
+                  onSort: widget.onSort,
+                  onRowTap: widget.onRowTap,
+                  rowActions: widget.rowActions,
+                  density: density,
+                ),
+              _Pagination(
+                  slice: widget.slice,
+                  onPageChanged: widget.onPageChanged),
+            ],
           ],
         );
       },
     );
   }
 
+  List<DataColumnSpec<T>> _groupChoices() =>
+      [for (final c in widget.columns) if (c.groupable) c];
+
+  DataColumnSpec<T>? _groupColumn() {
+    final field = widget.query.groupField;
+    if (field == null || widget.onGroupChanged == null) return null;
+    for (final c in widget.columns) {
+      if (c.field == field && c.groupable) return c;
+    }
+    return null;
+  }
+
+  Set<String> _collapsedFor(String field, List<T> items) {
+    final hash = Object.hashAll(items);
+    if (_groupFieldSeen != field || _itemsHashSeen != hash) {
+      _groupFieldSeen = field;
+      _itemsHashSeen = hash;
+      _collapsed.clear();
+    }
+    return _collapsed;
+  }
+
+  void _toggle(String key) {
+    setState(() {
+      if (!_collapsed.remove(key)) _collapsed.add(key);
+    });
+  }
+
   List<DataColumnSpec<T>> _visibleColumns(double width) => [
-    for (final column in columns)
+    for (final column in widget.columns)
       if (width >= column.minTableWidth) column,
   ];
 }
@@ -552,9 +656,268 @@ class _PageButton extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Grouping: gather identical items under one header each
+// ---------------------------------------------------------------------------
+
+/// The "Group by" picker above the table. Only rendered when the page marks
+/// at least one column groupable and wires [onChanged] — every other table
+/// is untouched.
+class _GroupBar<T> extends StatelessWidget {
+  const _GroupBar({
+    required this.choices,
+    required this.active,
+    required this.onChanged,
+  });
+
+  final List<DataColumnSpec<T>> choices;
+  final String? active;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final current = choices.where((c) => c.field == active).firstOrNull;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Insets.sm),
+      child: Row(
+        children: [
+          Icon(
+            Icons.group_work_outlined,
+            size: 18,
+            color: colors.onSurfaceVariant,
+          ),
+          const SizedBox(width: Insets.xs),
+          Text(
+            'Group by',
+            style: context.text.bodySmall?.copyWith(
+              color: colors.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(width: Insets.sm),
+          PopupMenuButton<String?>(
+            tooltip: 'Group identical items together',
+            position: PopupMenuPosition.under,
+            onSelected: onChanged,
+            itemBuilder: (context) => [
+              const PopupMenuItem<String?>(
+                value: null,
+                child: Text('No grouping'),
+              ),
+              const PopupMenuDivider(),
+              for (final choice in choices)
+                CheckedPopupMenuItem<String?>(
+                  value: choice.field,
+                  checked: choice.field == active,
+                  child: Text(choice.label),
+                ),
+            ],
+            child: Container(
+              height: 40,
+              padding: const EdgeInsets.symmetric(horizontal: Insets.md),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(Radii.md),
+                border: Border.all(
+                  color: current != null
+                      ? colors.primary
+                      : colors.outlineVariant,
+                ),
+                color: current != null
+                    ? colors.primaryContainer.withValues(alpha: 0.4)
+                    : null,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      current?.label ?? 'No grouping',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.text.labelLarge?.copyWith(
+                        color: current != null ? colors.primary : null,
+                        fontWeight: current != null ? FontWeight.w700 : null,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.arrow_drop_down_rounded, size: 20),
+                ],
+              ),
+            ),
+          ),
+          if (current != null) ...[
+            const SizedBox(width: Insets.xs),
+            IconButton(
+              tooltip: 'Clear grouping',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => onChanged(null),
+              icon: const Icon(Icons.close_rounded, size: 18),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Every group in full: tappable header (name + count) over that group's
+/// rows. Tap folds a group shut; switching group or rows reopens all.
+class _GroupedBody<T> extends StatelessWidget {
+  const _GroupedBody({
+    required this.sections,
+    required this.columns,
+    required this.collapsed,
+    required this.onToggle,
+    required this.asCards,
+    required this.query,
+    required this.onSort,
+    required this.onRowTap,
+    required this.rowActions,
+    required this.density,
+    required this.emptyState,
+  });
+
+  final List<GroupSection<T>> sections;
+  final List<DataColumnSpec<T>> columns;
+  final Set<String> collapsed;
+  final ValueChanged<String> onToggle;
+  final bool asCards;
+  final TableQuery query;
+  final ValueChanged<String> onSort;
+  final void Function(T row)? onRowTap;
+  final List<DataRowAction<T>> rowActions;
+  final TableDensity density;
+  final Widget? emptyState;
+
+  @override
+  Widget build(BuildContext context) {
+    if (sections.isEmpty) return emptyState ?? const _DefaultEmptyState();
+
+    final total = sections.fold(0, (sum, s) => sum + s.count);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: Insets.sm),
+          child: Text(
+            '${sections.length} groups · $total items',
+            style: context.text.bodySmall?.copyWith(
+              color: context.colors.onSurfaceVariant,
+            ),
+          ),
+        ),
+        for (final section in sections) ...[
+          _GroupHeader(
+            label: section.label,
+            count: section.count,
+            folded: collapsed.contains(section.key),
+            onTap: () => onToggle(section.key),
+          ),
+          if (!collapsed.contains(section.key)) ...[
+            const SizedBox(height: Insets.xs),
+            if (asCards)
+              _Cards<T>(
+                columns: columns,
+                rows: section.rows,
+                onRowTap: onRowTap,
+                rowActions: rowActions,
+                density: density,
+              )
+            else
+              _Table<T>(
+                columns: columns,
+                rows: section.rows,
+                query: query,
+                onSort: onSort,
+                onRowTap: onRowTap,
+                rowActions: rowActions,
+                density: density,
+              ),
+          ],
+          const SizedBox(height: Insets.md),
+        ],
+      ],
+    );
+  }
+}
+
+class _GroupHeader extends StatelessWidget {
+  const _GroupHeader({
+    required this.label,
+    required this.count,
+    required this.folded,
+    required this.onTap,
+  });
+
+  final String label;
+  final int count;
+  final bool folded;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+
+    return Material(
+      color: colors.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(Radii.md),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(Radii.md),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Insets.md,
+            vertical: Insets.sm,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                folded
+                    ? Icons.chevron_right_rounded
+                    : Icons.expand_more_rounded,
+                size: 20,
+                color: colors.primary,
+              ),
+              const SizedBox(width: Insets.xs),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Insets.sm,
+                  vertical: 2,
+                ),
+                decoration: BoxDecoration(
+                  color: colors.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(Radii.pill),
+                ),
+                child: Text(
+                  '$count',
+                  style: context.text.labelSmall?.copyWith(
+                    color: colors.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _DefaultEmptyState extends StatelessWidget {
   const _DefaultEmptyState();
-
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;

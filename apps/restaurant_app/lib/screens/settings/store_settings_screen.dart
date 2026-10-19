@@ -7,8 +7,10 @@ import '../../models/order.dart';
 import '../../constants/app_limits.dart';
 import '../../constants/app_strings.dart';
 import '../../models/store_settings.dart';
+import '../../providers/permissions_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../router/app_router.dart';
+import '../../providers/store_api_provider_real.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/breakpoints.dart';
 import '../../utils/formatters.dart';
@@ -114,15 +116,18 @@ class _StoreSettingsScreenState extends ConsumerState<StoreSettingsScreen> {
   void _save() {
     if (!_formKey.currentState!.validate()) return;
 
-    ref
-        .read(storeSettingsProvider.notifier)
-        .save(
-          _draft.copyWith(
-            taxRate: _percentToFraction(_taxRate.text),
-            serviceChargeRate: _percentToFraction(_serviceCharge.text),
-            receiptPrefix: _receiptPrefix.text.trim(),
-          ),
-        );
+    final saved = _draft.copyWith(
+      taxRate: _percentToFraction(_taxRate.text),
+      serviceChargeRate: _percentToFraction(_serviceCharge.text),
+      receiptPrefix: _receiptPrefix.text.trim(),
+    );
+    ref.read(storeSettingsProvider.notifier).save(saved);
+
+    // Push the tax switch to the server so synced sales charge the same
+    // tax the till shows. Local save always wins for this terminal;
+    // a failed push (offline, no permission) just leaves the server
+    // value unchanged and says so.
+    _pushTaxToServer(saved);
 
     setState(() => _dirty = false);
     ScaffoldMessenger.of(
@@ -130,6 +135,29 @@ class _StoreSettingsScreenState extends ConsumerState<StoreSettingsScreen> {
     ).showSnackBar(
       SnackBar(content: Text(AppStrings.storeSettingsSaved)),
     );
+  }
+
+  Future<void> _pushTaxToServer(StoreSettings saved) async {
+    final businessId = ref.read(currentBusinessIdProvider);
+    final storeId = ref.read(currentStoreIdProvider);
+    if (businessId == null || storeId == null) return;
+    try {
+      await ref.read(storeApiServiceProvider).updateStoreSettings(
+            businessId: businessId,
+            storeId: storeId,
+            taxEnabled: saved.taxEnabled,
+            taxRate: saved.taxEnabled ? saved.taxRate : 0,
+          );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Saved on this device. Tax change will reach the server when online.',
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -160,6 +188,8 @@ class _StoreSettingsScreenState extends ConsumerState<StoreSettingsScreen> {
             taxRate: _taxRate,
             serviceCharge: _serviceCharge,
             draft: _draft,
+            onTaxEnabledChanged: (value) =>
+                _edit((d) => d.copyWith(taxEnabled: value)),
             onInclusiveChanged: (value) =>
                 _edit((d) => d.copyWith(taxInclusive: value)),
             onCurrencyChanged: (value) =>
@@ -198,6 +228,7 @@ class _TaxPanel extends StatelessWidget {
     required this.taxRate,
     required this.serviceCharge,
     required this.draft,
+    required this.onTaxEnabledChanged,
     required this.onInclusiveChanged,
     required this.onCurrencyChanged,
   });
@@ -205,6 +236,7 @@ class _TaxPanel extends StatelessWidget {
   final TextEditingController taxRate;
   final TextEditingController serviceCharge;
   final StoreSettings draft;
+  final ValueChanged<bool> onTaxEnabledChanged;
   final ValueChanged<bool> onInclusiveChanged;
   final ValueChanged<Currency> onCurrencyChanged;
 
@@ -223,19 +255,31 @@ class _TaxPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final taxOff = !draft.taxEnabled;
     return DetailPanel(
       title: AppStrings.taxPricingPanel,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
+          SettingSwitchTile(
+            switchKey: const Key('storeSettings.taxEnabled'),
+            title: 'Charge tax',
+            subtitle: draft.taxEnabled
+                ? 'Tax is added at checkout and shown everywhere'
+                : 'Off — no tax is charged or shown anywhere',
+            value: draft.taxEnabled,
+            onChanged: onTaxEnabledChanged,
+          ),
+          const SizedBox(height: Insets.lg),
           FieldPair(
             left: LabeledFormField(
               label: AppStrings.taxRateField,
-              helper: AppStrings.newTicketHelper,
+              helper: taxOff ? 'Turn tax on to set a rate' : AppStrings.newTicketHelper,
               child: TextFormField(
                 key: StoreSettingsKeys.taxRate,
                 controller: taxRate,
+                enabled: !taxOff,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
@@ -266,14 +310,20 @@ class _TaxPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: Insets.lg),
-          SettingSwitchTile(
-            switchKey: StoreSettingsKeys.taxInclusive,
-            title: AppStrings.pricesIncludeTax,
-            subtitle: draft.taxInclusive
-                ? AppStrings.taxInclusivePrices
-                : AppStrings.taxAddedAtCheckout,
-            value: draft.taxInclusive,
-            onChanged: onInclusiveChanged,
+          Opacity(
+            opacity: taxOff ? 0.4 : 1,
+            child: IgnorePointer(
+              ignoring: taxOff,
+              child: SettingSwitchTile(
+                switchKey: StoreSettingsKeys.taxInclusive,
+                title: AppStrings.pricesIncludeTax,
+                subtitle: draft.taxInclusive
+                    ? AppStrings.taxInclusivePrices
+                    : AppStrings.taxAddedAtCheckout,
+                value: draft.taxInclusive,
+                onChanged: onInclusiveChanged,
+              ),
+            ),
           ),
           const SizedBox(height: Insets.lg),
           LabeledFormField(

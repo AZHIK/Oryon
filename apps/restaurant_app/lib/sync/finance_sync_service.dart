@@ -23,6 +23,7 @@ import '../constants/app_limits.dart';
 import '../database/app_database.dart';
 import 'finance_sync_api.dart';
 import 'finance_sync_dtos.dart';
+import 'sync_tick.dart';
 
 /// Core sync engine for other-expenses/other-incomes.
 class FinanceSyncService {
@@ -53,6 +54,7 @@ class FinanceSyncService {
     await _drainExpenses();
     await _drainIncomes();
     lastSyncTime = DateTime.now();
+    await recordSyncTick(_db, SyncArea.finance);
   }
 
   // ── Expenses ────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ import 'ai_insights_provider.dart';
 import 'couriers_provider.dart';
 import 'customers_provider.dart';
 import 'dashboard_metrics_provider.dart';
+import 'database_providers.dart';
 import 'inventory_provider.dart';
 import 'orders_provider.dart';
 import 'other_expenses_provider.dart';
@@ -18,6 +19,7 @@ import 'staff_provider.dart';
 import 'stock_movement_provider.dart';
 import 'store_api_provider_real.dart';
 import 'suppliers_provider.dart';
+import '../sync/sync_tick.dart';
 
 /// Shell branch indices, in the order the tabs are declared.
 ///
@@ -73,6 +75,9 @@ final currentBranchIndexProvider = StateProvider<int>((ref) => 0);
 Future<void> refreshBranch(WidgetRef ref, int branchIndex) async {
   try {
     await _refreshBranchUnchecked(ref, branchIndex);
+    // The pull finished without error — stamp it, so "last synced"
+    // stays fresh even on days nobody sells anything.
+    await recordSyncTick(ref.read(appDatabaseProvider), SyncArea.pull);
   } catch (_) {
     // Swallowed by design — see above.
   }

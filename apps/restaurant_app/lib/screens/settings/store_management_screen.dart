@@ -98,6 +98,8 @@ class StoreManagementScreen extends ConsumerWidget {
         query: query,
         onSort: notifier.toggleSort,
         onPageChanged: notifier.setPage,
+        groupedItems: ref.watch(sortedLocationsProvider),
+        onGroupChanged: notifier.setGroup,
         // Straight into the edit form rather than a detail screen — six fields
         // is a dialog, not a page.
         onRowTap: (location) =>
@@ -286,6 +288,7 @@ List<DataColumnSpec<StoreLocation>> locationColumns(
     field: LocationSort.status,
     role: ColumnRole.status,
     width: 116,
+    groupable: true,
     value: (location) => location.isActive
         ? AppStrings.activeValue
         : AppStrings.inactiveValue,

@@ -25,7 +25,7 @@ import '../../widgets/detail_page/detail_page_scaffold.dart';
 import '../../widgets/dialogs/menu_item_form_dialog.dart';
 import '../../widgets/item_photo.dart';
 import 'recipe_form_dialog.dart';
-import 'record_production_dialog.dart';
+import 'cook_wizard_dialog.dart';
 import '../../utils/dialog_helper.dart';
 
 /// Read-only view of one menu item: its till figures, its recipe and
@@ -485,12 +485,26 @@ class _RecordProductionButton extends ConsumerWidget {
         .valueOrNull
         ?.where((r) => r.sellableItemId == item.catalogItemId)
         .firstOrNull;
-    if (recipe == null) return const SizedBox.shrink();
+    // Simple words, not an empty box: tell staff what to do.
+    if (recipe == null) {
+      if (!ref.watch(hasPermissionProvider(AppPermissions.recipesCreate))) {
+        return const SizedBox.shrink();
+      }
+      return OutlinedButton.icon(
+        onPressed: () => showRecipeFormDialog(context, sellable: item),
+        icon: const Icon(Icons.add_rounded, size: 18),
+        label: const Text('Add recipe first'),
+      );
+    }
+    if (!ref.watch(hasPermissionProvider(AppPermissions.productionCreate))) {
+      return const Text('Ask your manager to cook this.');
+    }
 
+    // One simple path: the guided cook wizard, starting at this recipe.
     return FilledButton.icon(
-      onPressed: () => showRecordProductionDialog(context, recipe),
+      onPressed: () => showCookWizard(context, recipe: recipe),
       icon: const Icon(Icons.soup_kitchen_outlined, size: 18),
-      label: Text(AppStrings.recordProduction),
+      label: const Text('Cook'),
     );
   }
 }
@@ -511,11 +525,15 @@ class _StockHistoryPanel extends StatefulWidget {
 
 class _StockHistoryPanelState extends State<_StockHistoryPanel> {
   int _page = 0;
+  String? _group;
 
   @override
   Widget build(BuildContext context) {
-    final query =
-        TableQuery(page: _page, pageSize: AppLimits.tablePageSizeDense);
+    final query = TableQuery(
+      page: _page,
+      pageSize: AppLimits.tablePageSizeDense,
+      groupField: _group,
+    );
     final slice = PageSlice.of(widget.history, query);
 
     return DetailPanel(
@@ -532,6 +550,11 @@ class _StockHistoryPanelState extends State<_StockHistoryPanel> {
         query: query,
         onSort: (_) {},
         onPageChanged: (page) => setState(() => _page = page),
+        groupedItems: widget.history,
+        onGroupChanged: (field) => setState(() {
+          _group = field;
+          _page = 0;
+        }),
         emptyState: const _NoHistory(),
       ),
     );
@@ -552,6 +575,7 @@ class _StockHistoryPanelState extends State<_StockHistoryPanel> {
       field: 'type',
       role: ColumnRole.status,
       sortable: false,
+      groupable: true,
       width: 132,
       value: (m) => m.type.label,
       cellBuilder: (context, m) => StatusBadge(

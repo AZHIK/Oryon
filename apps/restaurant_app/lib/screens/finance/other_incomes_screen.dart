@@ -6,9 +6,11 @@ import '../../models/other_income.dart';
 import '../../models/permission.dart';
 import '../../providers/other_expenses_provider.dart' show FinanceOfflineMutationException;
 import '../../providers/other_incomes_provider.dart';
+import '../../providers/outbox_status_provider.dart';
 import '../../providers/permissions_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/formatters.dart';
+import '../../widgets/connection_status_pill.dart';
 import '../../widgets/data_page/data_column_spec.dart';
 import '../../widgets/data_page/data_page_scaffold.dart';
 import '../../widgets/data_page/data_table_toolbar.dart';
@@ -126,6 +128,14 @@ class OtherIncomesScreen extends ConsumerWidget {
               query: query,
               onSort: notifier.toggleSort,
               onPageChanged: notifier.setPage,
+              groupedItems: ref.watch(filteredOtherIncomesProvider),
+              onGroupChanged: notifier.setGroup,
+              header: PendingSyncBanner(
+                pendingCount:
+                    ref.watch(outboxStatusProvider).valueOrNull?.pendingIncomes ??
+                        0,
+                itemWord: 'income',
+              ),
               rowActions: [
                 if (canUpdate)
                   DataRowAction(
@@ -200,8 +210,8 @@ class OtherIncomesScreen extends ConsumerWidget {
 final otherIncomeColumns = <DataColumnSpec<OtherIncome>>[
   DataColumnSpec(label: AppStrings.dateSort, field: OtherIncomeSort.date, flex: 2, value: (i) => Fmt.dayMonth(i.date)),
   DataColumnSpec(label: AppStrings.descriptionSort, field: OtherIncomeSort.description, role: ColumnRole.primary, flex: 5, value: (i) => i.description, cellBuilder: (c, i) => _DescriptionCell(income: i)),
-  DataColumnSpec(label: AppStrings.categorySort, field: OtherIncomeSort.category, flex: 3, minTableWidth: 700, value: (i) => FinanceCategories.incomeLabel(i.categoryId)),
-  DataColumnSpec(label: AppStrings.paymentSort, field: OtherIncomeSort.payment, flex: 2, minTableWidth: 860, value: (i) => i.paymentType.label),
+  DataColumnSpec(label: AppStrings.categorySort, field: OtherIncomeSort.category, flex: 3, groupable: true, minTableWidth: 700, value: (i) => FinanceCategories.incomeLabel(i.categoryId)),
+  DataColumnSpec(label: AppStrings.paymentSort, field: OtherIncomeSort.payment, flex: 2, groupable: true, minTableWidth: 860, value: (i) => i.paymentType.label),
   DataColumnSpec(label: AppStrings.amountSort, field: OtherIncomeSort.amount, flex: 2, numeric: true, value: (i) => Fmt.money(i.amount)),
 ];
 
@@ -222,6 +232,11 @@ class _DescriptionCell extends StatelessWidget {
           ],
         ),
         Text(income.source.isNotEmpty ? income.source : AppStrings.emDash, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(color: context.colors.onSurfaceVariant)),
+        // Sent ticks = safely on the server, amber tag = this device only.
+        if (income.syncStatus != 'synced')
+          const NotSentTag()
+        else
+          const SentTicks(),
       ],
     );
   }

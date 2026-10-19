@@ -348,6 +348,9 @@ class ProductionHistoryNotifier extends AsyncNotifier<List<ProductionEventDto>> 
   }) async {
     final businessId = _businessId;
     if (businessId == null) throw StateError('No active business context');
+    // Safe retry: same key tapped twice makes only one cooking record.
+    final idempotencyKey =
+        '${DateTime.now().microsecondsSinceEpoch}-${recipeId.hashCode}';
     final event = await _api.recordProduction(
       businessId: businessId,
       recipeId: recipeId,
@@ -371,10 +374,29 @@ class ProductionHistoryNotifier extends AsyncNotifier<List<ProductionEventDto>> 
       yieldTolerancePercent: yieldTolerancePercent == null
           ? null
           : Decimal.parse(yieldTolerancePercent.toString()),
+      idempotencyKey: idempotencyKey,
     );
     await refresh();
     // Stock moved on every leg — the grocery counts are stale until this
     // re-syncs, the same read-after-write discipline as item creation.
+    await ref.read(inventoryItemsProvider.notifier).refresh();
+    return event;
+  }
+
+  /// Undo a cooking record: puts used items back, takes made items back.
+  /// Simple words for staff: "Undo". History is kept, stock goes back.
+  Future<ProductionEventDto> voidProduction({
+    required String eventId,
+    String? reason,
+  }) async {
+    final businessId = _businessId;
+    if (businessId == null) throw StateError('No active business context');
+    final event = await _api.voidProduction(
+      businessId: businessId,
+      eventId: eventId,
+      reason: reason,
+    );
+    await refresh();
     await ref.read(inventoryItemsProvider.notifier).refresh();
     return event;
   }
@@ -451,6 +473,8 @@ class ProductionRunsNotifier extends AsyncNotifier<List<RunDto>> {
       yieldTolerancePercent: yieldTolerancePercent == null
           ? null
           : Decimal.parse(yieldTolerancePercent.toString()),
+      idempotencyKey:
+          '${DateTime.now().microsecondsSinceEpoch}-${recipeId.hashCode}',
     );
     await refresh();
     return run;
@@ -526,6 +550,21 @@ class ProductionRunsNotifier extends AsyncNotifier<List<RunDto>> {
     if (businessId == null) throw StateError('No active business context');
     await _api.deleteRun(businessId: businessId, runId: runId);
     await refresh();
+  }
+
+  /// Stop a batch: puts weighed items back on the shelf.
+  /// Simple words for staff: "Stop". Works for planned and cooking batches.
+  Future<RunDto> cancelRun({required String runId, String? reason}) async {
+    final businessId = _businessId;
+    if (businessId == null) throw StateError('No active business context');
+    final run = await _api.cancelRun(
+      businessId: businessId,
+      runId: runId,
+      reason: reason,
+    );
+    await refresh();
+    await ref.read(inventoryItemsProvider.notifier).refresh();
+    return run;
   }
 }
 

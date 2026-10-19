@@ -53,6 +53,8 @@ class BusinessProfileNotifier extends Notifier<BusinessProfile?> {
   }
 
   void save(BusinessProfile profile) => state = profile;
+
+  void setBrandColor(Color color) => state = state?.copyWith(brandColor: color);
 }
 
 final businessProfileProvider =
@@ -134,12 +136,23 @@ final storeSettingsProvider =
       StoreSettingsNotifier.new,
     );
 
+/// Whether tax is charged at all (off by default — no tax anywhere).
+final taxEnabledProvider = Provider<bool>(
+  (ref) => ref.watch(storeSettingsProvider.select((s) => s.taxEnabled)),
+);
+
 /// The tax rate new tickets are opened at.
+///
+/// Zero when the tax switch is off, so every ticket, receipt and report
+/// is tax-free without each consumer checking the switch itself.
 ///
 /// Selected out of [storeSettingsProvider] rather than read whole, so the cart
 /// is not rebuilt when someone edits the receipt prefix.
 final taxRateProvider = Provider<double>(
-  (ref) => ref.watch(storeSettingsProvider.select((s) => s.taxRate)),
+  (ref) {
+    final s = ref.watch(storeSettingsProvider);
+    return s.taxEnabled ? s.taxRate : 0;
+  },
 );
 
 /// Whether menu prices already carry their tax.

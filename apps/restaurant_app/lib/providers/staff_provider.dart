@@ -220,7 +220,7 @@ final localSavedStaffProvider = FutureProvider<List<StaffMember>>((ref) async {
         ),
     ];
   } catch (e) {
-    print('ERROR loading local staff: $e');
+    debugPrint('ERROR loading local staff: $e');
     return [];
   }
 });

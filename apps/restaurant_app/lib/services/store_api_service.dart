@@ -190,6 +190,8 @@ class StoreApiService {
     bool? offerRetail,
     bool? offerWholesale,
     bool? displayPricesInclusiveOfTax,
+    bool? taxEnabled,
+    double? taxRate,
   }) async {
     try {
       final payload = <String, dynamic>{
@@ -206,6 +208,8 @@ class StoreApiService {
         'offer_retail': ?offerRetail,
         'offer_wholesale': ?offerWholesale,
         'display_prices_inclusive_of_tax': ?displayPricesInclusiveOfTax,
+        'tax_enabled': ?taxEnabled,
+        'tax_rate': ?taxRate,
       };
 
       final response = await _dio.patch(

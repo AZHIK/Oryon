@@ -18,9 +18,6 @@ void main() {
         final db = AppDatabase(NativeDatabase.memory());
         addTearDown(db.close);
 
-        final repo = LocalProfileRepository(db);
-        const userId = 'user-pin-test';
-
         // Create two profiles with the same PIN
         final salt1 = PinHasher.generateSalt();
         final hash1 = PinHasher.hash('123456', salt1);

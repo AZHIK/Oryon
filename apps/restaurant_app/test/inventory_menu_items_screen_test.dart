@@ -1,16 +1,15 @@
 import 'package:decimal/decimal.dart';
-import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:restaurant_pos/database/app_database.dart';
+import 'package:restaurant_pos/auth/permission_enforcement.dart';
 import 'package:restaurant_pos/main.dart';
 import 'package:restaurant_pos/models/inventory_item.dart';
-import 'package:restaurant_pos/providers/database_providers.dart';
 import 'package:restaurant_pos/providers/inventory_provider.dart';
 import 'package:restaurant_pos/providers/permissions_provider.dart';
 import 'package:restaurant_pos/providers/production_provider.dart';
+import 'package:restaurant_pos/providers/session_provider.dart';
 import 'package:restaurant_pos/router/app_router.dart';
 import 'package:restaurant_pos/screens/inventory/inventory_menu_items_screen.dart';
 import 'package:restaurant_pos/services/inventory_api_service.dart';
@@ -23,17 +22,67 @@ import 'test_helpers/test_container.dart';
 
 const _widths = <double>[360, 400, 768, 1024, 1440, 1920];
 
+/// `inventoryItemsListProvider` is empty without a store context (no bundled
+/// demo catalogue), so these tests seed their own. One `raw_material` item
+/// keeps the "menu items only" assertions meaningful.
+const _catalog = <InventoryItem>[
+  InventoryItem(
+    id: 'catalog-risotto',
+    sku: 'SKU-RISOTTO',
+    name: 'Risotto',
+    description: 'Creamy mushroom risotto',
+    categoryId: 'mains',
+    emoji: '🍚',
+    stock: 10,
+    reorderLevel: 2,
+    unitCost: 4,
+    sellingPrice: 12,
+    isSellable: true,
+    itemType: 'sellable',
+  ),
+  InventoryItem(
+    id: 'catalog-cola',
+    sku: 'SKU-COLA',
+    name: 'Cola',
+    description: 'Chilled bottle',
+    categoryId: 'drinks',
+    emoji: '🥤',
+    stock: 20,
+    reorderLevel: 5,
+    unitCost: 1,
+    sellingPrice: 3,
+    isSellable: true,
+    itemType: 'both',
+  ),
+  InventoryItem(
+    id: 'catalog-flour',
+    sku: 'SKU-FLOUR',
+    name: 'Flour',
+    description: 'Baking flour',
+    categoryId: 'dry_goods',
+    emoji: '🌾',
+    stock: 5,
+    reorderLevel: 1,
+    unitCost: 2,
+    itemType: 'raw_material',
+  ),
+];
+
 Future<ProviderContainer> pumpMenuItems(WidgetTester tester, Size size) async {
   tester.view.physicalSize = size * tester.view.devicePixelRatio;
   addTearDown(tester.view.reset);
 
-  final database = AppDatabase(NativeDatabase.memory());
-  addTearDown(database.close);
-
-  final container = ProviderContainer(
-    overrides: [appDatabaseProvider.overrideWithValue(database)],
+  final container = newTestContainer(
+    extraOverrides: [
+      inventoryItemsListProvider.overrideWithValue(_catalog),
+      // The gated screen asks the real permission enforcement service, which
+      // has no cache/token in a test — grant it directly instead.
+      canPerformActionProvider.overrideWith((ref, code) => true),
+    ],
   );
-  addTearDown(container.dispose);
+  // `SessionNotifier.build()` now returns a signed-out device, so seed an
+  // onboarded one or the guard bounces the route to OTP login.
+  container.read(sessionProvider.notifier).state = SessionNotifier.seed;
 
   await tester.pumpWidget(
     UncontrolledProviderScope(
@@ -51,14 +100,13 @@ Future<ProviderContainer> pumpMenuItems(WidgetTester tester, Size size) async {
 void main() {
   group('Menu Items query', () {
     Future<ProviderContainer> container() async {
-      final database = AppDatabase(NativeDatabase.memory());
-      addTearDown(database.close);
-      final c = ProviderContainer(
-        overrides: [appDatabaseProvider.overrideWithValue(database)],
+      // Seed the catalogue directly: with no store context the real
+      // `inventoryItemsProvider` resolves to an empty list.
+      return newTestContainer(
+        extraOverrides: [
+          inventoryItemsListProvider.overrideWithValue(_catalog),
+        ],
       );
-      addTearDown(c.dispose);
-      await c.read(inventoryItemsProvider.future);
-      return c;
     }
 
     test('only sellable and both items appear', () async {
@@ -66,11 +114,17 @@ void main() {
       final all = c.read(inventoryItemsListProvider);
       final menuItems = c.read(menuCatalogItemsProvider);
 
-      expect(all.any((i) => i.itemType == 'raw_material'), isTrue,
-          reason: 'the fixture has to actually contain a pure grocery item '
-              'for this test to mean anything');
       expect(
-        menuItems.every((i) => i.itemType == 'sellable' || i.itemType == 'both'),
+        all.any((i) => i.itemType == 'raw_material'),
+        isTrue,
+        reason:
+            'the fixture has to actually contain a pure grocery item '
+            'for this test to mean anything',
+      );
+      expect(
+        menuItems.every(
+          (i) => i.itemType == 'sellable' || i.itemType == 'both',
+        ),
         isTrue,
       );
       expect(menuItems.where((i) => i.itemType == 'raw_material'), isEmpty);
@@ -84,7 +138,8 @@ void main() {
 
     test('sorting by price orders ascending then descending', () async {
       final c = await container();
-      c.read(menuItemsQueryProvider.notifier)
+      c
+          .read(menuItemsQueryProvider.notifier)
           .setSort(MenuItemSort.price, ascending: true);
       final up = c
           .read(filteredMenuCatalogProvider)
@@ -98,12 +153,18 @@ void main() {
     testWidgets('no overflow at any target width', (tester) async {
       for (final width in _widths) {
         await pumpMenuItems(tester, Size(width, 900));
-        expect(tester.takeException(), isNull, reason: 'render error at ${width}px');
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'render error at ${width}px',
+        );
         expect(find.byType(SummaryMetricCard), findsNWidgets(3));
       }
     });
 
-    testWidgets('no standalone tab bar links away from Menu Items', (tester) async {
+    testWidgets('no standalone tab bar links away from Menu Items', (
+      tester,
+    ) async {
       await pumpMenuItems(tester, const Size(1440, 900));
       expect(find.byType(SegmentedButton), findsNothing);
     });
@@ -144,7 +205,12 @@ void main() {
           .items
           .firstWhere((i) => i.sellingPrice != null);
 
-      expect(find.textContaining(priced.sellingPrice!.toStringAsFixed(2)), findsWidgets);
+      // Money is formatted through `Fmt.money` (the store currency), not a
+      // hard-coded two-decimal string — TZS, for one, has no minor unit.
+      expect(
+        find.textContaining(Fmt.money(priced.sellingPrice!)),
+        findsWidgets,
+      );
     });
 
     testWidgets('the total-items stat matches the scoped list', (tester) async {
@@ -187,19 +253,19 @@ void main() {
     );
 
     RecipeDto pilauRecipe() => RecipeDto(
-          id: 'recipe-1',
-          businessId: 'biz-1',
-          sellableItemId: 'backend-pilau',
-          sellableItemName: 'Pilau Plate',
-          name: 'Pilau',
-          targetYieldQuantity: Decimal.fromInt(1),
-          totalCost: Decimal.parse('3.50'),
-          costPerUnit: Decimal.parse('3.50'),
-          costComplete: true,
-          createdAt: DateTime.utc(2026, 1, 1),
-          updatedAt: DateTime.utc(2026, 1, 1),
-          components: const [],
-        );
+      id: 'recipe-1',
+      businessId: 'biz-1',
+      sellableItemId: 'backend-pilau',
+      sellableItemName: 'Pilau Plate',
+      name: 'Pilau',
+      targetYieldQuantity: Decimal.fromInt(1),
+      totalCost: Decimal.parse('3.50'),
+      costPerUnit: Decimal.parse('3.50'),
+      costComplete: true,
+      createdAt: DateTime.utc(2026, 1, 1),
+      updatedAt: DateTime.utc(2026, 1, 1),
+      components: const [],
+    );
 
     Future<void> pumpMenu(WidgetTester tester) async {
       tester.view.physicalSize =
