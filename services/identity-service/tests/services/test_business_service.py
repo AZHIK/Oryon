@@ -63,10 +63,11 @@ async def seeded_templates(db_session: AsyncSession) -> None:
             db_session.add(rt)
             await db_session.flush()
             for code in template_seed.permissions:
+                permission_code = code.value if isinstance(code, PermissionCode) else code
                 db_session.add(
                     RoleTemplatePermission(
                         role_template_id=rt.id,
-                        permission_code=code.value,
+                        permission_code=permission_code,
                     )
                 )
 

@@ -18,9 +18,14 @@ from app.models.business import BusinessStatus, LocationType
 
 
 class StoreBase(BaseModel):
-    """Shared fields for store schemas."""
+    """Shared fields for store schemas.
 
-    business_id: UUID
+    ``business_id`` is deliberately not declared here: create requests take it
+    from the path (and may omit it in the body), while read responses always
+    include it. Declaring it optional in the base and required in
+    ``StoreRead`` keeps both shapes type-checkable.
+    """
+
     name: str
     location_type: LocationType
     status: BusinessStatus = BusinessStatus.ACTIVE
@@ -64,6 +69,7 @@ class StoreRead(StoreBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+    business_id: UUID
     id: UUID
     token: str
     created_at: datetime

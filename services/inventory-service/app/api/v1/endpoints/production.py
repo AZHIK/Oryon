@@ -32,7 +32,12 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.database import get_db
-from app.deps.auth import get_current_claims, require_business_permission
+from app.deps.auth import (
+    ensure_store_access,
+    get_current_claims,
+    require_business_permission,
+    resolve_store_filter,
+)
 from app.models.inventory import (
     Item,
     ProductionEvent,
@@ -67,6 +72,29 @@ produce_router = APIRouter(
 history_router = APIRouter(
     prefix="/businesses/{business_id}/production-events", tags=["production"]
 )
+
+
+async def _ensure_recipe_store_access(
+    business_id: UUID,
+    recipe_id: UUID,
+    claims: dict[str, Any],
+    session: AsyncSession,
+) -> None:
+    """Bind a recipe action to the token's store via its sellable item."""
+    recipe = (
+        await session.exec(
+            select(Recipe).where(
+                Recipe.id == recipe_id, Recipe.business_id == business_id
+            )
+        )
+    ).one_or_none()
+    if recipe is None:
+        return  # the service layer owns the 404
+    sellable = (
+        await session.exec(select(Item).where(Item.id == recipe.sellable_item_id))
+    ).one_or_none()
+    if sellable is not None:
+        ensure_store_access(claims, sellable.store_id)
 
 
 async def _read_events(
@@ -207,6 +235,7 @@ async def produce(
     always carries the server-computed ``yield_status`` (above /
     within_threshold / below) — the client never decides the verdict.
     """
+    await _ensure_recipe_store_access(business_id, recipe_id, claims, session)
     raw_sub = claims.get("sub")
     try:
         actor_id = UUID(raw_sub) if raw_sub else None
@@ -237,7 +266,7 @@ async def produce(
         ) from exc
     except InvalidProductionInputError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
     except InsufficientStockError as exc:
         raise HTTPException(
@@ -264,6 +293,7 @@ async def plan_production(
     body: ProductionPlanRequest,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("production.create"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> ProductionPlanRead:
     """Recommend every grocery amount for a target output (no stock change).
 
@@ -272,6 +302,7 @@ async def plan_production(
     amount, then commits through ``POST .../produce`` with
     ``target_output_quantity=N`` and the final ``components`` list.
     """
+    await _ensure_recipe_store_access(business_id, recipe_id, claims, session)
     try:
         recipe, sellable, lines = await plan_production_quantities(
             db=session,
@@ -285,7 +316,7 @@ async def plan_production(
         ) from exc
     except InvalidProductionInputError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
 
     unit_ids = {item.unit_id for _, item in lines if item.unit_id is not None}
@@ -339,6 +370,7 @@ async def list_production_events(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("production.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     from_date: date | None = Query(
         default=None, alias="from", description="Start date (inclusive)"
     ),
@@ -349,9 +381,12 @@ async def list_production_events(
     offset: int = Query(default=0, ge=0, description="Number of events to skip"),
 ) -> list[ProductionEventRead]:
     """Production history for the business, newest first, filterable by date."""
+    store_id = resolve_store_filter(claims, None)
     stmt = select(ProductionEvent).where(
         ProductionEvent.business_id == business_id
     )
+    if store_id is not None:
+        stmt = stmt.where(ProductionEvent.store_id == store_id)
     if from_date is not None:
         dt = datetime.combine(from_date, datetime.min.time(), tzinfo=timezone.utc)
         stmt = stmt.where(ProductionEvent.occurred_at >= dt)
@@ -375,6 +410,7 @@ async def get_production_event(
     event_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("production.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> ProductionEventRead:
     """Full detail for one production event."""
     result = await session.exec(
@@ -389,6 +425,7 @@ async def get_production_event(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Production event not found",
         )
+    ensure_store_access(claims, event.store_id)
     return (await _read_events([event], session))[0]
 
 
@@ -408,6 +445,16 @@ async def void_production(
     claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> ProductionEventRead:
     """Undo: put used items back, take made items back. History is kept."""
+    event_row = (
+        await session.exec(
+            select(ProductionEvent).where(
+                ProductionEvent.id == event_id,
+                ProductionEvent.business_id == business_id,
+            )
+        )
+    ).one_or_none()
+    if event_row is not None:
+        ensure_store_access(claims, event_row.store_id)
     from app.services.production_service import void_production_event
 
     raw_sub = claims.get("sub")

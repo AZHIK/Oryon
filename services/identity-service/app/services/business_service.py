@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 import structlog
@@ -245,7 +246,7 @@ async def update_business(
     db: AsyncSession,
     *,
     business_id: UUID,
-    values: dict,
+    values: dict[str, Any],
     actor_user_id: UUID,
 ) -> Business | None:
     """Partial-update a business. `values` is already `model_dump(exclude_unset=True)`

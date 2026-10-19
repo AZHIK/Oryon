@@ -106,7 +106,7 @@ async def _resolve_store_staff_context(
     user has no UserStoreRole yet (not assigned to any store).
     """
     result = await session.exec(
-        select(UserStoreRole).where(UserStoreRole.user_id == user_id).order_by(UserStoreRole.id)
+        select(UserStoreRole).where(UserStoreRole.user_id == user_id).order_by(UserStoreRole.id)  # type: ignore[arg-type]
     )
     store_roles = result.all()
     if not store_roles:
@@ -169,7 +169,7 @@ async def _resolve_business_staff_context(
     result = await session.exec(
         select(UserBusinessRole)
         .where(UserBusinessRole.user_id == user_id)
-        .order_by(UserBusinessRole.id)
+        .order_by(UserBusinessRole.id)  # type: ignore[arg-type]
     )
     all_roles = result.all()
     if not all_roles:

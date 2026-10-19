@@ -72,15 +72,21 @@ _RESTAURANT_NON_OWNER: dict[str, set[str]] = {
         PermissionCode.INVENTORY_ITEMS_DEACTIVATE.value,
         PermissionCode.USER_BUSINESS_ROLES_VIEW.value,
         PermissionCode.USER_BUSINESS_ROLES_ASSIGN.value,
+        PermissionCode.STORES_SWITCH.value,
+        PermissionCode.REPORTS_VIEW.value,
+        PermissionCode.REPORTS_EXPORT.value,
+        PermissionCode.COURIERS_VIEW.value,
     },
     "Cashier": {
         PermissionCode.POS_WRITE.value,
         PermissionCode.POS_VIEW.value,
         PermissionCode.INVENTORY_VIEW.value,
+        PermissionCode.COURIERS_VIEW.value,
     },
     "Kitchen Staff": {
         PermissionCode.INVENTORY_VIEW.value,
         PermissionCode.INVENTORY_WASTE_RECORD.value,
+        PermissionCode.REPORTS_VIEW.value,
     },
     "Stock Controller": {
         PermissionCode.INVENTORY_VIEW.value,
@@ -89,6 +95,7 @@ _RESTAURANT_NON_OWNER: dict[str, set[str]] = {
         PermissionCode.INVENTORY_TRANSFER.value,
         PermissionCode.INVENTORY_ITEMS_CREATE.value,
         PermissionCode.INVENTORY_ITEMS_UPDATE.value,
+        PermissionCode.REPORTS_VIEW.value,
     },
 }
 

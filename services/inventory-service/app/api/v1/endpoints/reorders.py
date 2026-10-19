@@ -41,7 +41,12 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel.sql.expression import SelectOfScalar
 
 from app.core.database import get_db
-from app.deps.auth import get_current_claims, require_business_permission
+from app.deps.auth import (
+    ensure_store_access,
+    get_current_claims,
+    require_business_permission,
+    resolve_store_filter,
+)
 from app.models.inventory import ActorType, Item, ItemType, MovementType, StockLevel
 from app.models.reorders import Reorder, ReorderStatus
 from app.models.suppliers import Supplier
@@ -86,14 +91,18 @@ async def _get_reorder_or_404(
     return reorder
 
 
-def _build_list_query(business_id: UUID, filters: ReorderListFilters) -> SelectOfScalar[Reorder]:
+def _build_list_query(
+    business_id: UUID,
+    filters: ReorderListFilters,
+    store_id: UUID | None = None,
+) -> SelectOfScalar[Reorder]:
     stmt = select(Reorder).where(Reorder.business_id == business_id)
     if filters.status is not None:
         stmt = stmt.where(Reorder.status == filters.status)
     if filters.item_id is not None:
         stmt = stmt.where(Reorder.item_id == filters.item_id)
-    if filters.store_id is not None:
-        stmt = stmt.where(Reorder.store_id == filters.store_id)
+    if store_id is not None:
+        stmt = stmt.where(Reorder.store_id == store_id)
     return stmt.order_by(Reorder.ordered_at.desc())
 
 
@@ -112,9 +121,11 @@ async def create_reorder(
     ).one_or_none()
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    ensure_store_access(claims, body.store_id)
+    ensure_store_access(claims, item.store_id)
     if item.item_type == ItemType.SELLABLE:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 "Cannot reorder a sellable-only item — it can never be "
                 "purchase-received. Reorder its raw-material components instead."
@@ -122,7 +133,7 @@ async def create_reorder(
         )
     if item.unit_id is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Item has no unit assigned — set a unit before reordering it.",
         )
     unit = (await session.exec(select(Unit).where(Unit.id == item.unit_id))).one_or_none()
@@ -173,10 +184,12 @@ async def list_reorders(
     filters: Annotated[ReorderListFilters, Depends()],
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reorders.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> ReorderListResponse:
-    base_stmt = _build_list_query(business_id, filters)
+    store_id = resolve_store_filter(claims, filters.store_id)
+    base_stmt = _build_list_query(business_id, filters, store_id)
 
     count_result = await session.exec(base_stmt)
     total = len(count_result.all())
@@ -198,6 +211,7 @@ async def receive_reorder(
     body: ReorderReceive | None = None,
 ) -> Reorder:
     reorder = await _get_reorder_or_404(business_id, reorder_id, session)
+    ensure_store_access(claims, reorder.store_id)
     if reorder.status != ReorderStatus.PENDING:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -277,7 +291,7 @@ async def receive_reorder(
     except ItemTypeMismatchError as exc:
         await session.rollback()
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
     except InsufficientStockError as exc:
@@ -309,6 +323,7 @@ async def cancel_reorder(
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reorders.cancel"))],
 ) -> Reorder:
     reorder = await _get_reorder_or_404(business_id, reorder_id, session)
+    ensure_store_access(claims, reorder.store_id)
     if reorder.status != ReorderStatus.PENDING:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -332,9 +347,12 @@ async def get_reorder(
     reorder_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reorders.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> Reorder:
     """Declared last — ``/receive``/``/cancel`` are literal sub-paths that
     must never be swallowed by this ``{reorder_id}`` matcher (same ordering
     discipline as ``customers.py`` in pos-service, here for a route that
     actually does have literal sub-paths)."""
-    return await _get_reorder_or_404(business_id, reorder_id, session)
+    reorder = await _get_reorder_or_404(business_id, reorder_id, session)
+    ensure_store_access(claims, reorder.store_id)
+    return reorder

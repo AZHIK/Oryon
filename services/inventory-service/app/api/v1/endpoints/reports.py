@@ -43,7 +43,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 import structlog
@@ -54,7 +54,12 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.database import get_db
-from app.deps.auth import require_business_permission
+from app.deps.auth import (
+    ensure_store_access,
+    get_current_claims,
+    require_business_permission,
+    resolve_store_filter,
+)
 from app.models.categories import Category
 from app.models.inventory import (
     Item,
@@ -124,6 +129,7 @@ async def get_stock_levels(
     filters: Annotated[StockLevelFilters, Depends()],
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("inventory.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     limit: int = Query(default=20, ge=1, le=100, description="Max items per page"),
     offset: int = Query(default=0, ge=0, description="Number of items to skip"),
     sort_by: str = Query(
@@ -139,9 +145,11 @@ async def get_stock_levels(
     """
     if sort_by not in ("name", "current_quantity", "category"):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid sort_by '{sort_by}' — must be name, current_quantity, or category",
         )
+
+    store_id = resolve_store_filter(claims, filters.store_id)
 
     # Join StockLevel → Item so we can filter/sort on item columns and
     # return denormalized item details — this is the single query that
@@ -157,8 +165,8 @@ async def get_stock_levels(
         .where(Item.business_id == business_id)
     )
 
-    if filters.store_id is not None:
-        stmt = stmt.where(StockLevel.store_id == filters.store_id)
+    if store_id is not None:
+        stmt = stmt.where(StockLevel.store_id == store_id)
     if filters.category_id is not None:
         stmt = stmt.where(Item.category_id == filters.category_id)
     if filters.below_threshold:
@@ -210,6 +218,7 @@ async def get_item_movements(
     item_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("inventory.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     limit: int = Query(default=20, ge=1, le=100, description="Max items per page"),
     offset: int = Query(default=0, ge=0, description="Number of items to skip"),
     from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
@@ -218,11 +227,14 @@ async def get_item_movements(
     store_id: UUID | None = Query(default=None, description="Filter by store"),
 ) -> list[StockMovementRead]:
     """Paginated movement history for one item, most recent first."""
+    store_id = resolve_store_filter(claims, store_id)
     result = await session.exec(
         select(Item).where(Item.id == item_id, Item.business_id == business_id)
     )
-    if result.one_or_none() is None:
+    item = result.one_or_none()
+    if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    ensure_store_access(claims, item.store_id)
 
     stmt = (
         select(StockMovement)
@@ -289,6 +301,7 @@ async def waste_summary(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
@@ -301,6 +314,7 @@ async def waste_summary(
     fall back to the item's current ``unit_cost`` and are flagged estimated.
     An item with no basis anywhere contributes quantity but zero cost.
     """
+    store_id = resolve_store_filter(claims, store_id)
     start, end = _day_bounds(from_date, to_date)
 
     stmt = (
@@ -367,6 +381,7 @@ async def production_summary(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
@@ -378,6 +393,7 @@ async def production_summary(
     kitchen stocked more than recipes called for. Same gap the per-event
     payloads carry, summed for the window.
     """
+    store_id = resolve_store_filter(claims, store_id)
     start, end = _day_bounds(from_date, to_date)
 
     base = [ProductionEvent.business_id == business_id]
@@ -449,6 +465,7 @@ async def stock_valuation(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     store_id: UUID | None = Query(default=None, description="Filter by store"),
 ) -> StockValuationResponse:
     """Current inventory value (on-hand × unit cost), total and by category.
@@ -457,6 +474,7 @@ async def stock_valuation(
     the present. Items without a cost basis contribute quantity but zero
     value rather than vanishing from the total.
     """
+    store_id = resolve_store_filter(claims, store_id)
     stmt = (
         select(
             Category.name,
@@ -501,6 +519,7 @@ async def product_purchases(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
@@ -513,6 +532,7 @@ async def product_purchases(
     (qty × receipt unit_cost). Cancelled orders are excluded — a cancelled
     PO is intent, not spend.
     """
+    store_id = resolve_store_filter(claims, store_id)
     start, end = _day_bounds(from_date, to_date)
     ordered_stmt = (
         select(
@@ -624,6 +644,7 @@ async def stock_adjustments(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
@@ -631,6 +652,7 @@ async def stock_adjustments(
     offset: int = Query(default=0, ge=0),
 ) -> StockAdjustmentResponse:
     """Stock Adjustment Report: business-wide manual corrections, newest first."""
+    store_id = resolve_store_filter(claims, store_id)
     start, end = _day_bounds(from_date, to_date)
     stmt = (
         select(StockMovement, Item.name)
@@ -681,6 +703,7 @@ async def lot_report(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
@@ -689,6 +712,7 @@ async def lot_report(
     offset: int = Query(default=0, ge=0),
 ) -> LotReportResponse:
     """Lot Report: every received batch as a traceable lot."""
+    store_id = resolve_store_filter(claims, store_id)
     start, end = _day_bounds(from_date, to_date)
     stmt = (
         select(GoodsReceiptLine, GoodsReceipt, Item.name, Supplier.name)
@@ -732,12 +756,14 @@ async def expiry_report(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     from_date: date | None = Query(default=None, alias="from", description="Expiring from (inclusive)"),
     to_date: date | None = Query(default=None, alias="to", description="Expiring until (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> ExpiryReportResponse:
     """Stock Expiry Report: receipt lots whose expiry falls in the window."""
+    store_id = resolve_store_filter(claims, store_id)
     start, end = _day_bounds(from_date, to_date)
     stmt = (
         select(GoodsReceiptLine, GoodsReceipt, Item.name)
@@ -779,8 +805,10 @@ async def supplier_purchases(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
+    store_id: UUID | None = Query(default=None, description="Filter by store"),
 ) -> SupplierPurchaseResponse:
     """Supplier leg of the Supplier & Customer Report: received value.
 
@@ -788,12 +816,15 @@ async def supplier_purchases(
     ledger — ``total_received`` reports the received value (Σ receipt qty
     × receipt unit_cost) per supplier. Cancelled orders are excluded.
     """
+    store_id = resolve_store_filter(claims, store_id)
     start, end = _day_bounds(from_date, to_date)
     po_filters = [PurchaseOrder.business_id == business_id, PurchaseOrder.status != PurchaseOrderStatus.CANCELLED]
     if start is not None:
         po_filters.append(PurchaseOrder.ordered_at >= start)
     if end is not None:
         po_filters.append(PurchaseOrder.ordered_at <= end)
+    if store_id is not None:
+        po_filters.append(PurchaseOrder.store_id == store_id)
     po_rows = (
         await session.exec(
             select(
@@ -813,6 +844,8 @@ async def supplier_purchases(
         recv_filters.append(PurchaseOrder.ordered_at >= start)
     if end is not None:
         recv_filters.append(PurchaseOrder.ordered_at <= end)
+    if store_id is not None:
+        recv_filters.append(GoodsReceipt.store_id == store_id)
     recv_rows = (
         await session.exec(
             select(
@@ -859,6 +892,7 @@ async def cost_history(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
@@ -873,6 +907,7 @@ async def cost_history(
     every delivery) and ``SupplierItem.price`` (overwritten on every upsert)
     — so this is the reconstructable price record for historical P&L.
     """
+    store_id = resolve_store_filter(claims, store_id)
     start, end = _day_bounds(from_date, to_date)
     stmt = (
         select(GoodsReceiptLine, GoodsReceipt, Item.name, Supplier.name)
@@ -918,6 +953,7 @@ async def activity_log(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
@@ -926,6 +962,7 @@ async def activity_log(
     offset: int = Query(default=0, ge=0),
 ) -> ActivityLogResponse:
     """Activity Log (inventory leg): every stock movement, newest first."""
+    store_id = resolve_store_filter(claims, store_id)
     start, end = _day_bounds(from_date, to_date)
     stmt = (
         select(StockMovement, Item.name)

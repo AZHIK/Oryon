@@ -202,11 +202,7 @@ async def delete_business_role(
             )
 
         active_store_roles = (
-            await db.exec(
-                select(UserStoreRole).where(
-                    UserStoreRole.business_role_id == role_id
-                )
-            )
+            await db.exec(select(UserStoreRole).where(UserStoreRole.business_role_id == role_id))
         ).all()
         if active_store_roles:
             raise HTTPException(

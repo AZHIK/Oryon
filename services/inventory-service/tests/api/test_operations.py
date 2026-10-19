@@ -539,25 +539,23 @@ async def test_adjust_wrong_business_rejected(
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Stage 8.5 — Gap 2: Store-scoping known limitation
+# Stage 8.5 — Gap 2: Store-scoping (closed)
 # ═══════════════════════════════════════════════════════════════════════
 
 
 @pytest.mark.asyncio
-async def test_KNOWN_GAP_store_scoping_not_enforced(
+async def test_unpinned_token_keeps_business_wide_store_access(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    """Document that store-scoping is NOT enforced (token has no store claims).
+    """Business-level tokens (no ``active_store_id``) stay business-wide.
 
-    This test explicitly asserts the current (undesired) behavior so that
-    when Identity Service extends tokens with per-store claims and this
-    gap is closed, this test starts failing as a signal to finish the work.
+    Store-scoped enforcement applies only to store-pinned tokens.  Owners
+    and business staff must still be able to move stock between stores.
     """
     item = await _create_item(db_session, name="Store Gap Item", store_id=STORE_ID)
     await _create_stock_level(db_session, item_id=item.id, store_id=STORE_ID, quantity=Decimal("10.000"))
 
-    # The token has NO store-scoped permissions — any store works.
     resp = await client.post(
         f"{BIZ_PREFIX}/transfer",
         json={
@@ -568,12 +566,8 @@ async def test_KNOWN_GAP_store_scoping_not_enforced(
         },
         headers=AUTH_HEADER,
     )
-    # Current behavior: succeeds because store scoping is not enforced.
-    # If this test starts failing, it means store-scoped enforcement was
-    # added — verify it's intentional and update the tests accordingly.
     assert resp.status_code == 201, (
-        "KNOWN GAP: Store scoping is not enforced. "
-        "Token has no store claims, so any store is accepted. "
+        "Unpinned business tokens must retain business-wide store access. "
         f"Got {resp.status_code}: {resp.text}"
     )
 

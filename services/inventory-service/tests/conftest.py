@@ -41,7 +41,28 @@ if "TEST_DB_URL" not in os.environ:
 TEST_DB_URL = os.environ["TEST_DB_URL"]
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# App imports must come AFTER TEST_DB_URL is set.
+# ── JWT verification key ────────────────────────────────────────────────────
+# Every test module signs its tokens with the embedded TEST_PRIVATE_KEY
+# keypair (see tests/test_token_verification.py).  Point verification at the
+# matching public key so the suite does not depend on whichever deployment
+# key happens to sit in the local, git-ignored keys/public.pem.  Without this,
+# rotating the identity-service keypair makes every authenticated test fail
+# with "Signature verification failed" even though the token is well-formed.
+TEST_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoeArXtZ+XrZt5klLXLay
+TcGOFZCOUZ9tbexpmrdMcXzwxAzxh+ByKOHyJEJ1xXB6hdZZMWV/66rHMG+dx3l8
+w8o3woM1Ae/QEz7Yf8Zx1Eu3eqCRE05QzX0c1SfSxrzNQ91czCIRW3vyq2CQ/dnD
+3xqFP7asLrfihqYzw2SzSNyoOJo3EAYwv2IdkJJeQepco+WX5OjZBrYOB9YFXySm
+o32cT7uT6eIIo1CJFYqCvfK6OeAwoQy92wOJxod1VcPYRBbFU86bTnge2+ymbjpn
+nMDUUyF5pl+05raXwrg3pz8ibXjsV+9aGx1Qs1pAd0IMB6b9JegMcRy3SCdUgvcz
+/wIDAQAB
+-----END PUBLIC KEY-----"""
+
+# Set before importing any app module: app.core.database calls get_settings()
+# at import time, and Settings is cached for the whole session.
+os.environ["JWT_PUBLIC_KEY"] = TEST_PUBLIC_KEY
+
+# App imports must come AFTER TEST_DB_URL and JWT_PUBLIC_KEY are set.
 from app.core.database import async_session_factory, engine  # noqa: E402
 from app.main import app  # noqa: E402
 

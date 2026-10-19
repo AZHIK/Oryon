@@ -35,6 +35,13 @@ AVAILABLE DEPENDENCY FACTORIES
     Like ``require_business_permission`` but for store-scoped access:
     verifies store context, path-param store_id match, and permission code.
     Returns ``active_store_id``.
+
+Store-scope helpers (used directly by route handlers)
+    ``get_active_store_id(claims)`` / ``store_scope_id(claims)`` parse the
+    optional ``active_store_id`` claim.  ``ensure_store_access(claims,
+    store_id)`` rejects cross-store actions for pinned tokens, and
+    ``resolve_store_filter(claims, requested)`` pins list/report queries.
+    Unpinned owner/business tokens keep business-wide access.
 """
 
 import secrets
@@ -270,6 +277,66 @@ def require_store_permission(
         return active_store_id
 
     return _check_store_permission
+
+
+def get_active_store_id(claims: dict[str, Any]) -> str | None:
+    """Return the store the token is pinned to, or ``None``.
+
+    Store-staff tokens carry ``active_store_id``; owner/business-level
+    tokens do not and therefore keep business-wide access.
+    """
+    raw = claims.get("active_store_id")
+    return str(raw) if raw else None
+
+
+def store_scope_id(claims: dict[str, Any]) -> UUID | None:
+    """Return the token's pinned store as a ``UUID`` (``None`` if unpinned)."""
+    raw = get_active_store_id(claims)
+    if raw is None:
+        return None
+    try:
+        return UUID(raw)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid store context in token",
+        ) from None
+
+
+def ensure_store_access(claims: dict[str, Any], store_id: UUID | str) -> None:
+    """Reject a store-pinned token acting on a different store.
+
+    Unpinned tokens (owners, business staff) retain business-wide access.
+    Use this for single-row/action endpoints where the target store is
+    known before the write.
+    """
+    pinned = get_active_store_id(claims)
+    if pinned is not None and str(store_id) != pinned:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Store ID does not match authenticated store context",
+        )
+
+
+def resolve_store_filter(
+    claims: dict[str, Any], requested_store_id: UUID | None
+) -> UUID | None:
+    """Resolve the store a list/report query must be constrained to.
+
+    - Unpinned token: the caller's filter is returned unchanged.
+    - Pinned token with no filter: the token's store is returned, so
+      queries can never leak another store's rows.
+    - Pinned token asking for another store: 403.
+    """
+    pinned = store_scope_id(claims)
+    if pinned is None:
+        return requested_store_id
+    if requested_store_id is not None and requested_store_id != pinned:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Store ID does not match authenticated store context",
+        )
+    return pinned
 
 
 async def require_internal_service_token(

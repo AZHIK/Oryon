@@ -41,7 +41,7 @@ from collections.abc import Awaitable, Callable
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Query, status
 
 from app.core.exceptions import ExpiredTokenError, InvalidTokenError
 from app.core.permission_codes import PermissionCode, coerce_permission_code
@@ -78,6 +78,67 @@ async def get_current_claims(
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
     return claims
+
+
+def get_pinned_store_id(claims: dict[str, Any]) -> UUID | None:
+    """Return the token's ``active_store_id``, or ``None`` for unpinned tokens.
+
+    Store-pinned tokens (store staff) must never read or write another
+    store's records. Business-level tokens have no ``active_store_id`` and
+    retain access to every store in their business.
+    """
+    raw_store_id = claims.get("active_store_id")
+    if not raw_store_id:
+        return None
+    try:
+        return UUID(str(raw_store_id))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid store context",
+        ) from exc
+
+
+def ensure_store_access(claims: dict[str, Any], store_id: UUID) -> None:
+    """Reject (403) when a store-pinned token targets a different store."""
+    pinned_store_id = get_pinned_store_id(claims)
+    if pinned_store_id is not None and store_id != pinned_store_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Store ID does not match authenticated store context",
+        )
+
+
+def resolve_store_scope(
+    claims: dict[str, Any],
+    requested_store_id: UUID | None,
+) -> UUID | None:
+    """Resolve an optional store filter against the token's pinned store.
+
+    * Unpinned token → return the requested filter unchanged (``None`` means
+      all stores in the business).
+    * Pinned token + no filter → return the pinned store so reads are
+      automatically narrowed to it.
+    * Pinned token + matching filter → return that store.
+    * Pinned token + foreign filter → 403.
+    """
+    pinned_store_id = get_pinned_store_id(claims)
+    if pinned_store_id is None:
+        return requested_store_id
+    if requested_store_id is not None and requested_store_id != pinned_store_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Store ID does not match authenticated store context",
+        )
+    return pinned_store_id
+
+
+async def store_scope_filter(
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
+    store_id: UUID | None = Query(default=None, description="Filter by store"),
+) -> UUID | None:
+    """Dependency: validate/pin the ``store_id`` query parameter."""
+    return resolve_store_scope(claims, store_id)
 
 
 def require_permission(

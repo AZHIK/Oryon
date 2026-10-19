@@ -27,7 +27,12 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.database import get_db
-from app.deps.auth import get_current_claims, require_business_permission
+from app.deps.auth import (
+    ensure_store_access,
+    get_current_claims,
+    require_business_permission,
+)
+from app.models.inventory import Item
 from app.models.purchases import PurchaseOrder
 from app.models.requisition import (
     Requisition,
@@ -82,6 +87,19 @@ async def submit(
     claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("procurement.create"))],
 ) -> RequisitionSubmitResponse:
+    ensure_store_access(claims, body.store_id)
+    line_item_ids = {line.item_id for line in body.lines}
+    if line_item_ids:
+        line_items = (
+            await session.exec(
+                select(Item).where(
+                    Item.id.in_(line_item_ids),
+                    Item.business_id == business_id,
+                )
+            )
+        ).all()
+        for line_item in line_items:
+            ensure_store_access(claims, line_item.store_id)
     # Duplicate-submit guard: fast-path check before the transactional write.
     if body.idempotency_key:
         dup = (
@@ -130,9 +148,9 @@ async def submit(
     except ValueError as exc:
         await session.rollback()
         message = str(exc)
-        code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        code = status.HTTP_422_UNPROCESSABLE_CONTENT
         if "need a supplier" in message:
-            code = status.HTTP_422_UNPROCESSABLE_ENTITY
+            code = status.HTTP_422_UNPROCESSABLE_CONTENT
         raise HTTPException(status_code=code, detail=message) from exc
     except LookupError as exc:
         await session.rollback()
@@ -168,6 +186,7 @@ async def get_requisition(
     requisition_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("procurement.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> RequisitionSubmitResponse:
     requisition = (
         await session.exec(
@@ -178,6 +197,7 @@ async def get_requisition(
     ).one_or_none()
     if requisition is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Requisition not found")
+    ensure_store_access(claims, requisition.store_id)
     pos = (
         await session.exec(
             select(PurchaseOrder).where(PurchaseOrder.requisition_id == requisition.id)
@@ -218,8 +238,19 @@ async def bulk_assign(
     requisition_id: UUID,
     body: BulkAssignRequest,
     session: Annotated[AsyncSession, Depends(get_db)],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("procurement.create"))],
 ) -> list[RequisitionLine]:
+    requisition = (
+        await session.exec(
+            select(Requisition).where(
+                Requisition.id == requisition_id,
+                Requisition.business_id == business_id,
+            )
+        )
+    ).one_or_none()
+    if requisition is not None:
+        ensure_store_access(claims, requisition.store_id)
     try:
         touched = await bulk_assign_supplier(
             session,
@@ -233,7 +264,7 @@ async def bulk_assign(
     except ValueError as exc:
         await session.rollback()
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
     except LookupError as exc:
         await session.rollback()
@@ -264,6 +295,8 @@ async def regenerate_all_payloads(
     ).all()
     if not pos:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Requisition not found")
+    for po in pos:
+        ensure_store_access(claims, po.store_id)
     out: list[SupplierMessage] = []
     for po in pos:
         msg = await regenerate_payload(

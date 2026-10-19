@@ -14,7 +14,12 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.permission_codes import PermissionCode
 from app.db.session import get_db
-from app.deps.auth import get_current_claims, require_business_permission
+from app.deps.auth import (
+    ensure_store_access,
+    get_current_claims,
+    require_business_permission,
+    store_scope_filter,
+)
 from app.models.finance import OtherExpense
 from app.models.pos import PaymentMethod
 from app.schemas.finance import (
@@ -59,6 +64,9 @@ async def sync_other_expenses(
     Partial success is first-class — one entry's failure does NOT cause an
     HTTP error.
     """
+    for expense_input in batch.expenses:
+        ensure_store_access(claims, expense_input.store_id)
+
     try:
         actor_id = UUID(claims["sub"])
     except (ValueError, KeyError, TypeError):
@@ -93,7 +101,7 @@ async def get_other_expenses_summary(
     to_date: datetime | None = Query(default=None),
     category: str | None = Query(default=None),
     payment_method: str | None = Query(default=None),
-    store_id: UUID | None = Query(default=None),
+    store_id: UUID | None = Depends(store_scope_filter),
 ) -> OtherExpenseSummaryResponse:
     """Lightweight aggregate: total count, total amount, and category breakdown.
 
@@ -160,7 +168,7 @@ async def list_other_expenses(
     to_date: datetime | None = Query(default=None, description="End date (inclusive)"),
     category: str | None = Query(default=None, description="Filter by expense category"),
     payment_method: str | None = Query(default=None, description="Filter by payment method"),
-    store_id: UUID | None = Query(default=None, description="Filter by store"),
+    store_id: UUID | None = Depends(store_scope_filter),
     include_deleted: bool = Query(default=False, description="Include soft-deleted entries"),
 ) -> OtherExpenseListResponse:
     """Paginated expense list, filterable by date range, category, payment method, and location.

@@ -15,7 +15,7 @@ presence with no extra round-trip per item.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 import structlog
@@ -25,7 +25,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.v1.endpoints.items import _get_item_or_404
 from app.core.database import get_db
-from app.deps.auth import require_business_permission
+from app.deps.auth import (
+    ensure_store_access,
+    get_current_claims,
+    require_business_permission,
+)
 from app.schemas.items import ItemRead
 from app.services.item_image_storage import (
     ItemImageStorage,
@@ -45,6 +49,7 @@ async def upload_item_image(
     session: AsyncSession = Depends(get_db),
     storage: ItemImageStorage = Depends(get_item_image_storage),
     _jwt_biz_id: str = Depends(require_business_permission("inventory.items.update")),
+    claims: dict[str, Any] = Depends(get_current_claims),
 ) -> ItemRead:
     """Upload (or replace) the item's product photo.
 
@@ -53,6 +58,7 @@ async def upload_item_image(
     whose ``image_url`` is now populated.
     """
     item = await _get_item_or_404(business_id, item_id, session)
+    ensure_store_access(claims, item.store_id)
 
     try:
         stored = await storage.save(business_id=business_id, item_id=item.id, upload=file)
@@ -80,6 +86,7 @@ async def download_item_image(
     session: Annotated[AsyncSession, Depends(get_db)],
     storage: Annotated[ItemImageStorage, Depends(get_item_image_storage)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("inventory.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> FileResponse:
     """Serve the item's product photo bytes.
 
@@ -87,6 +94,7 @@ async def download_item_image(
     tenants. 404 as well when the item simply has no photo yet.
     """
     item = await _get_item_or_404(business_id, item_id, session)
+    ensure_store_access(claims, item.store_id)
     if not item.image_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item has no photo")
 
@@ -119,6 +127,7 @@ async def delete_item_image(
     session: Annotated[AsyncSession, Depends(get_db)],
     storage: Annotated[ItemImageStorage, Depends(get_item_image_storage)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("inventory.items.update"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> ItemRead:
     """Remove the item's product photo.
 
@@ -127,6 +136,7 @@ async def delete_item_image(
     is "no photo" either way.
     """
     item = await _get_item_or_404(business_id, item_id, session)
+    ensure_store_access(claims, item.store_id)
     if item.image_path:
         storage.delete(item.image_path)
         item.image_path = None

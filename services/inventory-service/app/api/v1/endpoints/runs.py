@@ -32,7 +32,12 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.database import get_db
-from app.deps.auth import get_current_claims, require_business_permission
+from app.deps.auth import (
+    ensure_store_access,
+    get_current_claims,
+    require_business_permission,
+    resolve_store_filter,
+)
 from app.models.inventory import (
     Item,
     ProductionRun,
@@ -70,6 +75,48 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/businesses/{business_id}/runs", tags=["production-runs"])
 
 _VALID_STATUSES = ("pending", "in_progress", "completed", "cancelled")
+
+
+async def _ensure_recipe_store_access(
+    business_id: UUID,
+    recipe_id: UUID,
+    claims: dict[str, Any],
+    session: AsyncSession,
+) -> None:
+    """Bind a recipe action to the token's store via its sellable item."""
+    recipe = (
+        await session.exec(
+            select(Recipe).where(
+                Recipe.id == recipe_id, Recipe.business_id == business_id
+            )
+        )
+    ).one_or_none()
+    if recipe is None:
+        return  # the service layer owns the 404
+    sellable = (
+        await session.exec(select(Item).where(Item.id == recipe.sellable_item_id))
+    ).one_or_none()
+    if sellable is not None:
+        ensure_store_access(claims, sellable.store_id)
+
+
+async def _ensure_run_store_access(
+    business_id: UUID,
+    run_id: UUID,
+    claims: dict[str, Any],
+    session: AsyncSession,
+) -> None:
+    """Reject cross-store actions before the service mutates a run."""
+    run = (
+        await session.exec(
+            select(ProductionRun).where(
+                ProductionRun.id == run_id,
+                ProductionRun.business_id == business_id,
+            )
+        )
+    ).one_or_none()
+    if run is not None:
+        ensure_store_access(claims, run.store_id)
 
 
 async def _read_runs(
@@ -183,7 +230,7 @@ def _map_errors(exc: Exception) -> HTTPException:
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     if isinstance(exc, InvalidRunStateError | InvalidProductionInputError):
         return HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         )
     if isinstance(exc, InsufficientStockError):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
@@ -199,6 +246,7 @@ async def create_production_run(
     claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> RunRead:
     """Schedule a batch (pending): snapshot the plan, move no stock."""
+    await _ensure_recipe_store_access(business_id, body.recipe_id, claims, session)
     try:
         run = await create_run(
             db=session,
@@ -211,6 +259,7 @@ async def create_production_run(
         )
     except Exception as exc:
         raise _map_errors(exc) from exc
+    ensure_store_access(claims, run.store_id)
     logger.info("runs.endpoint_created", run_id=str(run.id), business_id=str(business_id))
     return (await _read_runs([run], session))[0]
 
@@ -220,6 +269,7 @@ async def list_production_runs(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("production.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     run_status: str | None = Query(
         default=None, alias="status",
         description="Filter: pending | in_progress | completed",
@@ -230,10 +280,13 @@ async def list_production_runs(
     """Shift plan: batches newest first, optionally filtered by status."""
     if run_status is not None and run_status not in _VALID_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"status must be one of {', '.join(_VALID_STATUSES)}",
         )
+    store_id = resolve_store_filter(claims, None)
     stmt = select(ProductionRun).where(ProductionRun.business_id == business_id)
+    if store_id is not None:
+        stmt = stmt.where(ProductionRun.store_id == store_id)
     if run_status is not None:
         stmt = stmt.where(ProductionRun.status == RunStatus(run_status))
     stmt = stmt.order_by(ProductionRun.created_at.desc()).offset(offset).limit(limit)
@@ -248,6 +301,7 @@ async def get_production_run(
     run_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("production.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> RunRead:
     """Full detail for one run, plan lines included."""
     result = await session.exec(
@@ -260,6 +314,7 @@ async def get_production_run(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Production run not found"
         )
+    ensure_store_access(claims, run.store_id)
     return (await _read_runs([run], session))[0]
 
 
@@ -278,6 +333,7 @@ async def start_production_run(
     full adjusted list to record what the scale actually said. A shortfall
     on any ingredient rejects the whole start (409) with zero side effects.
     """
+    await _ensure_run_store_access(business_id, run_id, claims, session)
     try:
         run = await start_run(
             db=session,
@@ -305,12 +361,14 @@ async def complete_production_run(
     body: RunCompleteRequest,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("production.create"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> RunRead:
     """Finish an in-progress run: record actual yield + waste reason.
 
     No stock moves — the output lands in inventory at publish, so the
     kitchen can verify before anything becomes sellable.
     """
+    await _ensure_run_store_access(business_id, run_id, claims, session)
     try:
         run = await complete_run(
             db=session,
@@ -341,6 +399,7 @@ async def publish_production_run(
     """
     from app.api.v1.endpoints.production import _read_events
 
+    await _ensure_run_store_access(business_id, run_id, claims, session)
     try:
         event = await publish_run(
             db=session,
@@ -369,8 +428,10 @@ async def delete_production_run(
     run_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("production.create"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> None:
     """Delete a pending run. Started runs moved stock — complete them."""
+    await _ensure_run_store_access(business_id, run_id, claims, session)
     try:
         await delete_run(db=session, business_id=business_id, run_id=run_id)
     except Exception as exc:
@@ -394,6 +455,7 @@ async def cancel_production_run(
     claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> RunRead:
     """Stop: put weighed items back. Works for planned and cooking batches."""
+    await _ensure_run_store_access(business_id, run_id, claims, session)
     try:
         run = await cancel_run(
             db=session,

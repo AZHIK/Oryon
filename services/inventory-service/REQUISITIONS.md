@@ -140,8 +140,8 @@ receive (stays unfulfilled) → full receive (fulfilled + costing) → receive
 guarded; cancel rules; removed routes 404; list/permissions.
 Run: `DB_URL=…:5434/foodlink_inventory TEST_DB_URL=…:5434/foodlink_inventory_test
 uv run --project . python -m pytest tests/test_requisitions.py tests/api/test_purchases.py -q`
-(all green; `test_store_scope.py` failures are pre-existing reorder/permission
-WIP, untouched by this change).
+(all green; store-scope enforcement is now covered by
+`tests/api/test_store_scope.py`).
 
 App (`test/requisition_cart_test.dart` 12 tests — cart state machine, submit,
 `fromJson`/badges; `test/requisition_cart_dialog_test.dart` 6 tests — sheet vs

@@ -13,7 +13,6 @@ from app.models import (
     UserPlatformRole,
 )
 
-
 _WILDCARD = "*"
 
 

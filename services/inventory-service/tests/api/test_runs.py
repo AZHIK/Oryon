@@ -334,7 +334,13 @@ async def test_start_rejected_on_shortfall_nothing_moves(
 async def test_illegal_transitions_rejected(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    """Complete-before-start, double-start, double-publish, delete-started → 422."""
+    """Complete-before-start, double-start, delete-started → 422.
+
+    Publishing twice is the one deliberate exception: it is idempotent
+    ("safe retry: tapping Publish twice returns the same record" — see
+    ``app.services.run_service.publish_run``) and returns the existing
+    event with 200.
+    """
     _, rice, _, _, recipe_id = await _make_pilau_kitchen(client, db_session)
     run_id = (await _create_run(client, recipe_id, "10.000"))["id"]
     start_body = {"leading_item_id": str(rice.id), "leading_quantity_used": "2.000"}
@@ -365,9 +371,12 @@ async def test_illegal_transitions_rejected(
 
     resp = await client.post(f"{RUNS_PREFIX}/{run_id}/publish", headers=AUTH_HEADER)
     assert resp.status_code == 200, resp.text
+    first_event_id = resp.json()["id"]
 
+    # Idempotent retry: the second publish returns the same event, not 422.
     resp = await client.post(f"{RUNS_PREFIX}/{run_id}/publish", headers=AUTH_HEADER)
-    assert resp.status_code == 422, resp.text
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["id"] == first_event_id
 
 
 @pytest.mark.asyncio

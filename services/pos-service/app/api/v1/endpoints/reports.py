@@ -33,7 +33,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.permission_codes import PermissionCode
 from app.db.session import get_db
-from app.deps.auth import require_business_permission
+from app.deps.auth import require_business_permission, store_scope_filter
 from app.models.customers import Customer
 from app.models.finance import OtherExpense, OtherIncome
 from app.models.pos import Sale, SaleLineItem, SaleStatus
@@ -90,7 +90,7 @@ async def daily_takings(
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
     from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
-    store_id: UUID | None = Query(default=None, description="Filter by store"),
+    store_id: UUID | None = Depends(store_scope_filter),
 ) -> DailyTakingsResponse:
     """Per-day revenue, ticket count, average ticket, and void/refund counts.
 
@@ -139,7 +139,7 @@ async def item_mix(
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
     from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
-    store_id: UUID | None = Query(default=None, description="Filter by store"),
+    store_id: UUID | None = Depends(store_scope_filter),
     limit: int = Query(default=50, ge=1, le=200, description="Max items, top revenue first"),
     order_by: str = Query(
         default="revenue",
@@ -197,7 +197,7 @@ async def staff_performance(
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
     from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
-    store_id: UUID | None = Query(default=None, description="Filter by store"),
+    store_id: UUID | None = Depends(store_scope_filter),
 ) -> StaffPerformanceResponse:
     """Per-actor sales: count, revenue, and void/refund counts.
 
@@ -258,7 +258,7 @@ async def finance_summary(
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
     from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
-    store_id: UUID | None = Query(default=None, description="Filter by store"),
+    store_id: UUID | None = Depends(store_scope_filter),
 ) -> FinanceSummaryResponse:
     """Money in vs money out: completed sales revenue, ad-hoc incomes and
     expenses by category, and the net. Deleted finance entries are excluded.
@@ -316,7 +316,7 @@ async def sell_payments(
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
     from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
-    store_id: UUID | None = Query(default=None, description="Filter by store"),
+    store_id: UUID | None = Depends(store_scope_filter),
 ) -> SellPaymentsResponse:
     """Sell Payment Report: completed-sales revenue grouped by payment method."""
     filters = _sale_filters(business_id, from_date, to_date, store_id)
@@ -353,7 +353,7 @@ async def tax_report(
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
     from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
-    store_id: UUID | None = Query(default=None, description="Filter by store"),
+    store_id: UUID | None = Depends(store_scope_filter),
 ) -> TaxReportResponse:
     """Tax Report: tax collected per day from completed sales."""
     day = sa_func.date(Sale.occurred_at).label("day")
@@ -398,7 +398,7 @@ async def register_summary(
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
     from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
-    store_id: UUID | None = Query(default=None, description="Filter by store"),
+    store_id: UUID | None = Depends(store_scope_filter),
 ) -> RegisterReportResponse:
     """Register Report: per-day takings with per-method drawer split."""
     day = sa_func.date(Sale.occurred_at).label("day")
@@ -465,7 +465,7 @@ async def expense_report(
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
     from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
-    store_id: UUID | None = Query(default=None, description="Filter by store"),
+    store_id: UUID | None = Depends(store_scope_filter),
     category: str | None = Query(default=None, description="Filter by expense category"),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
@@ -519,7 +519,7 @@ async def profit_loss(
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
     from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
-    store_id: UUID | None = Query(default=None, description="Filter by store"),
+    store_id: UUID | None = Depends(store_scope_filter),
 ) -> ProfitLossResponse:
     """Profit / Loss Report (POS-side leg): sales + incomes − expenses."""
     revenue_row = (

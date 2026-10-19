@@ -1,6 +1,7 @@
 """Integration tests for the business/driver/consumer auth API."""
 
 import random
+from uuid import UUID
 
 from httpx import AsyncClient
 from sqlmodel import select
@@ -693,6 +694,29 @@ class TestStoreContextSwitch:
         assert resp.status_code == 200
         return resp.json()["access_token"]
 
+    @staticmethod
+    async def _login_scoped(client: AsyncClient, phone: str, business_id: UUID) -> str:
+        """Login, then bind the token to a business.
+
+        Business-staff login tokens deliberately start with no active
+        business context; the store-switch endpoint requires one, so the
+        documented flow is login -> /auth/context/switch -> switch-store.
+        """
+        resp = await client.post(
+            "/api/v1/auth/login/password",
+            json={"phone": phone, "password": _TEST_PASSWORD},
+        )
+        assert resp.status_code == 200
+        token = resp.json()["access_token"]
+
+        resp = await client.post(
+            "/api/v1/auth/context/switch",
+            json={"business_id": str(business_id)},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        return resp.json()["access_token"]
+
     async def test_switch_store_success_returns_store_scoped_token(
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
@@ -700,7 +724,7 @@ class TestStoreContextSwitch:
 
         phone = _valid_phone()
         _, biz, _, store_b = await self._owner_with_stores(db_session, phone)
-        token = await self._login(client, phone)
+        token = await self._login_scoped(client, phone, biz.id)
 
         resp = await client.post(
             "/api/v1/auth/context/switch-store",
@@ -720,8 +744,10 @@ class TestStoreContextSwitch:
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         phone = _valid_phone()
-        _, _, _, store_b = await self._owner_with_stores(db_session, phone, with_switch_perm=False)
-        token = await self._login(client, phone)
+        _, biz, _, store_b = await self._owner_with_stores(
+            db_session, phone, with_switch_perm=False
+        )
+        token = await self._login_scoped(client, phone, biz.id)
 
         resp = await client.post(
             "/api/v1/auth/context/switch-store",
@@ -758,9 +784,9 @@ class TestStoreContextSwitch:
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         phone = _valid_phone()
-        await self._owner_with_stores(db_session, phone)
+        _, biz, _, _ = await self._owner_with_stores(db_session, phone)
         _, _, _, foreign_store = await self._owner_with_stores(db_session, _valid_phone())
-        token = await self._login(client, phone)
+        token = await self._login_scoped(client, phone, biz.id)
 
         resp = await client.post(
             "/api/v1/auth/context/switch-store",
@@ -775,8 +801,8 @@ class TestStoreContextSwitch:
         from uuid import uuid4
 
         phone = _valid_phone()
-        await self._owner_with_stores(db_session, phone)
-        token = await self._login(client, phone)
+        _, biz, _, _ = await self._owner_with_stores(db_session, phone)
+        token = await self._login_scoped(client, phone, biz.id)
 
         resp = await client.post(
             "/api/v1/auth/context/switch-store",
@@ -794,12 +820,7 @@ class TestCreateStoreConflict:
         _, biz, store_a, _ = await TestStoreContextSwitch._owner_with_stores(
             db_session, phone, perm="stores.create"
         )
-        login = await client.post(
-            "/api/v1/auth/login/password",
-            json={"phone": phone, "password": _TEST_PASSWORD},
-        )
-        assert login.status_code == 200
-        token = login.json()["access_token"]
+        token = await TestStoreContextSwitch._login_scoped(client, phone, biz.id)
 
         resp = await client.post(
             f"/api/v1/businesses/{biz.id}/stores",

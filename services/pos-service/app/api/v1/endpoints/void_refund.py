@@ -10,7 +10,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.permission_codes import PermissionCode
 from app.db.session import get_db
-from app.deps.auth import get_current_claims, require_business_permission
+from app.deps.auth import (
+    get_current_claims,
+    get_pinned_store_id,
+    require_business_permission,
+)
 from app.models.pos import Sale, SaleLineItem
 from app.schemas.line_items import SaleLineItemRead
 from app.schemas.sales import SaleRead
@@ -45,6 +49,22 @@ async def void_or_refund(
     same ``client_action_id`` twice returns the same result without
     side effects.
     """
+    pinned_store_id = get_pinned_store_id(claims)
+    if pinned_store_id is not None:
+        target_store_id = (
+            await session.exec(
+                select(Sale.store_id).where(
+                    Sale.id == sale_id,
+                    Sale.business_id == business_id,
+                )
+            )
+        ).first()
+        if target_store_id is not None and target_store_id != pinned_store_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Store ID does not match authenticated store context",
+            )
+
     try:
         actor_id = UUID(claims["sub"])
     except (ValueError, KeyError, TypeError):

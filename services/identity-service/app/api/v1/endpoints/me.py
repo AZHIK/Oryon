@@ -62,7 +62,7 @@ async def get_onboarding_status(
             select(UserStoreRole, Business.name)
             .join(Business, UserStoreRole.business_id == Business.id)  # type: ignore[arg-type]
             .where(UserStoreRole.user_id == user.id)
-            .order_by(UserStoreRole.id)
+            .order_by(UserStoreRole.id)  # type: ignore[arg-type]
             .limit(1)
         )
         store_first = store_result.one_or_none()
@@ -94,9 +94,7 @@ async def update_profile(
     that path never goes through /auth/register.
     """
     if body.email:
-        result = await db.exec(
-            select(User).where(User.email == body.email, User.id != user.id)
-        )
+        result = await db.exec(select(User).where(User.email == body.email, User.id != user.id))
         if result.one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

@@ -10,6 +10,8 @@ in English while the user-facing `detail` goes out localized.
 
 from __future__ import annotations
 
+from starlette.requests import Request
+
 SUPPORTED = ("en", "sw")
 DEFAULT = "en"
 
@@ -86,8 +88,14 @@ _CATALOG: dict[str, dict[str, str]] = {
         "sw": "Msimbo wa OTP lazima uwe tarakimu 6",
     },
     "validate.password": {
-        "en": "Password must be at least 8 characters and contain an uppercase letter, a digit and a special character.",
-        "sw": "Nenosiri lazima liwe na herufi 8 angalau na liwe na herufi kubwa, tarakimu na alama maalum.",
+        "en": (
+            "Password must be at least 8 characters and contain an uppercase "
+            "letter, a digit and a special character."
+        ),
+        "sw": (
+            "Nenosiri lazima liwe na herufi 8 angalau na liwe na herufi kubwa, "
+            "tarakimu na alama maalum."
+        ),
     },
 }
 
@@ -101,16 +109,16 @@ def parse_lang(accept_language: str | None) -> str:
     return code if code in SUPPORTED else DEFAULT
 
 
-def request_lang(request) -> str:
+def request_lang(request: Request) -> str:
     """Language resolved by [LocaleMiddleware]; safe before middleware too."""
     state_lang = getattr(getattr(request, "state", None), "lang", None)
     if state_lang in SUPPORTED:
-        return state_lang
+        return str(state_lang)
     headers = getattr(request, "headers", {}) or {}
     return parse_lang(headers.get("accept-language"))
 
 
-def L(key: str, lang: str = DEFAULT, **kwargs) -> str:  # noqa: E743, N802
+def L(key: str, lang: str = DEFAULT, **kwargs: object) -> str:  # noqa: E743, N802
     """Localized message for [key]; English fallback for unknown keys."""
     entry = _CATALOG.get(key)
     if entry is None:

@@ -169,7 +169,7 @@ class TestAdminUserList:
         token = await _create_staff_token_with_perms(db_session, [USERS_VIEW])
 
         resp = await client.get(
-            "/admin/users?user_category=business_user",
+            "/admin/users?user_category=business_staff",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200

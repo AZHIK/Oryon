@@ -31,7 +31,12 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel.sql.expression import SelectOfScalar
 
 from app.core.database import get_db
-from app.deps.auth import get_current_claims, require_business_permission
+from app.deps.auth import (
+    ensure_store_access,
+    get_current_claims,
+    require_business_permission,
+    resolve_store_filter,
+)
 from app.models.inventory import ActorType, Item, MovementType, StockLevel
 from app.models.suppliers import Supplier
 from app.schemas.items import ItemCreate, ItemListFilters, ItemRead, ItemUpdate
@@ -72,6 +77,7 @@ async def _validate_supplier_or_404(
 async def _build_list_query(
     business_id: UUID,
     filters: ItemListFilters,
+    store_id: UUID | None = None,
 ) -> SelectOfScalar[Item]:
     stmt = select(Item).where(Item.business_id == business_id)
 
@@ -81,8 +87,8 @@ async def _build_list_query(
         stmt = stmt.where(Item.supplier_id == filters.supplier_id)
     if filters.is_active is not None:
         stmt = stmt.where(Item.is_active == filters.is_active)
-    if filters.store_id is not None:
-        stmt = stmt.where(Item.store_id == filters.store_id)
+    if store_id is not None:
+        stmt = stmt.where(Item.store_id == store_id)
     if filters.below_threshold:
         stmt = (
             select(Item)
@@ -98,8 +104,8 @@ async def _build_list_query(
             stmt = stmt.where(Item.supplier_id == filters.supplier_id)
         if filters.is_active is not None:
             stmt = stmt.where(Item.is_active == filters.is_active)
-        if filters.store_id is not None:
-            stmt = stmt.where(StockLevel.store_id == filters.store_id)
+        if store_id is not None:
+            stmt = stmt.where(StockLevel.store_id == store_id)
 
     stmt = stmt.order_by(Item.created_at.desc())
     return stmt
@@ -131,6 +137,7 @@ async def create_item(
     """
     if body.supplier_id is not None:
         await _validate_supplier_or_404(business_id, body.supplier_id, session)
+    ensure_store_access(claims, body.store_id)
     item = Item(
         business_id=business_id,
         store_id=body.store_id,
@@ -192,6 +199,7 @@ async def list_items(
     filters: Annotated[ItemListFilters, Depends()],
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("inventory.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     limit: int = Query(default=20, ge=1, le=100, description="Max items per page"),
     offset: int = Query(default=0, ge=0, description="Number of items to skip"),
 ) -> list[Item]:
@@ -201,8 +209,12 @@ async def list_items(
     admin CRUD convention.  ``below_threshold=true`` joins against
     ``stock_levels`` and returns only items whose ``current_quantity``
     is at or below their ``reorder_threshold``.
+
+    Store-pinned tokens are always constrained to their own store; an
+    explicit foreign ``store_id`` filter is rejected with 403.
     """
-    stmt = await _build_list_query(business_id, filters)
+    store_id = resolve_store_filter(claims, filters.store_id)
+    stmt = await _build_list_query(business_id, filters, store_id)
     stmt = stmt.offset(offset).limit(limit)
     result = await session.exec(stmt)
     return list(result.all())
@@ -214,6 +226,7 @@ async def get_item(
     item_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("inventory.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> Item:
     """Get a single item by ID.
 
@@ -221,7 +234,9 @@ async def get_item(
     status field, not an existence flag — downstream operations (e.g.
     historical movement lookups) need to reference deactivated items.
     """
-    return await _get_item_or_404(business_id, item_id, session)
+    item = await _get_item_or_404(business_id, item_id, session)
+    ensure_store_access(claims, item.store_id)
+    return item
 
 
 @router.patch("/{item_id}", response_model=ItemRead)
@@ -231,6 +246,7 @@ async def update_item(
     body: ItemUpdate,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("inventory.items.update"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> Item:
     """Update an item's mutable fields.
 
@@ -239,6 +255,7 @@ async def update_item(
     an item is a transfer operation handled in a later stage.
     """
     item = await _get_item_or_404(business_id, item_id, session)
+    ensure_store_access(claims, item.store_id)
     update_data = body.model_dump(exclude_unset=True)
 
     if not update_data:
@@ -272,6 +289,7 @@ async def deactivate_item(
     item_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("inventory.items.deactivate"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> None:
     """Soft-deactivate an item (sets ``is_active=False``).
 
@@ -288,6 +306,7 @@ async def deactivate_item(
     └─────────────────────────────────────────────────────────────────────┘
     """
     item = await _get_item_or_404(business_id, item_id, session)
+    ensure_store_access(claims, item.store_id)
     if not item.is_active:
         logger.warning(
             "item.deactivate_skipped",

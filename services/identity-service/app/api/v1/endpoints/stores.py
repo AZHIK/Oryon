@@ -18,7 +18,7 @@ set would add seed surface without any distinct authorization semantics.
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -383,29 +383,40 @@ async def list_store_staff(
     _require_context_match(business_id, _biz_id)
 
     result = await db.exec(
-        select(UserStoreRole).where(
+        select(UserStoreRole, User, BusinessRole, Store)
+        .join(User, UserStoreRole.user_id == User.id)  # type: ignore[arg-type]
+        .join(BusinessRole, UserStoreRole.business_role_id == BusinessRole.id)  # type: ignore[arg-type]
+        .join(Store, UserStoreRole.store_id == Store.id)  # type: ignore[arg-type]
+        .where(
             UserStoreRole.store_id == store_id,
             UserStoreRole.business_id == business_id,
         )
+        .order_by(User.phone)
     )
-    store_roles = result.all()
 
-    staff_map: dict[UUID, StaffRoleSummary] = {}
-    for usr in store_roles:
-        user = await db.get(User, usr.user_id)
-        role = await db.get(BusinessRole, usr.business_role_id)
-        if user and role:
-            if usr.user_id not in staff_map:
-                staff_map[usr.user_id] = StaffRoleSummary(
-                    user_id=str(usr.user_id),
-                    phone=user.phone,
-                    full_name=user.full_name,
-                    user_status=user.status.value,
-                    roles=[],
-                )
-            staff_map[usr.user_id].roles.append({"role_id": str(role.id), "role_name": role.name})
+    by_user: dict[UUID, StaffMemberRead] = {}
+    for _usr, user, role, store in result.all():
+        entry = by_user.get(user.id)
+        if entry is None:
+            entry = StaffMemberRead(
+                user_id=user.id,
+                phone=user.phone,
+                full_name=user.full_name,
+                email=user.email,
+                status=user.status,
+                roles=[],
+            )
+            by_user[user.id] = entry
+        entry.roles.append(
+            StaffRoleSummary(
+                business_role_id=role.id,
+                name=role.name,
+                store_id=store.id,
+                store_name=store.name,
+            )
+        )
 
-    return [StaffMemberRead(user=staff) for staff in staff_map.values()]
+    return list(by_user.values())
 
 
 @router.delete(

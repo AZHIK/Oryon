@@ -43,7 +43,12 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel.sql.expression import SelectOfScalar
 
 from app.core.database import get_db
-from app.deps.auth import get_current_claims, require_business_permission
+from app.deps.auth import (
+    ensure_store_access,
+    get_current_claims,
+    require_business_permission,
+    resolve_store_filter,
+)
 from app.models.inventory import ActorType, Item, ItemType, MovementType, StockLevel
 from app.models.purchases import (
     GoodsReceipt,
@@ -165,15 +170,17 @@ async def _build_detail(
 
 
 def _build_list_query(
-    business_id: UUID, filters: PurchaseOrderListFilters
+    business_id: UUID,
+    filters: PurchaseOrderListFilters,
+    store_id: UUID | None = None,
 ) -> SelectOfScalar[PurchaseOrder]:
     stmt = select(PurchaseOrder).where(PurchaseOrder.business_id == business_id)
     if filters.status is not None:
         stmt = stmt.where(PurchaseOrder.status == filters.status)
     if filters.supplier_id is not None:
         stmt = stmt.where(PurchaseOrder.supplier_id == filters.supplier_id)
-    if filters.store_id is not None:
-        stmt = stmt.where(PurchaseOrder.store_id == filters.store_id)
+    if store_id is not None:
+        stmt = stmt.where(PurchaseOrder.store_id == store_id)
     return stmt.order_by(PurchaseOrder.ordered_at.desc())
 
 
@@ -191,6 +198,7 @@ async def create_order(
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("procurement.create"))],
 ) -> PurchaseOrder:
     await _get_supplier_or_404(business_id, body.supplier_id, session)
+    ensure_store_access(claims, body.store_id)
 
     resolved: list[tuple[Item, str]] = []
     for line in body.lines:
@@ -208,7 +216,7 @@ async def create_order(
             )
         if item.item_type == ItemType.SELLABLE:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     f"Cannot purchase sellable-only item '{item.name}' — it can "
                     "never be purchase-received. Order its raw-material "
@@ -217,9 +225,10 @@ async def create_order(
             )
         if item.unit_id is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Item '{item.name}' has no unit assigned.",
             )
+        ensure_store_access(claims, item.store_id)
         unit = (
             await session.exec(select(Unit).where(Unit.id == item.unit_id))
         ).one_or_none()
@@ -298,10 +307,12 @@ async def list_orders(
     filters: Annotated[PurchaseOrderListFilters, Depends()],
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("procurement.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> PurchaseOrderListResponse:
-    base_stmt = _build_list_query(business_id, filters)
+    store_id = resolve_store_filter(claims, filters.store_id)
+    base_stmt = _build_list_query(business_id, filters, store_id)
     total = len((await session.exec(base_stmt)).all())
     items = list((await session.exec(base_stmt.offset(offset).limit(limit))).all())
     return PurchaseOrderListResponse(
@@ -318,6 +329,7 @@ async def cancel_order(
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("procurement.create"))],
 ) -> PurchaseOrder:
     po = await _get_po_or_404(business_id, order_id, session)
+    ensure_store_access(claims, po.store_id)
     if po.status == PurchaseOrderStatus.CANCELLED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -366,6 +378,7 @@ async def receive_order(
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("procurement.receive"))],
 ) -> GoodsReceiptDetailRead:
     po = await _get_po_or_404(business_id, order_id, session)
+    ensure_store_access(claims, po.store_id)
     if po.status != PurchaseOrderStatus.UNFULFILLED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -396,7 +409,7 @@ async def receive_order(
             pol = lines_by_id.get(req.purchase_order_line_id)
             if pol is None:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=f"PO line '{req.purchase_order_line_id}' is not on this order",
                 )
             outstanding = pol.quantity_ordered - pol.quantity_received
@@ -497,7 +510,7 @@ async def receive_order(
     except (ItemTypeMismatchError, InsufficientStockError) as exc:
         await session.rollback()
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
     except HTTPException:
@@ -538,9 +551,11 @@ async def get_order(
     order_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("procurement.view"))],
+    claims: Annotated[dict[str, Any], Depends(get_current_claims)],
 ) -> PurchaseOrderDetailRead:
     """Declared after the literal ``/orders/{id}/…`` action routes so those
     sub-paths are never swallowed by this ``{order_id}`` matcher (same
     ordering discipline as ``reorders.py``)."""
     po = await _get_po_or_404(business_id, order_id, session)
+    ensure_store_access(claims, po.store_id)
     return await _build_detail(po, session)

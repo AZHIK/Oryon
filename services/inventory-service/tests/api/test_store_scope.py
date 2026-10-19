@@ -11,7 +11,6 @@ from decimal import Decimal
 from uuid import UUID
 
 import jwt
-import pytest
 from httpx import AsyncClient
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession

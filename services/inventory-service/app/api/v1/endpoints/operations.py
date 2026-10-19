@@ -15,17 +15,10 @@ resulting ``StockMovementRead``.
 │ Business-context binding is enforced at the shared dependency level      │
 │ (``require_business_permission``), not per-endpoint.                    │
 │                                                                          │
-│ ╔══════════════════════════════════════════════════════════════════════╗  │
-│ ║ KNOWN MVP LIMITATION — Store-scoped enforcement (Stage 8.5 Gap 2).  │  │
-│ ║ The JWT token currently carries no store-scoped roles or             │  │
-│ ║ permissions.  Anyone with business-level INVENTORY_ADJUST /         │  │
-│ ║ INVENTORY_WASTE_RECORD / INVENTORY_TRANSFER can act at ANY store    │  │
-│ ║ within the business.  Closing this requires Identity Service to     │  │
-│ ║ first include scoped permissions in issued tokens.                  │  │
-│ ║ TODO-STORE-SCOPING: revisit when Identity Service extends token     │  │
-│ ║ shape to include ``store_ids`` or per-store                         │  │
-│ ║ permission claims.                                                  │  │
-│ ╚══════════════════════════════════════════════════════════════════════╝  │
+│ Store-scoped enforcement: when the token carries ``active_store_id``    │
+│ (store-staff), adjust/waste are limited to items in that store and      │
+│ transfer must have that store on both legs.  Owner/business tokens      │
+│ without ``active_store_id`` keep business-wide access.                  │
 └──────────────────────────────────────────────────────────────────────────┘
 """
 
@@ -41,7 +34,11 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.database import get_db
-from app.deps.auth import get_current_claims, require_business_permission
+from app.deps.auth import (
+    ensure_store_access,
+    get_current_claims,
+    require_business_permission,
+)
 from app.models.inventory import ActorType, Item, MovementType
 from app.schemas.movements import StockMovementRead
 from app.schemas.operations import AdjustStockRequest, RecordWasteRequest, TransferStockRequest
@@ -111,7 +108,7 @@ async def _call_movement(
         )
     except ItemTypeMismatchError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
     except InsufficientStockError as exc:
@@ -132,6 +129,7 @@ async def adjust_stock(
 ) -> Any:
     """Manually adjust stock for an item by a positive or negative delta."""
     item = await _get_item_or_404(business_id, item_id, session)
+    ensure_store_access(claims, item.store_id)
 
     movement = await _call_movement(
         db=session,
@@ -165,6 +163,7 @@ async def record_waste(
 ) -> Any:
     """Record wasted/spoiled stock (quantity is a positive number, negated internally)."""
     item = await _get_item_or_404(business_id, item_id, session)
+    ensure_store_access(claims, item.store_id)
 
     movement = await _call_movement(
         db=session,
@@ -201,6 +200,8 @@ async def transfer_stock(
     happen in a single transaction so that a failure in either leg rolls
     back both.
     """
+    ensure_store_access(claims, body.source_store_id)
+    ensure_store_access(claims, body.destination_store_id)
     await _get_item_or_404(business_id, body.item_id, session)
 
     actor_id = _extract_actor_id(claims)
@@ -236,7 +237,7 @@ async def transfer_stock(
     except ItemTypeMismatchError as exc:
         await session.rollback()
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
     except InsufficientStockError as exc:

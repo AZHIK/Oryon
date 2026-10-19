@@ -21,6 +21,20 @@ def event_loop():
     loop.close()
 
 
+@pytest.fixture(autouse=True)
+def _use_test_jwt_public_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify tokens with the test keypair embedded in the test suite.
+
+    ``keys/public.pem`` holds the deployment key and may rotate independently
+    of the tests.  Patching the loader keeps token tests focused on JWT
+    handling rather than on whichever key happens to be checked in.
+    """
+    from app.core import security
+    from tests.test_token_verification import TEST_PUBLIC_KEY
+
+    monkeypatch.setattr(security, "_load_public_key", lambda: TEST_PUBLIC_KEY)
+
+
 @pytest.fixture
 async def client() -> AsyncGenerator[AsyncClient, None]:
     """FastAPI test client using ASGI transport (no server needed)."""

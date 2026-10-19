@@ -11,7 +11,13 @@ from app.core.permission_codes import PermissionCode
 from app.deps.auth import get_current_user_id
 from app.deps.permissions import require_any_business_permission, require_business_permission
 from app.models.business import Business, BusinessRole
-from app.schemas.business import BusinessCreateRequest, BusinessCreateResponse, BusinessExistsResponse, BusinessRead, BusinessUpdate
+from app.schemas.business import (
+    BusinessCreateRequest,
+    BusinessCreateResponse,
+    BusinessExistsResponse,
+    BusinessRead,
+    BusinessUpdate,
+)
 from app.schemas.business_rbac import BusinessRoleRead
 from app.services.business_service import create_business, update_business
 
@@ -115,7 +121,9 @@ async def update_business_endpoint(
     business_id: UUID,
     body: BusinessUpdate,
     db: AsyncSession = Depends(get_async_session),
-    caller_business_id: str = Depends(require_business_permission(PermissionCode.BUSINESSES_UPDATE)),
+    caller_business_id: str = Depends(
+        require_business_permission(PermissionCode.BUSINESSES_UPDATE)
+    ),
     caller_user_id: str = Depends(get_current_user_id),
 ) -> BusinessRead:
     if str(business_id) != caller_business_id:

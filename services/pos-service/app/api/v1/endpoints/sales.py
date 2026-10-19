@@ -15,7 +15,12 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.permission_codes import PermissionCode
 from app.db.session import get_db
-from app.deps.auth import get_current_claims, require_business_permission
+from app.deps.auth import (
+    ensure_store_access,
+    get_current_claims,
+    require_business_permission,
+    store_scope_filter,
+)
 from app.models.pos import (
     DeliveryStatus,
     OrderType,
@@ -59,6 +64,9 @@ async def sync_sales(
     Partial success is first-class — one sale failure does NOT cause an
     HTTP error.
     """
+    for sale_input in batch.sales:
+        ensure_store_access(claims, sale_input.store_id)
+
     try:
         actor_id = UUID(claims["sub"])
     except (ValueError, KeyError, TypeError):
@@ -98,7 +106,7 @@ async def list_sales(
     to_date: datetime | None = Query(default=None, description="End date (inclusive) for occurred_at"),
     status: str | None = Query(default=None, description="Filter by status: completed, voided, refunded"),
     payment_method: str | None = Query(default=None, description="Filter by payment method: cash, mobile_money, card, other"),
-    store_id: UUID | None = Query(default=None, description="Filter by store"),
+    store_id: UUID | None = Depends(store_scope_filter),
     order_type: str | None = Query(default=None, description="Filter by order type: dine_in, takeaway, delivery"),
     courier_id: UUID | None = Query(default=None, description="Filter by assigned courier"),
     delivery_status: str | None = Query(default=None, description="Filter by delivery status: pending, assigned, out_for_delivery, delivered, failed"),
@@ -151,7 +159,7 @@ async def get_sales_summary(
     from_date: datetime | None = Query(default=None, description="Start date (inclusive) for occurred_at"),
     to_date: datetime | None = Query(default=None, description="End date (inclusive) for occurred_at"),
     payment_method: str | None = Query(default=None, description="Filter by payment method: cash, mobile_money, card, other"),
-    store_id: UUID | None = Query(default=None, description="Filter by store"),
+    store_id: UUID | None = Depends(store_scope_filter),
 ) -> SaleSummaryResponse:
     """Lightweight aggregate: total count, revenue (completed only), and payment-method breakdown.
 
@@ -218,6 +226,7 @@ async def get_sale(
     business_id: UUID,
     sale_id: UUID,
     session: AsyncSession = Depends(get_db),
+    claims: dict = Depends(get_current_claims),
     _active_business: str = Depends(require_business_permission(PermissionCode.POS_VIEW)),
 ) -> SaleRead:
     """Retrieve a single sale by server-assigned ID."""
@@ -231,6 +240,7 @@ async def get_sale(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Sale not found",
         )
+    ensure_store_access(claims, sale.store_id)
 
     line_items = (
         await session.exec(
@@ -249,6 +259,7 @@ async def get_sale_by_client_id(
     business_id: UUID,
     client_sale_id: str,
     session: AsyncSession = Depends(get_db),
+    claims: dict = Depends(get_current_claims),
     _active_business: str = Depends(require_business_permission(PermissionCode.POS_VIEW)),
 ) -> SaleRead:
     """Retrieve a single sale by client-generated idempotency key."""
@@ -265,6 +276,7 @@ async def get_sale_by_client_id(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Sale not found",
         )
+    ensure_store_access(claims, sale.store_id)
 
     line_items = (
         await session.exec(

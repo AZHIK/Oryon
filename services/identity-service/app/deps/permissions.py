@@ -425,7 +425,10 @@ def require_store_context() -> Callable[..., Awaitable[str]]:
         if not active_store_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="A valid store context is required. Ask a business administrator to assign you to a store.",
+                detail=(
+                    "A valid store context is required. "
+                    "Ask a business administrator to assign you to a store."
+                ),
             )
         return active_store_id
 
@@ -458,7 +461,10 @@ def require_store_permission(
         if not active_store_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="A valid store context is required. Ask a business administrator to assign you to a store.",
+                detail=(
+                    "A valid store context is required. "
+                    "Ask a business administrator to assign you to a store."
+                ),
             )
 
         # 2. Permission gate

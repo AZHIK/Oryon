@@ -106,15 +106,20 @@ def test_exact_permissions_for_every_template(session: Session) -> None:
             PermissionCode.USER_BUSINESS_ROLES_VIEW.value,
             PermissionCode.USER_BUSINESS_ROLES_ASSIGN.value,
             PermissionCode.STORES_SWITCH.value,
+            PermissionCode.REPORTS_VIEW.value,
+            PermissionCode.REPORTS_EXPORT.value,
+            PermissionCode.COURIERS_VIEW.value,
         },
         "Cashier": {
             PermissionCode.POS_WRITE.value,
             PermissionCode.POS_VIEW.value,
             PermissionCode.INVENTORY_VIEW.value,
+            PermissionCode.COURIERS_VIEW.value,
         },
         "Kitchen Staff": {
             PermissionCode.INVENTORY_VIEW.value,
             PermissionCode.INVENTORY_WASTE_RECORD.value,
+            PermissionCode.REPORTS_VIEW.value,
         },
         "Stock Controller": {
             PermissionCode.INVENTORY_VIEW.value,
@@ -123,6 +128,7 @@ def test_exact_permissions_for_every_template(session: Session) -> None:
             PermissionCode.INVENTORY_TRANSFER.value,
             PermissionCode.INVENTORY_ITEMS_CREATE.value,
             PermissionCode.INVENTORY_ITEMS_UPDATE.value,
+            PermissionCode.REPORTS_VIEW.value,
         },
         # supplier / distributor
         "Sales Admin": {
@@ -152,10 +158,11 @@ def test_exact_permissions_for_every_template(session: Session) -> None:
         codes = _template_codes(session, template)
         if seed.is_owner_template:
             # Owner templates predate this work; verify the seed wrote exactly
-            # its own (dup-free) definition.
-            assert codes == {c.value for c in seed.permissions}, (
-                f"{seed.name} did not persist its own definition"
-            )
+            # its own (dup-free) definition. Owner templates include the "*"
+            # wildcard, which is a plain string (not a PermissionCode member).
+            assert codes == {
+                c.value if isinstance(c, PermissionCode) else c for c in seed.permissions
+            }, f"{seed.name} did not persist its own definition"
             continue
         assert seed.name in expected, f"no expected set defined for {seed.name}"
         assert codes == expected[seed.name], (
@@ -187,5 +194,10 @@ def test_platform_operator_has_only_owner_template(session: Session) -> None:
 def test_all_definitions_reference_enum_members() -> None:
     for seed in ROLE_TEMPLATE_SEEDS:
         for code in seed.permissions:
+            if code == "*":
+                # Owner templates carry the wildcard sentinel; it is not a
+                # PermissionCode member because it grants every code.
+                assert seed.is_owner_template
+                continue
             assert isinstance(code, PermissionCode)
             assert PermissionCode(code.value) == code

@@ -58,6 +58,28 @@ Miohh2E1Z9T1bGnvke8mHGpvQ4WurtmexOjz+KzVooCAkKzxIYKf
 -----END RSA PRIVATE KEY-----
 """
 
+
+def _public_key_from_private(private_key: str) -> str:
+    """Derive the PEM-encoded RSA public key for *private_key*."""
+    from cryptography.hazmat.primitives import serialization
+
+    key = serialization.load_pem_private_key(private_key.encode(), password=None)
+    return (
+        key.public_key()
+        .public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
+
+
+# The public key paired with TEST_PRIVATE_KEY.  The test suite points the
+# service's verifier at this key (see tests/conftest.py) so tests exercise
+# the token-verification path independently of whatever key is checked into
+# keys/ for local/dev deployments.
+TEST_PUBLIC_KEY = _public_key_from_private(TEST_PRIVATE_KEY)
+
 # A DIFFERENT keypair for cross-key rejection tests (keypair #2 from identity-service tests)
 DIFFERENT_PRIVATE_KEY = """-----BEGIN RSA PRIVATE KEY-----
 MIIEpAIBAAKCAQEA26P3FF1Uo3QNnSDYcSoT5c8AX6xhDpLo3VNm+vArEeMqynTh

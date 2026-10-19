@@ -31,7 +31,6 @@ from app.models import (
     Store,
     StoreSetting,
     User,
-    UserStoreRole,
     UserBusinessPermission,
     UserBusinessRole,
     UserCategory,
@@ -39,6 +38,7 @@ from app.models import (
     UserPlatformRole,
     UserRole,
     UserStatus,
+    UserStoreRole,
 )
 
 

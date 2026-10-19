@@ -20,7 +20,12 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.permission_codes import PermissionCode
 from app.db.session import get_db
-from app.deps.auth import get_current_claims, require_business_permission
+from app.deps.auth import (
+    ensure_store_access,
+    get_current_claims,
+    require_business_permission,
+    store_scope_filter,
+)
 from app.models.finance import OtherIncome
 from app.models.pos import PaymentMethod
 from app.schemas.finance import (
@@ -59,6 +64,9 @@ async def sync_other_incomes(
         require_business_permission(PermissionCode.FINANCE_INCOMES_CREATE)
     ),
 ) -> OtherIncomeSyncBatchResponse:
+    for income_input in batch.incomes:
+        ensure_store_access(claims, income_input.store_id)
+
     try:
         actor_id = UUID(claims["sub"])
     except (ValueError, KeyError, TypeError):
@@ -93,7 +101,7 @@ async def get_other_incomes_summary(
     to_date: datetime | None = Query(default=None),
     category: str | None = Query(default=None),
     payment_method: str | None = Query(default=None),
-    store_id: UUID | None = Query(default=None),
+    store_id: UUID | None = Depends(store_scope_filter),
 ) -> OtherIncomeSummaryResponse:
     """NOTE: declared before ``/{income_id}`` — see other_expenses.py's summary route for why."""
     base_where = [
@@ -153,7 +161,7 @@ async def list_other_incomes(
     to_date: datetime | None = Query(default=None),
     category: str | None = Query(default=None),
     payment_method: str | None = Query(default=None),
-    store_id: UUID | None = Query(default=None),
+    store_id: UUID | None = Depends(store_scope_filter),
     include_deleted: bool = Query(default=False),
 ) -> OtherIncomeListResponse:
     stmt = select(OtherIncome).where(OtherIncome.business_id == business_id)

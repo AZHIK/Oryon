@@ -101,7 +101,7 @@ async def _get_sellable_or_error(
         )
     if item.item_type not in _SELLABLE_TYPES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Item '{item.name}' is item_type '{item.item_type.value}' — "
             "only sellable or both items can have a recipe",
         )
@@ -125,7 +125,7 @@ async def _validate_components(
     for line in components:
         if line.raw_material_item_id in seen:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Ingredient {line.raw_material_item_id} is listed twice — "
                 "change the amount instead of adding a second line",
             )
@@ -141,12 +141,12 @@ async def _validate_components(
         item = found.get(raw_id)
         if item is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Ingredient item {raw_id} does not exist in this business",
             )
         if item.item_type not in _INGREDIENT_TYPES:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Item '{item.name}' is item_type '{item.item_type.value}' — "
                 "only raw_material or both items can be recipe ingredients",
             )
@@ -281,7 +281,7 @@ async def create_recipe(
             )
     elif not body.name:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="A recipe without a menu item needs a name — "
             "pass 'name' or link it to a sellable item",
         )
@@ -349,7 +349,7 @@ async def link_recipe(
     recipe = await _get_recipe_or_404(business_id, recipe_id, session)
     if recipe.sellable_item_id is not None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Recipe '{recipe.name}' is already linked to a menu item — "
             "links are never moved between items",
         )
