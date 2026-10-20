@@ -6,11 +6,11 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.permission_codes import PermissionCode
 from app.models.user import UserStatus
-from app.schemas.validators import PhoneStr
+from app.schemas.validators import NormalizedEmailStr, PhoneStr
 
 # ── BusinessRole ──────────────────────────────────────────────────────────
 
@@ -90,13 +90,27 @@ class AddRolePermissionRequest(BaseModel):
 class AssignStaffRequest(BaseModel):
     """Request body for POST /businesses/{business_id}/staff.
 
-    The target user can be identified by ``phone`` (looked up server-side)
-    or by ``user_id``.  At least one must be provided.
+    The target user can be identified by ``user_id``, ``phone``, or ``email``
+    (looked up server-side).  At least one must be provided. When neither an
+    existing user nor an existing phone/email matches, the invite creates a
+    pending user so they can sign in later with an OTP — exactly the same
+    behaviour for both contact channels.
     """
 
     business_role_id: UUID
     phone: PhoneStr | None = None
+    email: NormalizedEmailStr | None = None
     user_id: UUID | None = None
+    # Optional display name captured by the invite dialog. Only applied when
+    # creating a pending invite (or filling in a still-blank existing name),
+    # so an invite can never rename an active staff member.
+    full_name: str | None = Field(default=None, max_length=255)
+
+    @model_validator(mode="after")
+    def _single_contact_channel(self) -> AssignStaffRequest:
+        if self.phone is not None and self.email is not None:
+            raise ValueError("Provide only one of 'phone' or 'email'")
+        return self
 
 
 class BusinessRolePermissionRead(BaseModel):
@@ -230,7 +244,7 @@ class StaffMemberRead(BaseModel):
     """
 
     user_id: UUID
-    phone: str
+    phone: str | None = None
     full_name: str
     email: str | None
     status: UserStatus

@@ -1,18 +1,86 @@
-"""pytest fixtures — async client, test database, and Redis."""
+"""pytest fixtures — async client, test database, and Redis.
 
+The suite truncates every table between tests, so it must never point at a
+database you care about. Set ``TEST_DB_URL`` to a dedicated database whose
+name ends in ``_test``; it is created automatically if missing. Without it,
+``DB_URL`` is used only when it already points at a ``*_test`` database or
+when ``ALLOW_DEV_DB_TESTS=1`` is set explicitly.
+"""
+
+import os
 from collections.abc import AsyncGenerator
+from pathlib import Path
+from urllib.parse import urlsplit
 
-import pytest
-import pytest_asyncio
-import redis.asyncio as aioredis
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
-from sqlmodel.ext.asyncio.session import AsyncSession
+# Must happen before the app imports below: the async engine is built from
+# DB_URL at import time.
+if _test_db_url := os.environ.get("TEST_DB_URL"):
+    os.environ["DB_URL"] = _test_db_url
 
-from app.core.config import get_settings
-from app.core.database import async_session_factory, engine
-from app.core.redis_client import close_redis
-from app.main import app
+# The suite exercises OTP endpoints end-to-end; never let a developer's .env
+# with real provider credentials actually send mail (or SMS) while doing so.
+os.environ["EMAIL_PROVIDER"] = "console"
+os.environ["SMS_PROVIDER"] = "console"
+
+import pytest  # noqa: E402
+import pytest_asyncio  # noqa: E402
+import redis.asyncio as aioredis  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy import text  # noqa: E402
+from sqlalchemy.engine import make_url  # noqa: E402
+from sqlmodel.ext.asyncio.session import AsyncSession  # noqa: E402
+
+from app.core.config import get_settings  # noqa: E402
+from app.core.database import async_session_factory, engine  # noqa: E402
+from app.core.redis_client import close_redis  # noqa: E402
+from app.main import app  # noqa: E402
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _database_name() -> str:
+    """Return the database name the suite would truncate."""
+    return urlsplit(get_settings().db_url).path.lstrip("/")
+
+
+def _assert_safe_database() -> None:
+    """Abort before touching a database that is not explicitly disposable."""
+    name = _database_name()
+    if name.endswith("_test"):
+        return
+    if os.environ.get("ALLOW_DEV_DB_TESTS") == "1":
+        return
+    raise RuntimeError(
+        f"Refusing to run the test suite against database {name!r}: every test "
+        "truncates all tables in it. Set TEST_DB_URL to a dedicated database "
+        "whose name ends in '_test' (it is created automatically), e.g.\n"
+        "  TEST_DB_URL=postgresql+asyncpg://foodlink:foodlink@localhost:5455/"
+        "foodlink_auth_test uv run pytest\n"
+        "Set ALLOW_DEV_DB_TESTS=1 only if you really intend to wipe that "
+        "database."
+    )
+
+
+async def _ensure_test_database(name: str) -> None:
+    """Create the dedicated test database if it does not exist yet."""
+    if not name.endswith("_test"):
+        return
+
+    import asyncpg
+
+    admin_dsn = (
+        make_url(get_settings().db_url)
+        .set(database="postgres")
+        .render_as_string(hide_password=False)
+        .replace("+asyncpg", "")
+    )
+    connection = await asyncpg.connect(admin_dsn)
+    try:
+        exists = await connection.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", name)
+        if not exists:
+            await connection.execute(f'CREATE DATABASE "{name}"')
+    finally:
+        await connection.close()
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -52,8 +120,14 @@ async def _apply_migrations() -> None:
     """Apply alembic migrations once per test session."""
     import subprocess
 
+    _assert_safe_database()
+    await _ensure_test_database(_database_name())
+
     result = subprocess.run(
-        ["alembic", "upgrade", "head"], cwd="/app", capture_output=True, text=True
+        ["alembic", "upgrade", "head"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         raise RuntimeError(f"alembic upgrade failed: {result.stderr}")

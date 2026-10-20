@@ -231,19 +231,28 @@ class StoreApiService {
   /// - [storeId]: The store to assign staff to
   /// - [businessRoleId]: The role to assign to the staff member
   /// - [userId]: UUID of the user to assign (optional if creating new)
-  /// - [phone]: Phone number of user (required if userId not provided)
+  /// - [phone]: Phone number of user (one of phone/email required if userId
+  ///   is not provided)
+  /// - [email]: Email of user (one of phone/email required if userId is not
+  ///   provided)
+  /// - [fullName]: Optional display name; only applied when the invite
+  ///   creates a new pending user or fills a blank name
   Future<void> assignStaffToStore({
     required String businessId,
     required String storeId,
     required String businessRoleId,
     String? userId,
     String? phone,
+    String? email,
+    String? fullName,
   }) async {
     try {
       final payload = {
         'business_role_id': businessRoleId,
         'user_id': ?userId,
         'phone': ?phone,
+        'email': ?email,
+        'full_name': ?fullName,
       };
 
       await _dio.post(

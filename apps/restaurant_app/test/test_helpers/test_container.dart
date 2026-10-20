@@ -24,15 +24,20 @@ import 'package:restaurant_pos/providers/database_providers.dart';
 
 /// Creates a `ProviderContainer` with an in-memory `appDatabaseProvider`
 /// override, disposing both the container and the database via [addTearDown].
-/// [extraOverrides] are appended after the database override, so a caller
-/// can still override the same provider again if a test needs to.
-ProviderContainer newTestContainer({List<Override> extraOverrides = const []}) {
-  final database = AppDatabase(NativeDatabase.memory());
-  addTearDown(database.close);
+/// [extraOverrides] are appended after the database override, so a caller can
+/// still override the same provider again if a test needs to. Pass [database]
+/// to reuse an existing instance (e.g. simulating an app restart) instead of
+/// opening a second connection to the same executor.
+ProviderContainer newTestContainer({
+  List<Override> extraOverrides = const [],
+  AppDatabase? database,
+}) {
+  final db = database ?? AppDatabase(NativeDatabase.memory());
+  if (database == null) addTearDown(db.close);
 
   final container = ProviderContainer(
     overrides: [
-      appDatabaseProvider.overrideWithValue(database),
+      appDatabaseProvider.overrideWithValue(db),
       ...extraOverrides,
     ],
   );

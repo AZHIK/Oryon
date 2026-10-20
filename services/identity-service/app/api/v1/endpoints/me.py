@@ -88,21 +88,42 @@ async def update_profile(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> dict[str, str | None]:
-    """Update the caller's own full name/email.
+    """Update the caller's own full name/email/phone.
 
-    The only way a phone-first (OTP-only) signup can record its name, since
-    that path never goes through /auth/register.
+    The only way a phone-first (OTP-only) signup can record its name, and the
+    only way an email-first signup can add a phone number, since those paths
+    never go through /auth/register.
+
+    ``email`` and ``phone`` are only touched when the request actually
+    includes them: the client omits a field the user left blank, and an
+    email-first account's address is its login identifier — clearing it as a
+    side effect of saving a name would lock the user out.
     """
-    if body.email:
-        result = await db.exec(select(User).where(User.email == body.email, User.id != user.id))
-        if result.one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Email already registered",
-            )
+    if "email" in body.model_fields_set:
+        if body.email:
+            result = await db.exec(select(User).where(User.email == body.email, User.id != user.id))
+            if result.one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Email already registered",
+                )
+        user.email = body.email
+
+    if "phone" in body.model_fields_set:
+        if body.phone:
+            result = await db.exec(select(User).where(User.phone == body.phone, User.id != user.id))
+            if result.one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Phone number already registered",
+                )
+        if body.phone != user.phone:
+            # An added/changed number has not been proven by an SMS code yet;
+            # the next phone OTP login marks it verified.
+            user.is_phone_verified = False
+        user.phone = body.phone
 
     user.full_name = body.full_name
-    user.email = body.email
     db.add(user)
     await db.flush()
     await db.commit()

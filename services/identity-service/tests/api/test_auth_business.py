@@ -1,22 +1,26 @@
 """Integration tests for the business/driver/consumer auth API."""
 
 import random
+import re
 from uuid import UUID
 
+import pytest
 from httpx import AsyncClient
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import (
     RATE_LIMIT_LOGIN_PASSWORD_PHONE_LIMIT,
+    RATE_LIMIT_OTP_REQUEST_EMAIL_LIMIT,
     RATE_LIMIT_OTP_REQUEST_PHONE_LIMIT,
     RATE_LIMIT_PASSWORD_RESET_REQUEST_PHONE_LIMIT,
     RATE_LIMIT_REFRESH_IP_LIMIT,
     get_settings,
 )
 from app.core.security import hash_password
-from app.models import VerificationCodePurpose, VerificationCodeType
+from app.models import VerificationCode, VerificationCodePurpose, VerificationCodeType
 from app.models.user import User, UserCategory, UserStatus
+from app.services.email.base import EmailSendResult
 from app.services.otp_service import generate_and_store_otp
 
 _TEST_PASSWORD = "TestPass1"
@@ -26,6 +30,11 @@ def _valid_phone() -> str:
     """Generate a valid Tanzanian phone number (E.164 format)."""
     digits = "".join(str(random.randint(0, 9)) for _ in range(8))
     return f"+2557{digits}"
+
+
+def _valid_email() -> str:
+    suffix = "".join(str(random.randint(0, 9)) for _ in range(8))
+    return f"user-{suffix}@example.com"
 
 
 class TestRegister:
@@ -274,6 +283,263 @@ class TestOTP:
         await db_session.refresh(refreshed)
         assert refreshed.status == UserStatus.ACTIVE
         assert refreshed.is_phone_verified is True
+
+
+class TestEmailOTP:
+    async def test_request_sends_an_email_code_for_a_registered_address(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        email = _valid_email()
+        async with db_session.begin():
+            user = User(
+                phone=_valid_phone(),
+                email=email,
+                full_name="Email User",
+                user_category=UserCategory.BUSINESS_STAFF,
+            )
+            db_session.add(user)
+
+        resp = await client.post(
+            "/api/v1/auth/otp/email/request",
+            json={"email": email},
+        )
+        assert resp.status_code == 204
+
+        code = (
+            await db_session.exec(
+                select(VerificationCode).where(
+                    VerificationCode.user_id == user.id,
+                    VerificationCode.purpose == VerificationCodePurpose.LOGIN,
+                )
+            )
+        ).one()
+        assert code.type == VerificationCodeType.EMAIL
+
+    async def test_request_for_unknown_email_provisions_an_account(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Email-first signup mirrors the phone flow: first use creates the
+        account so the code can be verified into a session."""
+        email = _valid_email()
+        resp = await client.post(
+            "/api/v1/auth/otp/email/request",
+            json={"email": email},
+        )
+        assert resp.status_code == 204
+
+        user = (await db_session.exec(select(User).where(User.email == email))).one()
+        assert user.phone is None
+        assert user.user_category == UserCategory.BUSINESS_STAFF
+        assert user.status == UserStatus.ACTIVE
+        assert user.is_email_verified is False
+
+        code = (
+            await db_session.exec(
+                select(VerificationCode).where(
+                    VerificationCode.user_id == user.id,
+                    VerificationCode.purpose == VerificationCodePurpose.LOGIN,
+                )
+            )
+        ).one()
+        assert code.type == VerificationCodeType.EMAIL
+
+    async def test_email_signup_completes_from_request_to_tokens(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The whole email-first path: an unseen address is provisioned, the
+        emailed code verifies, and the account ends up active and verified —
+        exactly what the phone flow does."""
+        email = _valid_email()
+        captured: dict[str, str] = {}
+
+        class CapturingProvider:
+            async def send_email(
+                self,
+                *,
+                to: str,
+                subject: str,
+                text_body: str,
+                html_body: str | None = None,
+            ) -> EmailSendResult:
+                _ = to, subject, html_body
+                captured["text"] = text_body
+                return EmailSendResult(success=True, provider_message_id="test-id")
+
+        monkeypatch.setattr(
+            "app.services.otp_delivery_service.get_email_provider",
+            lambda: CapturingProvider(),
+        )
+
+        resp = await client.post(
+            "/api/v1/auth/otp/email/request",
+            json={"email": email},
+        )
+        assert resp.status_code == 204
+
+        match = re.search(r"\b(\d{6})\b", captured["text"])
+        assert match is not None, captured["text"]
+        code = match.group(1)
+
+        verify = await client.post(
+            "/api/v1/auth/otp/email/verify",
+            json={"email": email, "code": code},
+        )
+        assert verify.status_code == 200, verify.text
+        assert "access_token" in verify.json()
+
+        user = (await db_session.exec(select(User).where(User.email == email))).one()
+        await db_session.refresh(user)
+        assert user.phone is None
+        assert user.status == UserStatus.ACTIVE
+        assert user.is_email_verified is True
+
+    async def test_verify_with_correct_code_returns_tokens(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        email = _valid_email()
+        async with db_session.begin():
+            user = User(
+                phone=_valid_phone(),
+                email=email,
+                full_name="Email User",
+                user_category=UserCategory.BUSINESS_STAFF,
+                status=UserStatus.INVITED,
+                is_email_verified=False,
+            )
+            db_session.add(user)
+
+        code = await generate_and_store_otp(
+            db_session,
+            user_id=user.id,
+            purpose=VerificationCodePurpose.LOGIN,
+            delivery_type=VerificationCodeType.EMAIL,
+        )
+
+        resp = await client.post(
+            "/api/v1/auth/otp/email/verify",
+            json={"email": email, "code": code},
+        )
+        assert resp.status_code == 200, resp.text
+        assert "access_token" in resp.json()
+        assert "refresh_token" in resp.json()
+
+        refreshed = (await db_session.exec(select(User).where(User.id == user.id))).one()
+        await db_session.refresh(refreshed)
+        assert refreshed.status == UserStatus.ACTIVE
+        assert refreshed.is_email_verified is True
+
+    async def test_verify_wrong_code_returns_401(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        email = _valid_email()
+        async with db_session.begin():
+            user = User(
+                phone=_valid_phone(),
+                email=email,
+                full_name="Email User",
+                user_category=UserCategory.BUSINESS_STAFF,
+            )
+            db_session.add(user)
+
+        await generate_and_store_otp(
+            db_session,
+            user_id=user.id,
+            purpose=VerificationCodePurpose.LOGIN,
+            delivery_type=VerificationCodeType.EMAIL,
+        )
+
+        resp = await client.post(
+            "/api/v1/auth/otp/email/verify",
+            json={"email": email, "code": "999999"},
+        )
+        assert resp.status_code == 401
+
+    async def test_request_ignores_platform_staff(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Platform staff must not receive business-staff login codes."""
+        email = _valid_email()
+        async with db_session.begin():
+            user = User(
+                phone=_valid_phone(),
+                email=email,
+                full_name="Platform Admin",
+                user_category=UserCategory.PLATFORM_STAFF,
+            )
+            db_session.add(user)
+
+        resp = await client.post(
+            "/api/v1/auth/otp/email/request",
+            json={"email": email},
+        )
+        assert resp.status_code == 204
+
+        code = (
+            await db_session.exec(
+                select(VerificationCode).where(
+                    VerificationCode.user_id == user.id,
+                )
+            )
+        ).one_or_none()
+        assert code is None
+
+    async def test_verify_rejects_platform_staff(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """A valid code still cannot mint tokens for a platform-staff account."""
+        email = _valid_email()
+        async with db_session.begin():
+            user = User(
+                phone=_valid_phone(),
+                email=email,
+                full_name="Platform Admin",
+                user_category=UserCategory.PLATFORM_STAFF,
+            )
+            db_session.add(user)
+
+        code = await generate_and_store_otp(
+            db_session,
+            user_id=user.id,
+            purpose=VerificationCodePurpose.LOGIN,
+            delivery_type=VerificationCodeType.EMAIL,
+        )
+
+        resp = await client.post(
+            "/api/v1/auth/otp/email/verify",
+            json={"email": email, "code": code},
+        )
+        assert resp.status_code == 401
+
+    async def test_request_email_limit_exceeded(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Repeated requests for the same email hit the email-based limit."""
+        email = _valid_email()
+        async with db_session.begin():
+            user = User(
+                phone=_valid_phone(),
+                email=email,
+                full_name="Email Rate Limit User",
+                user_category=UserCategory.BUSINESS_STAFF,
+            )
+            db_session.add(user)
+
+        for _ in range(RATE_LIMIT_OTP_REQUEST_EMAIL_LIMIT):
+            resp = await client.post(
+                "/api/v1/auth/otp/email/request",
+                json={"email": email},
+            )
+            assert resp.status_code == 204
+
+        resp = await client.post(
+            "/api/v1/auth/otp/email/request",
+            json={"email": email},
+        )
+        assert resp.status_code == 429
+        assert "Retry-After" in resp.headers
 
 
 class TestPasswordLogin:

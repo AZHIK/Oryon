@@ -164,6 +164,88 @@ class TestUpdateProfile:
         assert status_resp.json()["full_name"] == "Jane Doe"
         assert status_resp.json()["email"] == "jane@example.com"
 
+    async def test_email_only_user_can_add_a_phone(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        user = User(
+            phone=None,
+            email=f"email-only-{uuid4().hex[:8]}@example.com",
+            full_name="",
+            user_category=UserCategory.BUSINESS_STAFF,
+            status=UserStatus.ACTIVE,
+        )
+        db_session.add(user)
+        await db_session.commit()
+        await db_session.refresh(user)
+
+        phone = _valid_phone()
+        resp = await client.patch(
+            "/api/v1/users/me",
+            json={"full_name": "Email Signup", "phone": phone},
+            headers={"Authorization": f"Bearer {_token(user)}"},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"full_name": "Email Signup", "email": user.email}
+
+        await db_session.refresh(user)
+        assert user.phone == phone
+        assert user.is_phone_verified is False
+        # The email identifier is untouched.
+        assert user.email is not None
+
+    async def test_adding_a_taken_phone_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        taken_phone = _valid_phone()
+        await _make_user(db_session, phone=taken_phone)
+
+        user = User(
+            phone=None,
+            email=f"email-only-{uuid4().hex[:8]}@example.com",
+            full_name="Email Signup",
+            user_category=UserCategory.BUSINESS_STAFF,
+            status=UserStatus.ACTIVE,
+        )
+        db_session.add(user)
+        await db_session.commit()
+        await db_session.refresh(user)
+
+        resp = await client.patch(
+            "/api/v1/users/me",
+            json={"full_name": "Email Signup", "phone": taken_phone},
+            headers={"Authorization": f"Bearer {_token(user)}"},
+        )
+        assert resp.status_code == 409
+        assert "Phone number already registered" in resp.json()["detail"]
+
+    async def test_omitted_email_keeps_the_existing_address(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        """Saving a name from the complete-profile screen must not wipe the
+        email an email-first signup authenticated with."""
+        user = User(
+            phone=None,
+            email=f"email-only-{uuid4().hex[:8]}@example.com",
+            full_name="",
+            user_category=UserCategory.BUSINESS_STAFF,
+            status=UserStatus.ACTIVE,
+        )
+        db_session.add(user)
+        await db_session.commit()
+        await db_session.refresh(user)
+        original_email = user.email
+
+        resp = await client.patch(
+            "/api/v1/users/me",
+            json={"full_name": "Email Signup"},
+            headers={"Authorization": f"Bearer {_token(user)}"},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"full_name": "Email Signup", "email": original_email}
+
+        await db_session.refresh(user)
+        assert user.email == original_email
+
     async def test_duplicate_email_returns_409(
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:

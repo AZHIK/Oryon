@@ -83,6 +83,7 @@ class FakeIdentityBackendState {
   /// get routed there. Set to '' to exercise that path.
   String fullName = 'Test User';
   String? email;
+  String? phone;
   bool needsOnboarding = true;
   String? businessId;
   String? businessName;
@@ -136,6 +137,23 @@ class FakeIdentityAdapter implements HttpClientAdapter {
       return _json(null, 204);
     }
 
+    if (method == 'POST' && path.endsWith('/auth/otp/email/request')) {
+      state.email = body['email'] as String?;
+      return _json(null, 204);
+    }
+
+    if (method == 'POST' && path.endsWith('/auth/otp/email/verify')) {
+      if (body['code'] != fakeOtpCode) {
+        return _json({'detail': 'Invalid or expired code'}, 401);
+      }
+      state.email = body['email'] as String?;
+      return _json({
+        'access_token': fakeScopedToken(permissions: const []),
+        'refresh_token': 'fake-refresh-token',
+        'token_type': 'bearer',
+      }, 200);
+    }
+
     if (method == 'POST' && path.endsWith('/auth/otp/verify')) {
       if (body['code'] != fakeOtpCode) {
         return _json({'detail': 'Invalid or expired code'}, 401);
@@ -159,7 +177,13 @@ class FakeIdentityAdapter implements HttpClientAdapter {
 
     if (method == 'PATCH' && path.endsWith('/users/me')) {
       state.fullName = body['full_name'] as String? ?? state.fullName;
-      state.email = body['email'] as String?;
+      // Mirrors the backend: an omitted email leaves the login address alone.
+      if (body.containsKey('email')) {
+        state.email = body['email'] as String?;
+      }
+      if (body.containsKey('phone')) {
+        state.phone = body['phone'] as String?;
+      }
       return _json({'full_name': state.fullName, 'email': state.email}, 200);
     }
 
@@ -322,17 +346,27 @@ class FakeIdentityAdapter implements HttpClientAdapter {
       if (role == null) return _json({'detail': 'Business role not found'}, 404);
 
       final phone = body['phone'] as String?;
-      var member = phone == null ? null : state._staffByPhone(phone);
+      final email = body['email'] as String?;
+      final fullName = (body['full_name'] as String?)?.trim() ?? '';
+      var member = phone != null
+          ? state._staffByPhone(phone)
+          : email == null
+          ? null
+          : state.staff
+                .where((m) => m['email'] == email)
+                .firstOrNull;
       if (member == null) {
         member = {
           'user_id': state._nextId('user'),
-          'phone': phone ?? '+255700000000',
-          'full_name': '',
-          'email': null,
+          'phone': phone,
+          'full_name': fullName,
+          'email': email,
           'status': 'invited',
           'roles': <Map<String, dynamic>>[],
         };
         state.staff.add(member);
+      } else if ((member['full_name'] as String? ?? '').isEmpty && fullName.isNotEmpty) {
+        member['full_name'] = fullName;
       }
       final existingRoles = member['roles'] as List<Map<String, dynamic>>;
       if (existingRoles.any((r) => r['business_role_id'] == roleId)) {
@@ -354,18 +388,28 @@ class FakeIdentityAdapter implements HttpClientAdapter {
       if (role == null) return _json({'detail': 'Business role not found'}, 404);
 
       final phone = body['phone'] as String?;
-      var member = phone == null ? null : state._staffByPhone(phone);
+      final email = body['email'] as String?;
+      final fullName = (body['full_name'] as String?)?.trim() ?? '';
+      var member = phone != null
+          ? state._staffByPhone(phone)
+          : email == null
+          ? null
+          : state.staff
+                .where((m) => m['email'] == email)
+                .firstOrNull;
       if (member == null) {
         member = {
           'user_id': state._nextId('user'),
-          'phone': phone ?? '+255700000000',
-          'full_name': '',
-          'email': null,
+          'phone': phone,
+          'full_name': fullName,
+          'email': email,
           'status': 'invited',
           'roles': <Map<String, dynamic>>[],
           'store_roles': <Map<String, dynamic>>[],
         };
         state.staff.add(member);
+      } else if ((member['full_name'] as String? ?? '').isEmpty && fullName.isNotEmpty) {
+        member['full_name'] = fullName;
       }
       final storeRoles =
           (member['store_roles'] as List?)?.cast<Map<String, dynamic>>() ?? [];

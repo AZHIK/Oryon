@@ -15,6 +15,7 @@ import '../../providers/store_api_provider_real.dart';
 import '../../providers/store_locations_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/breakpoints.dart';
+import '../../utils/email_validation.dart';
 import '../../utils/phone_validation.dart';
 import '../../widgets/labeled_form_field.dart';
 import '../../widgets/responsive_form_dialog.dart';
@@ -24,6 +25,11 @@ import '../../widgets/staff/role_badge.dart';
 
 /// Business-wide vs single-store assignment for a new invite.
 enum StaffScope { business, store }
+
+/// Which contact detail identifies the invitee. The backend accepts either
+/// and treats them identically: look the person up, otherwise create a
+/// pending account they can later sign in to with an OTP.
+enum InviteChannel { phone, email }
 
 /// Opens the invite form.
 Future<void> showInviteStaffDialog(BuildContext context) {
@@ -59,9 +65,11 @@ class _InviteStaffDialogState extends ConsumerState<InviteStaffDialog> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _phone = TextEditingController();
+  final _email = TextEditingController();
 
   String? _roleId;
   StaffScope _scope = StaffScope.business;
+  InviteChannel _channel = InviteChannel.phone;
   String? _storeId;
   bool _seededStore = false;
   bool _submitting = false;
@@ -71,13 +79,18 @@ class _InviteStaffDialogState extends ConsumerState<InviteStaffDialog> {
   void dispose() {
     _name.dispose();
     _phone.dispose();
+    _email.dispose();
     super.dispose();
   }
+
+  bool get _contactValid => _channel == InviteChannel.phone
+      ? isValidTanzanianPhone(_phone.text)
+      : isValidEmailFormat(_email.text);
 
   bool get _canSubmit =>
       !_submitting &&
       validateName(_name.text) == null &&
-      isValidTanzanianPhone(_phone.text) &&
+      _contactValid &&
       _roleId != null &&
       (_scope == StaffScope.business || _storeId != null);
 
@@ -91,8 +104,11 @@ class _InviteStaffDialogState extends ConsumerState<InviteStaffDialog> {
 
     try {
       final storeId = _scope == StaffScope.store ? _storeId : null;
+      final isPhone = _channel == InviteChannel.phone;
       await ref.read(staffMembersProvider.notifier).assignRole(
-            phone: '+255${_phone.text.trim()}',
+            phone: isPhone ? '+255${_phone.text.trim()}' : null,
+            email: isPhone ? null : _email.text.trim(),
+            fullName: _name.text.trim(),
             roleId: _roleId!,
             storeId: storeId,
           );
@@ -210,38 +226,92 @@ class _InviteStaffDialogState extends ConsumerState<InviteStaffDialog> {
             ),
             const SizedBox(height: Insets.lg),
 
-            LabeledFormField(
-              label: AppStrings.phoneLabel,
-              isRequired: true,
-              helper: AppStrings.invitePhoneHelper,
-              child: TextFormField(
-                controller: _phone,
-                keyboardType: TextInputType.phone,
-                textInputAction: TextInputAction.next,
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(AppLimits.tzPhoneDigits),
-                ],
-                decoration: InputDecoration(
-                  hintText: AppStrings.phoneExample,
-                  errorText: _phone.text.isEmpty || isValidTanzanianPhone(_phone.text)
-                      ? null
-                      : tanzanianPhoneHint,
-                  prefixIcon: Padding(
-                    padding: const EdgeInsets.only(left: Insets.lg, right: Insets.sm),
-                  child: Text(
-                    AppStrings.dialCode,
-                      style: context.text.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: context.colors.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                  prefixIconConstraints: const BoxConstraints(minWidth: 0),
-                ),
-                onChanged: (_) => setState(() {}),
+            SectionLabel(AppStrings.inviteChannelLabel),
+            const SizedBox(height: Insets.xs),
+            Text(
+              AppStrings.inviteChannelHelper,
+              style: context.text.bodySmall?.copyWith(
+                color: context.colors.onSurfaceVariant,
               ),
             ),
+            const SizedBox(height: Insets.sm),
+            SelectableOptionGrid(
+              perRow: 2,
+              children: [
+                SelectableOptionCard(
+                  label: AppStrings.phoneLabel,
+                  subtitle: AppStrings.invitePhoneOptionHelper,
+                  icon: Icons.phone_outlined,
+                  selected: _channel == InviteChannel.phone,
+                  onTap: () => setState(() => _channel = InviteChannel.phone),
+                ),
+                SelectableOptionCard(
+                  label: AppStrings.emailLabel,
+                  subtitle: AppStrings.inviteEmailOptionHelper,
+                  icon: Icons.mail_outline,
+                  selected: _channel == InviteChannel.email,
+                  onTap: () => setState(() => _channel = InviteChannel.email),
+                ),
+              ],
+            ),
+            const SizedBox(height: Insets.lg),
+
+            if (_channel == InviteChannel.phone)
+              LabeledFormField(
+                label: AppStrings.phoneLabel,
+                isRequired: true,
+                helper: AppStrings.invitePhoneHelper,
+                child: TextFormField(
+                  controller: _phone,
+                  keyboardType: TextInputType.phone,
+                  textInputAction: TextInputAction.next,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(AppLimits.tzPhoneDigits),
+                  ],
+                  decoration: InputDecoration(
+                    hintText: AppStrings.phoneExample,
+                    errorText: _phone.text.isEmpty || isValidTanzanianPhone(_phone.text)
+                        ? null
+                        : tanzanianPhoneHint,
+                    prefixIcon: Padding(
+                      padding: const EdgeInsets.only(left: Insets.lg, right: Insets.sm),
+                      child: Text(
+                        AppStrings.dialCode,
+                        style: context.text.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: context.colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    prefixIconConstraints: const BoxConstraints(minWidth: 0),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+              )
+            else
+              LabeledFormField(
+                label: AppStrings.emailLabel,
+                isRequired: true,
+                helper: AppStrings.inviteEmailHelper,
+                child: TextFormField(
+                  controller: _email,
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
+                  autocorrect: false,
+                  autofillHints: const [AutofillHints.email],
+                  decoration: InputDecoration(
+                    hintText: AppStrings.emailExample,
+                    errorText:
+                        _email.text.isEmpty || isValidEmailFormat(_email.text)
+                        ? null
+                        : AppStrings.invalidEmail,
+                  ),
+                  onChanged: (_) => setState(() {}),
+                  validator: (value) =>
+                      isValidEmailFormat(value ?? '') ? null : AppStrings.invalidEmail,
+                ),
+              ),
             const SizedBox(height: Insets.lg),
 
             SectionLabel(AppStrings.staffTypeLabel),
@@ -420,7 +490,10 @@ class _AddRoleDialogState extends ConsumerState<AddRoleDialog> {
 
     try {
       await ref.read(staffMembersProvider.notifier).assignRole(
-            phone: widget.member.phone,
+            phone: widget.member.phone.isNotEmpty ? widget.member.phone : null,
+            email: widget.member.phone.isEmpty && widget.member.email.isNotEmpty
+                ? widget.member.email
+                : null,
             roleId: roleId,
           );
 

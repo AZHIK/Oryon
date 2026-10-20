@@ -33,7 +33,10 @@ class UserStatus(StrEnum):
 class User(UUIDMixin, TimestampMixin, SoftDeleteMixin, SQLModel, table=True):
     __tablename__ = "users"
 
-    phone: str = Field(unique=True, max_length=20)
+    # Nullable: staff can be invited by email alone, in which case they have
+    # no phone on file until they add one. Postgres permits multiple NULLs in
+    # a unique column, so the unique constraint still holds for real numbers.
+    phone: str | None = Field(default=None, unique=True, max_length=20)
     email: str | None = Field(default=None, unique=True, nullable=True, max_length=255)
     full_name: str = Field(max_length=255)
     user_category: UserCategory = Field(sa_type=String)

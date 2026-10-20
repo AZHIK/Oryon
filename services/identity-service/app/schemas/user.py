@@ -12,9 +12,13 @@ from app.schemas.validators import NormalizedEmailStr, PhoneStr
 
 
 class UserBase(BaseModel):
-    """Shared fields present in every user schema."""
+    """Shared fields present in every user schema.
 
-    phone: str
+    ``phone`` is optional because email-only invited staff exist before they
+    add a number; self-registration still requires it (``UserCreate``).
+    """
+
+    phone: str | None = None
     email: str | None = None
     full_name: str
     user_category: UserCategory

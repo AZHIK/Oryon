@@ -13,7 +13,10 @@ from app.models.business import (
     BusinessRole,
     BusinessRolePermission,
     BusinessType,
+    LocationType,
+    Store,
     UserBusinessRole,
+    UserStoreRole,
 )
 from app.models.user import User, UserCategory, UserStatus
 
@@ -33,9 +36,14 @@ async def _make_business(db_session: AsyncSession, owner: User) -> Business:
     return biz
 
 
-async def _make_business_user(db_session: AsyncSession, phone: str | None = None) -> User:
+async def _make_business_user(
+    db_session: AsyncSession,
+    phone: str | None = None,
+    email: str | None = None,
+) -> User:
     user = User(
         phone=phone or f"+2557{uuid4().int % 100_000_000:08d}",
+        email=email,
         full_name="Business User",
         user_category=UserCategory.BUSINESS_STAFF,
         status=UserStatus.ACTIVE,
@@ -574,6 +582,181 @@ class TestAssignStaff:
             )
         ).one()
         assert ubr is not None
+
+    async def test_assigns_by_email(self, client: AsyncClient, db_session: AsyncSession) -> None:
+        email = f"staff-{uuid4().hex[:8]}@example.com"
+        owner = await _make_business_user(db_session)
+        biz = await _make_business(db_session, owner)
+        token = _owner_token(owner, biz.id)
+
+        create_resp = await client.post(
+            f"/api/v1/businesses/{biz.id}/roles",
+            json={"name": "Cashier"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        role_id = create_resp.json()["id"]
+
+        staff = await _make_business_user(db_session, email=email)
+
+        resp = await client.post(
+            f"/api/v1/businesses/{biz.id}/staff",
+            json={"business_role_id": role_id, "email": email},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 201
+
+        ubr = (
+            await db_session.exec(
+                select(UserBusinessRole).where(
+                    UserBusinessRole.user_id == staff.id,
+                    UserBusinessRole.business_id == biz.id,
+                )
+            )
+        ).one()
+        assert ubr.business_role_id == UUID(role_id)
+
+    async def test_invite_by_unseen_email_creates_invited_user(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        # Emails are normalised to lowercase by the request schema.
+        email = f"New-Staff-{uuid4().hex[:8]}@Example.com"
+        normalised = email.lower()
+        owner = await _make_business_user(db_session)
+        biz = await _make_business(db_session, owner)
+        token = _owner_token(owner, biz.id)
+
+        create_resp = await client.post(
+            f"/api/v1/businesses/{biz.id}/roles",
+            json={"name": "Cashier"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        role_id = create_resp.json()["id"]
+
+        resp = await client.post(
+            f"/api/v1/businesses/{biz.id}/staff",
+            json={
+                "business_role_id": role_id,
+                "email": email,
+                "full_name": "Email Invitee",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 201
+
+        user = (
+            await db_session.exec(select(User).where(User.email == normalised))
+        ).one()
+        assert user.phone is None
+        assert user.full_name == "Email Invitee"
+        assert user.user_category == UserCategory.BUSINESS_STAFF
+        assert user.status == UserStatus.INVITED
+        assert user.password_hash is None
+        assert user.is_email_verified is False
+
+        listed = await client.get(
+            f"/api/v1/businesses/{biz.id}/staff",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert listed.status_code == 200
+        entry = next(row for row in listed.json() if row["user_id"] == str(user.id))
+        assert entry["phone"] is None
+        assert entry["email"] == normalised
+
+    async def test_invite_by_email_reuses_existing_phone_less_user(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        email = f"phone-less-{uuid4().hex[:8]}@example.com"
+        existing = User(
+            phone=None,
+            email=email,
+            full_name="",
+            user_category=UserCategory.BUSINESS_STAFF,
+            status=UserStatus.INVITED,
+        )
+        db_session.add(existing)
+        await db_session.commit()
+        await db_session.refresh(existing)
+
+        owner = await _make_business_user(db_session)
+        biz = await _make_business(db_session, owner)
+        token = _owner_token(owner, biz.id)
+
+        create_resp = await client.post(
+            f"/api/v1/businesses/{biz.id}/roles",
+            json={"name": "Cashier"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        role_id = create_resp.json()["id"]
+
+        resp = await client.post(
+            f"/api/v1/businesses/{biz.id}/staff",
+            json={
+                "business_role_id": role_id,
+                "email": email,
+                "full_name": "Now Named",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 201
+
+        users = (await db_session.exec(select(User).where(User.email == email))).all()
+        assert len(users) == 1
+        assert users[0].id == existing.id
+        await db_session.refresh(existing)
+        # A blank name left by an earlier invite is filled in.
+        assert users[0].full_name == "Now Named"
+
+    async def test_store_invite_by_unseen_email_creates_store_staff(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        email = f"store-staff-{uuid4().hex[:8]}@example.com"
+        owner = await _make_business_user(db_session)
+        biz = await _make_business(db_session, owner)
+        token = _owner_token(owner, biz.id)
+
+        store = Store(
+            business_id=biz.id,
+            name="Store A",
+            token=f"st-{uuid4().hex[:12]}",
+            location_type=LocationType.RESTAURANT_BRANCH,
+        )
+        db_session.add(store)
+        await db_session.commit()
+        await db_session.refresh(store)
+
+        create_resp = await client.post(
+            f"/api/v1/businesses/{biz.id}/roles",
+            json={"name": "Cashier"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        role_id = create_resp.json()["id"]
+
+        resp = await client.post(
+            f"/api/v1/businesses/{biz.id}/stores/{store.id}/staff",
+            json={
+                "business_role_id": role_id,
+                "email": email,
+                "full_name": "Store Invitee",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 201
+
+        user = (await db_session.exec(select(User).where(User.email == email))).one()
+        assert user.phone is None
+        assert user.user_category == UserCategory.BUSINESS_STORE_STAFF
+        assert user.status == UserStatus.INVITED
+        assert user.full_name == "Store Invitee"
+
+        usr = (
+            await db_session.exec(
+                select(UserStoreRole).where(
+                    UserStoreRole.user_id == user.id,
+                    UserStoreRole.store_id == store.id,
+                )
+            )
+        ).one()
+        assert usr.business_role_id == UUID(role_id)
 
     async def test_invite_existing_active_user_reuses_no_duplicate(
         self, client: AsyncClient, db_session: AsyncSession

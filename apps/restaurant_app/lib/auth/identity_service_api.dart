@@ -43,6 +43,35 @@ class IdentityServiceApi {
     }
   }
 
+  /// POST /auth/otp/email/request - Request an OTP code for an email address.
+  /// Returns void (204 No Content response from backend).
+  Future<void> requestEmailOtp(String email) async {
+    try {
+      await _dio.post(
+        IdentityApiPaths.emailOtpRequest,
+        data: EmailOtpRequestInput(email: email).toJson(),
+      );
+    } on DioException catch (e) {
+      throw AuthException.fromDio('Email OTP request failed', e);
+    }
+  }
+
+  /// POST /auth/otp/email/verify - Verify an emailed OTP and get tokens.
+  Future<TokenResponse> verifyEmailOtp({
+    required String email,
+    required String code,
+  }) async {
+    try {
+      final response = await _dio.post(
+        IdentityApiPaths.emailOtpVerify,
+        data: EmailOtpVerifyInput(email: email, code: code).toJson(),
+      );
+      return TokenResponse.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw AuthException.fromDio('Email OTP verify failed', e);
+    }
+  }
+
   /// GET /users/me/onboarding-status - Check onboarding status (requires bearer token).
   Future<OnboardingStatusOutput> getOnboardingStatus(String bearerToken) async {
     try {
@@ -61,7 +90,7 @@ class IdentityServiceApi {
     }
   }
 
-  /// PATCH /users/me - Set the caller's own name/email (requires bearer token).
+  /// PATCH /users/me - Set the caller's own name/email/phone (requires bearer token).
   Future<UpdateProfileOutput> updateProfile({
     required UpdateProfileInput input,
     required String bearerToken,
@@ -76,10 +105,7 @@ class IdentityServiceApi {
       );
       return UpdateProfileOutput.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
-      throw AuthException(
-        'Profile update failed: ${e.message}',
-        e.response?.statusCode,
-      );
+      throw AuthException.fromDio('Profile update failed', e);
     }
   }
 

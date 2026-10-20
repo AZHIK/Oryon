@@ -115,6 +115,10 @@ When a new business is registered, the identity service:
 
 ## Run tests & lint
 
+> ⚠️ The suite **truncates every table**. It refuses to run unless the target
+> database name ends in `_test`, so set `TEST_DB_URL` (see `.env.example`).
+> The test database is created and migrated automatically.
+
 The `api` service runs a production-minimal image without dev tooling.
 For tests, linting, and type-checking, use the `api-dev` service:
 
@@ -133,6 +137,8 @@ uv run mypy app
 To run directly on the host (if you have the dependencies installed):
 
 ```bash
+# DB_URL points at the docker Postgres on localhost:5455
+export TEST_DB_URL=postgresql+asyncpg://foodlink:foodlink@localhost:5455/foodlink_auth_test
 uv run pytest
 uv run ruff check app tests
 uv run ruff format --check app tests

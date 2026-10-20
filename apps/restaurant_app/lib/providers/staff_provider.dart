@@ -30,27 +30,35 @@ StaffStatus _parseStatus(String backendStatus) => switch (backendStatus) {
   _ => StaffStatus.active,
 };
 
-StaffMember _fromDto(StaffMemberDto dto) => StaffMember(
-  id: dto.userId,
-  name: dto.fullName.trim().isEmpty ? dto.phone : dto.fullName,
-  email: dto.email ?? '',
-  phone: dto.phone,
-  roles: [
-    for (final r in dto.roles)
-      StaffRoleAssignment(
-        roleId: r.businessRoleId,
-        roleName: r.name,
-        storeId: r.storeId,
-        storeName: r.storeName,
-      ),
-  ],
-  status: _parseStatus(dto.status),
-  // The backend doesn't return a joined/invited timestamp on this endpoint —
-  // "now" is wrong for anyone but a just-invited member, so this is the one
-  // field the real integration can't populate honestly yet. See the
-  // integration report for how staffActivityProvider below is affected.
-  joinedAt: DateTime.now(),
-);
+StaffMember _fromDto(StaffMemberDto dto) {
+  final phone = dto.phone ?? '';
+  final email = dto.email ?? '';
+  return StaffMember(
+    id: dto.userId,
+    // Email-only invites have no phone until they add one; fall back to the
+    // email so an invited row is never blank in the roster.
+    name: dto.fullName.trim().isEmpty
+        ? (phone.isNotEmpty ? phone : email)
+        : dto.fullName,
+    email: email,
+    phone: phone,
+    roles: [
+      for (final r in dto.roles)
+        StaffRoleAssignment(
+          roleId: r.businessRoleId,
+          roleName: r.name,
+          storeId: r.storeId,
+          storeName: r.storeName,
+        ),
+    ],
+    status: _parseStatus(dto.status),
+    // The backend doesn't return a joined/invited timestamp on this endpoint —
+    // "now" is wrong for anyone but a just-invited member, so this is the one
+    // field the real integration can't populate honestly yet. See the
+    // integration report for how staffActivityProvider below is affected.
+    joinedAt: DateTime.now(),
+  );
+}
 
 /// Parses roleLabel (cached comma-separated role names) back into StaffRoleAssignment objects.
 ///
@@ -107,23 +115,34 @@ class StaffNotifier extends AsyncNotifier<List<StaffMember>> {
     return id;
   }
 
-  /// Assigns [roleId] to the person at [phone] — invites them if the phone
-  /// is new, or adds an additional role if they're already staff here (the
-  /// backend allows more than one simultaneous role per person; there is no
-  /// single-role "replace").
+  /// Assigns [roleId] to the person identified by [phone] or [email] —
+  /// invites them if the contact is new, or adds an additional role if
+  /// they're already staff here (the backend allows more than one
+  /// simultaneous role per person; there is no single-role "replace").
   ///
   /// With [storeId], the assignment is store-scoped (`UserStoreRole` — the
   /// person becomes store staff at that location) instead of
   /// business-scoped (`UserBusinessRole`).
   Future<void> assignRole({
-    required String phone,
     required String roleId,
+    String? phone,
+    String? email,
+    String? fullName,
     String? storeId,
   }) async {
+    assert(
+      (phone != null) != (email != null),
+      'Provide exactly one of phone or email',
+    );
     if (storeId == null) {
       await ref.read(staffRbacApiProvider).assignStaff(
         businessId: _businessId,
-        input: AssignStaffInput(businessRoleId: roleId, phone: phone),
+        input: AssignStaffInput(
+          businessRoleId: roleId,
+          phone: phone,
+          email: email,
+          fullName: fullName,
+        ),
       );
     } else {
       await ref.read(storeApiServiceProvider).assignStaffToStore(
@@ -131,6 +150,8 @@ class StaffNotifier extends AsyncNotifier<List<StaffMember>> {
         storeId: storeId,
         businessRoleId: roleId,
         phone: phone,
+        email: email,
+        fullName: fullName,
       );
     }
     await refresh();

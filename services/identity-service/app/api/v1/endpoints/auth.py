@@ -19,6 +19,10 @@ from app.core.config import (
     RATE_LIMIT_LOGIN_PASSWORD_IP_WINDOW,
     RATE_LIMIT_LOGIN_PASSWORD_PHONE_LIMIT,
     RATE_LIMIT_LOGIN_PASSWORD_PHONE_WINDOW,
+    RATE_LIMIT_OTP_REQUEST_EMAIL_IP_LIMIT,
+    RATE_LIMIT_OTP_REQUEST_EMAIL_IP_WINDOW,
+    RATE_LIMIT_OTP_REQUEST_EMAIL_LIMIT,
+    RATE_LIMIT_OTP_REQUEST_EMAIL_WINDOW,
     RATE_LIMIT_OTP_REQUEST_IP_LIMIT,
     RATE_LIMIT_OTP_REQUEST_IP_WINDOW,
     RATE_LIMIT_OTP_REQUEST_PHONE_LIMIT,
@@ -60,10 +64,12 @@ from app.schemas.auth import (
     PasswordResetConfirm,
     PasswordResetRequest,
     RefreshRequest,
+    RequestEmailOTPRequest,
     RequestOTPRequest,
     SwitchBusinessContextRequest,
     SwitchStoreContextRequest,
     TokenResponse,
+    VerifyEmailOTPRequest,
     VerifyOTPRequest,
 )
 from app.schemas.auth_security import UserSessionRead
@@ -72,7 +78,10 @@ from app.services.auth_risk_event_service import (
     record_auth_risk_event,
 )
 from app.services.login_attempt_service import record_login_attempt
-from app.services.otp_delivery_service import generate_and_send_otp_sms
+from app.services.otp_delivery_service import (
+    generate_and_send_otp_email,
+    generate_and_send_otp_sms,
+)
 from app.services.otp_service import verify_otp
 from app.services.permission_resolver import (
     compute_platform_role_permissions,
@@ -332,6 +341,108 @@ async def _issue_tokens(
     return TokenResponse(access_token=access_token, refresh_token=issued.raw_token)
 
 
+async def _consume_login_code(
+    db: AsyncSession,
+    *,
+    user: User,
+    code: str,
+    identifier: str,
+    ip_address: str | None,
+    user_agent: str | None,
+) -> None:
+    """Verify a LOGIN OTP for [user] and record the outcome.
+
+    Shared by the phone and email login endpoints: the delivery channel does
+    not change how a code is checked, only how it was sent. Raises the same
+    401 for an invalid/expired/locked-out code either way, and records a
+    successful login + auth risk event on the way out.
+    """
+    # Capture the id before any rollback below: rollback expires the ORM
+    # instance, and touching `user.id` afterwards would attempt lazy IO from
+    # outside the async greenlet (MissingGreenlet).
+    user_id = user.id
+    try:
+        valid = await verify_otp(
+            db,
+            user_id=user_id,
+            purpose=VerificationCodePurpose.LOGIN,
+            submitted_code=code,
+        )
+    except OtpCodeInvalidError:
+        await db.rollback()
+        await record_login_attempt(
+            db,
+            user_id=user_id,
+            identifier=identifier,
+            success=False,
+            failure_reason="invalid_otp",
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired code",
+        ) from None
+    except OtpAttemptsExhaustedError:
+        await db.rollback()
+        await record_login_attempt(
+            db,
+            user_id=user_id,
+            identifier=identifier,
+            success=False,
+            failure_reason="otp_locked_out",
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        await record_auth_risk_event(
+            db,
+            user_id=user_id,
+            event_type=AuthEventType.OTP_FAILURE,
+            risk_level=AuthRiskLevel.MEDIUM,
+            reason="otp_attempts_exhausted",
+            ip_address=ip_address,
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired code",
+        ) from None
+
+    if not valid:
+        await record_login_attempt(
+            db,
+            user_id=user_id,
+            identifier=identifier,
+            success=False,
+            failure_reason="invalid_otp",
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired code",
+        )
+
+    await record_login_attempt(
+        db,
+        user_id=user_id,
+        identifier=identifier,
+        success=True,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+    await record_auth_risk_event(
+        db,
+        user_id=user_id,
+        event_type=AuthEventType.LOGIN_SUCCESS,
+        risk_level=AuthRiskLevel.LOW,
+        reason=None,
+        ip_address=ip_address,
+    )
+
+
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     body: BusinessUserRegisterRequest,
@@ -484,91 +595,146 @@ async def verify_otp_endpoint(
 
     await db.commit()
 
-    user_id = user.id
-    phone = body.phone
-    try:
-        valid = await verify_otp(
-            db,
-            user_id=user_id,
-            purpose=VerificationCodePurpose.LOGIN,
-            submitted_code=body.code,
-        )
-    except OtpCodeInvalidError:
-        await db.rollback()
-        await record_login_attempt(
-            db,
-            user_id=user_id,
-            identifier=phone,
-            success=False,
-            failure_reason="invalid_otp",
-            ip_address=ip_address,
-            user_agent=user_agent,
-        )
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired code",
-        ) from None
-    except OtpAttemptsExhaustedError:
-        await db.rollback()
-        await record_login_attempt(
-            db,
-            user_id=user_id,
-            identifier=phone,
-            success=False,
-            failure_reason="otp_locked_out",
-            ip_address=ip_address,
-            user_agent=user_agent,
-        )
-        await record_auth_risk_event(
-            db,
-            user_id=user_id,
-            event_type=AuthEventType.OTP_FAILURE,
-            risk_level=AuthRiskLevel.MEDIUM,
-            reason="otp_attempts_exhausted",
-            ip_address=ip_address,
-        )
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired code",
-        ) from None
-
-    if not valid:
-        await record_login_attempt(
-            db,
-            user_id=user.id,
-            identifier=body.phone,
-            success=False,
-            failure_reason="invalid_otp",
-            ip_address=ip_address,
-            user_agent=user_agent,
-        )
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired code",
-        )
-
-    await record_login_attempt(
+    await _consume_login_code(
         db,
-        user_id=user.id,
+        user=user,
+        code=body.code,
         identifier=body.phone,
-        success=True,
         ip_address=ip_address,
         user_agent=user_agent,
-    )
-    await record_auth_risk_event(
-        db,
-        user_id=user.id,
-        event_type=AuthEventType.LOGIN_SUCCESS,
-        risk_level=AuthRiskLevel.LOW,
-        reason=None,
-        ip_address=ip_address,
     )
 
     if not user.is_phone_verified or user.status == UserStatus.INVITED:
         user.is_phone_verified = True
+        if user.status == UserStatus.INVITED:
+            user.status = UserStatus.ACTIVE
+        db.add(user)
+        await db.flush()
+        await db.commit()
+
+    return await _issue_tokens(db, user, request)
+
+
+@router.post(
+    "/otp/email/request",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[
+        Depends(
+            RateLimitDependency(
+                "otp_request_email",
+                RATE_LIMIT_OTP_REQUEST_EMAIL_LIMIT,
+                RATE_LIMIT_OTP_REQUEST_EMAIL_WINDOW,
+                body_field_source("email"),
+            )
+        ),
+        Depends(
+            RateLimitDependency(
+                "otp_request_email_ip",
+                RATE_LIMIT_OTP_REQUEST_EMAIL_IP_LIMIT,
+                RATE_LIMIT_OTP_REQUEST_EMAIL_IP_WINDOW,
+                "ip",
+            )
+        ),
+    ],
+)
+async def request_email_otp(
+    body: RequestEmailOTPRequest,
+    _request: Request,
+    db: AsyncSession = Depends(get_async_session),
+) -> None:
+    """Send a login code to an email address, provisioning on first use.
+
+    Mirrors the phone flow: an unknown address creates a minimal account so
+    email-first signup works without a separate registration step. Lookup is
+    done without the platform-staff filter so an existing platform account's
+    unique email can never be duplicated; those accounts sign in with a
+    password and are silently ignored here. Every request answers 204 so the
+    endpoint cannot be used to enumerate registered accounts.
+    """
+    result = await db.exec(select(User).where(User.email == body.email))
+    user = result.one_or_none()
+
+    if user is not None and user.user_category == UserCategory.PLATFORM_STAFF:
+        return
+
+    if user is None:
+        user = User(
+            phone=None,
+            email=str(body.email),
+            full_name="",
+            user_category=UserCategory.BUSINESS_STAFF,
+            status=UserStatus.ACTIVE,
+            is_email_verified=False,
+        )
+        db.add(user)
+        await db.flush()
+        await db.refresh(user)
+
+    await db.commit()
+
+    try:
+        await generate_and_send_otp_email(
+            db,
+            user_id=user.id,
+            email=body.email,
+            purpose=VerificationCodePurpose.LOGIN,
+        )
+    except OtpDeliveryError:
+        logger.error("otp_email_delivery_failed", user_id=str(user.id), email=body.email)
+        await publish_event(
+            "otp.email_delivery_failed",
+            {
+                "user_id": str(user.id),
+                "email": body.email,
+            },
+        )
+
+
+@router.post("/otp/email/verify", response_model=TokenResponse)
+async def verify_email_otp_endpoint(
+    body: VerifyEmailOTPRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_async_session),
+) -> TokenResponse:
+    user_agent = request.headers.get("user-agent")
+    ip_address = request.client.host if request.client else None
+
+    result = await db.exec(
+        select(User).where(
+            User.email == body.email,
+            User.user_category != UserCategory.PLATFORM_STAFF,
+        )
+    )
+    user = result.one_or_none()
+
+    if user is None:
+        await record_login_attempt(
+            db,
+            identifier=body.email,
+            success=False,
+            failure_reason="user_not_found",
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired code",
+        )
+
+    await db.commit()
+
+    await _consume_login_code(
+        db,
+        user=user,
+        code=body.code,
+        identifier=body.email,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+    if not user.is_email_verified or user.status == UserStatus.INVITED:
+        user.is_email_verified = True
         if user.status == UserStatus.INVITED:
             user.status = UserStatus.ACTIVE
         db.add(user)

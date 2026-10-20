@@ -108,8 +108,28 @@ class SessionNotifier extends Notifier<SessionState> {
         hasCompletedOnboarding: device != null,
         pin: profile?.pinHash as String?,
       );
+
+      // A profile created by Complete Profile but left before Set PIN has no
+      // PIN yet. Restore its stored online session here so the Set PIN step
+      // can read the token (a cold start only restores the *current* user's
+      // session, and on a multi-profile terminal this may be someone else).
+      final pinHash = profile?.pinHash as String?;
+      if (pinHash == null || pinHash.isEmpty) {
+        await _restoreAuthSessionFor(staffId);
+      }
     } catch (_) {
       // Nothing readable — leave hasPin/hasCompletedOnboarding as they were.
+    }
+  }
+
+  Future<void> _restoreAuthSessionFor(String staffId) async {
+    try {
+      final auth = ref.read(authProvider.notifier);
+      if (ref.read(authProvider).accessToken != null) return;
+      final tokenSet = await TokenStorage().getTokenSetForUser(staffId);
+      if (tokenSet != null) await auth.restoreSessionViaRefresh(tokenSet);
+    } catch (_) {
+      // Offline or no stored session; Set PIN still saves the local row.
     }
   }
 
@@ -120,6 +140,17 @@ class SessionNotifier extends Notifier<SessionState> {
       await auth.requestOtp(phone);
     } catch (e) {
       state = state.copyWith(pin: 'OTP request failed: $e');
+      rethrow;
+    }
+  }
+
+  /// Requests an OTP code for an email address (start of the email login flow).
+  Future<void> requestEmailOtp(String email) async {
+    try {
+      final auth = ref.read(authProvider.notifier);
+      await auth.requestEmailOtp(email);
+    } catch (e) {
+      state = state.copyWith(pin: 'Email code request failed: $e');
       rethrow;
     }
   }
@@ -140,10 +171,23 @@ class SessionNotifier extends Notifier<SessionState> {
   /// `_profileRepo.currentDevice()` is re-read here (rather than assumed)
   /// because that provisioning happens as a side effect inside
   /// `AuthNotifier._switchContextAndLock`, not in this method.
-  Future<void> completeOtpLogin(String code) async {
+  Future<void> completeOtpLogin(String code) {
+    return _completeLogin(
+      () => ref.read(authProvider.notifier).verifyOtp(code),
+    );
+  }
+
+  /// Email-channel twin of [completeOtpLogin] — same post-verification
+  /// session bookkeeping, only the code's delivery channel differs.
+  Future<void> completeEmailOtpLogin(String code) {
+    return _completeLogin(
+      () => ref.read(authProvider.notifier).verifyEmailOtp(code),
+    );
+  }
+
+  Future<void> _completeLogin(Future<void> Function() verify) async {
     try {
-      final auth = ref.read(authProvider.notifier);
-      await auth.verifyOtp(code);
+      await verify();
 
       final authState = ref.read(authProvider);
       final staffId = authState.userId;

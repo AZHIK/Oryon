@@ -321,24 +321,37 @@ async def assign_staff_role(
         elif body.phone is not None:
             result = await db.exec(select(User).where(User.phone == body.phone))
             target_user = result.one_or_none()
+        elif body.email is not None:
+            result = await db.exec(select(User).where(User.email == body.email))
+            target_user = result.one_or_none()
         else:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Either 'user_id' or 'phone' must be provided",
+                detail="Either 'user_id', 'phone' or 'email' must be provided",
             )
 
-        if target_user is None and body.phone is not None:
+        if (
+            target_user is None
+            and body.user_id is None
+            and (body.phone is not None or body.email is not None)
+        ):
             target_user = User(
                 phone=body.phone,
-                full_name="",
+                email=str(body.email) if body.email is not None else None,
+                full_name=(body.full_name or "").strip(),
                 user_category=UserCategory.BUSINESS_STAFF,
                 status=UserStatus.INVITED,
                 password_hash=None,
                 is_phone_verified=False,
+                is_email_verified=False,
             )
             db.add(target_user)
             await db.flush()
             await db.refresh(target_user)
+        elif target_user is not None and not target_user.full_name.strip() and body.full_name:
+            # A previous invite may have been created without a name; fill it
+            # in, but never overwrite a name that is already set.
+            target_user.full_name = body.full_name.strip()
 
         if target_user is None:
             raise HTTPException(

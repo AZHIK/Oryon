@@ -304,11 +304,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   /// Creates the business for real and locks the device to it. Roles are
-  /// auto-seeded server-side from role templates as part of creation, so
-  /// this also loads them before returning — the team step that follows
-  /// needs them for its role picker.
+  /// auto-seeded server-side from role templates as part of creation, and the
+  /// backend assigns the protected owner role to the creating user, so this
+  /// also loads them before returning — the team step that follows needs them
+  /// for its role picker.
   ///
-  /// Also assigns the owner role to the current user.
+  /// Deliberately does NOT call the staff-assign endpoint here: the business
+  /// phone number is contact data, not the owner's login identity. Assigning
+  /// by it used to create a second, phantom staff member (or fail on an empty
+  /// phone) even though the creator already holds the owner role.
   Future<bool> _createBusiness() async {
     try {
       final phoneDigits = _phone.text.trim();
@@ -325,26 +329,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             licenseDocumentUrl: _licenseDocumentUrl.text.trim(),
           );
 
+      // The team step's role picker reads the freshly seeded roles.
       await ref.read(rolesProvider.future);
-
-      // Assign the owner role to the current user
-      final roles = ref.read(rolesProvider).valueOrNull ?? const <BusinessRole>[];
-      BusinessRole? ownerRole;
-      for (final role in roles) {
-        if (role.isProtected && role.name.toLowerCase().contains('owner')) {
-          ownerRole = role;
-          break;
-        }
-      }
-      ownerRole ??= roles.isNotEmpty ? roles.first : null;
-
-      if (ownerRole != null) {
-        final phoneWithCountry = phoneDigits.isEmpty ? '' : '+255$phoneDigits';
-        await ref.read(staffMembersProvider.notifier).assignRole(
-              phone: phoneWithCountry,
-              roleId: ownerRole.id,
-            );
-      }
 
       if (_team.isNotEmpty) {
         _team.first.roleId ??= _defaultRoleId;

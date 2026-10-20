@@ -12,6 +12,8 @@ library;
 abstract final class IdentityApiPaths {
   static const otpRequest = '/auth/otp/request';
   static const otpVerify = '/auth/otp/verify';
+  static const emailOtpRequest = '/auth/otp/email/request';
+  static const emailOtpVerify = '/auth/otp/email/verify';
   static const onboardingStatus = '/users/me/onboarding-status';
   static const updateMe = '/users/me';
   static const refresh = '/auth/refresh';
@@ -57,6 +59,7 @@ abstract final class IdentityApiPaths {
   /// Auth endpoints that must skip the token-refresh retry.
   static const publicAuthPaths = [
     '/auth/otp/verify',
+    '/auth/otp/email/verify',
     '/auth/login/password',
     '/auth/platform/login',
     // The refresh call itself: its own 401 means the session is dead, and

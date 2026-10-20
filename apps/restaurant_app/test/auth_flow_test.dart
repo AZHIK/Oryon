@@ -433,6 +433,68 @@ void main() {
       await tester.pump(const Duration(seconds: 31));
     });
 
+    testWidgets('an invalid email is refused before any code is sent', (
+      tester,
+    ) async {
+      await pumpSession(
+        tester,
+        size: const Size(1440, 900),
+        session: const SessionState(bootstrapped: true),
+        route: AppRoute.loginPath,
+        overrides: fakeBackend(FakeIdentityBackendState()),
+      );
+
+      await tester.tap(find.byKey(OtpLoginKeys.useEmailInstead));
+      await tester.pumpAndSettle();
+      expect(find.byKey(OtpLoginKeys.email), findsOneWidget);
+
+      await tester.enterText(find.byKey(OtpLoginKeys.email), 'not-an-email');
+      await tester.tap(find.byKey(OtpLoginKeys.sendCode));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Enter a valid email address'), findsOneWidget);
+      expect(find.byKey(OtpLoginKeys.digit(0)), findsNothing);
+    });
+
+    testWidgets('an email code signs in through the same guard hand-off', (
+      tester,
+    ) async {
+      final container = await pumpSession(
+        tester,
+        size: const Size(1440, 900),
+        session: const SessionState(bootstrapped: true),
+        route: AppRoute.loginPath,
+        overrides: fakeBackend(FakeIdentityBackendState()),
+      );
+
+      await tester.tap(find.byKey(OtpLoginKeys.useEmailInstead));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(OtpLoginKeys.email),
+        'staff@example.com',
+      );
+      await tester.tap(find.byKey(OtpLoginKeys.sendCode));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(OtpLoginKeys.digit(0)), findsOneWidget);
+      expect(find.text('We emailed you a 6-digit code'), findsOneWidget);
+
+      for (var i = 0; i < fakeOtpCode.length; i++) {
+        await tester.enterText(
+          find.byKey(OtpLoginKeys.digit(i)),
+          fakeOtpCode[i],
+        );
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+
+      final session = container.read(sessionProvider);
+      expect(session.isLoggedIn, isTrue);
+      expect(_locationOf(container), AppRoute.setPinPath);
+
+      await tester.pump(const Duration(seconds: 31));
+    });
+
     testWidgets('the correct code signs in and hands off to the guard', (
       tester,
     ) async {

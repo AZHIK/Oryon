@@ -30,7 +30,7 @@ from app.deps.auth import get_current_claims
 from app.deps.permissions import require_business_context, require_business_permission
 from app.models.business import Business, BusinessRole, Store, StoreSetting, UserStoreRole
 from app.models.user import User, UserCategory, UserStatus
-from app.schemas.business_rbac import StaffMemberRead, StaffRoleSummary
+from app.schemas.business_rbac import AssignStaffRequest, StaffMemberRead, StaffRoleSummary
 from app.schemas.store import StoreCreate, StoreRead, StoreUpdate
 from app.schemas.store_setting import StoreSettingRead, StoreSettingUpdate
 from app.services.store import generate_store_token, validate_store_type
@@ -289,7 +289,7 @@ async def update_store_settings(
 async def assign_store_staff(
     business_id: UUID,
     store_id: UUID,
-    body: dict[str, Any],
+    body: AssignStaffRequest,
     db: AsyncSession = Depends(get_async_session),
     _biz_id: str = Depends(require_business_permission(PermissionCode.USER_STORE_ROLES_ASSIGN)),
 ) -> dict[str, str]:
@@ -299,29 +299,40 @@ async def assign_store_staff(
         _require_context_match(business_id, _biz_id)
 
         target_user: User | None = None
-        if "user_id" in body and body["user_id"] is not None:
-            target_user = await db.get(User, UUID(body["user_id"]))
-        elif "phone" in body and body["phone"] is not None:
-            result = await db.exec(select(User).where(User.phone == body["phone"]))
+        if body.user_id is not None:
+            target_user = await db.get(User, body.user_id)
+        elif body.phone is not None:
+            result = await db.exec(select(User).where(User.phone == body.phone))
+            target_user = result.one_or_none()
+        elif body.email is not None:
+            result = await db.exec(select(User).where(User.email == body.email))
             target_user = result.one_or_none()
         else:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Either 'user_id' or 'phone' must be provided",
+                detail="Either 'user_id', 'phone' or 'email' must be provided",
             )
 
-        if target_user is None and "phone" in body and body["phone"] is not None:
+        if (
+            target_user is None
+            and body.user_id is None
+            and (body.phone is not None or body.email is not None)
+        ):
             target_user = User(
-                phone=body["phone"],
-                full_name="",
+                phone=body.phone,
+                email=str(body.email) if body.email is not None else None,
+                full_name=(body.full_name or "").strip(),
                 user_category=UserCategory.BUSINESS_STORE_STAFF,
                 status=UserStatus.INVITED,
                 password_hash=None,
                 is_phone_verified=False,
+                is_email_verified=False,
             )
             db.add(target_user)
             await db.flush()
             await db.refresh(target_user)
+        elif target_user is not None and not target_user.full_name.strip() and body.full_name:
+            target_user.full_name = body.full_name.strip()
 
         if target_user is None:
             raise HTTPException(
@@ -338,7 +349,7 @@ async def assign_store_staff(
                 ),
             )
 
-        role = await db.get(BusinessRole, UUID(body["business_role_id"]))
+        role = await db.get(BusinessRole, body.business_role_id)
         if role is None or role.business_id != business_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

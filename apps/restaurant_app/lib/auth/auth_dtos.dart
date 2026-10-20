@@ -29,6 +29,25 @@ class OtpVerifyInput {
       };
 }
 
+/// Request body for POST /auth/otp/email/request.
+class EmailOtpRequestInput {
+  final String email;
+
+  EmailOtpRequestInput({required this.email});
+
+  Map<String, dynamic> toJson() => {'email': email};
+}
+
+/// Request body for POST /auth/otp/email/verify.
+class EmailOtpVerifyInput {
+  final String email;
+  final String code;
+
+  EmailOtpVerifyInput({required this.email, required this.code});
+
+  Map<String, dynamic> toJson() => {'email': email, 'code': code};
+}
+
 /// Response from POST /auth/otp/verify, POST /auth/refresh, POST /auth/context/switch.
 /// All three endpoints return the same shape (bearer tokens, no expiry/user_id in response).
 /// Expiry and user_id are decoded from the JWT's `exp`/`sub` claims.
@@ -88,12 +107,14 @@ class OnboardingStatusOutput {
 class UpdateProfileInput {
   final String fullName;
   final String? email;
+  final String? phone;
 
-  UpdateProfileInput({required this.fullName, this.email});
+  UpdateProfileInput({required this.fullName, this.email, this.phone});
 
   Map<String, dynamic> toJson() {
     final map = <String, dynamic>{'full_name': fullName};
     if (email != null) map['email'] = email;
+    if (phone != null) map['phone'] = phone;
     return map;
   }
 }

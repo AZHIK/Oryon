@@ -55,6 +55,7 @@ enum AuthState {
 class AuthContext {
   final AuthState state;
   final String? phone;
+  final String? email;
   final String? accessToken;
   final String? refreshToken;
   final String? userId;
@@ -66,6 +67,7 @@ class AuthContext {
   const AuthContext({
     this.state = AuthState.unauthenticated,
     this.phone,
+    this.email,
     this.accessToken,
     this.refreshToken,
     this.userId,
@@ -85,6 +87,7 @@ class AuthContext {
   AuthContext copyWith({
     AuthState? state,
     String? phone,
+    String? email,
     String? accessToken,
     String? refreshToken,
     String? userId,
@@ -92,10 +95,16 @@ class AuthContext {
     String? selectedBusinessId,
     String? selectedStoreId,
     String? error,
+    // Null means "leave it alone" for both identifiers, so switching channels
+    // needs explicit clears — otherwise a stale email from an earlier attempt
+    // would still look like the active sign-in address.
+    bool clearPhone = false,
+    bool clearEmail = false,
   }) =>
       AuthContext(
         state: state ?? this.state,
-        phone: phone ?? this.phone,
+        phone: clearPhone ? null : (phone ?? this.phone),
+        email: clearEmail ? null : (email ?? this.email),
         accessToken: accessToken ?? this.accessToken,
         refreshToken: refreshToken ?? this.refreshToken,
         userId: userId ?? this.userId,
@@ -221,6 +230,7 @@ class AuthNotifier extends Notifier<AuthContext> {
       await _api.requestOtp(phone);
       state = state.copyWith(
         phone: phone,
+        clearEmail: true,
         error: null,
       );
     } catch (e) {
@@ -232,14 +242,45 @@ class AuthNotifier extends Notifier<AuthContext> {
     }
   }
 
-  /// Step 2: Verify OTP code and get tokens.
-  Future<void> verifyOtp(String code) async {
-    state = state.copyWith(state: AuthState.verifyingOtp);
+  /// Step 1 (email channel): Request an OTP code for an email address.
+  Future<void> requestEmailOtp(String email) async {
+    state = state.copyWith(state: AuthState.requestingOtp);
     try {
+      await _api.requestEmailOtp(email);
+      state = state.copyWith(email: email, clearPhone: true, error: null);
+    } catch (e) {
+      state = state.copyWith(
+        state: AuthState.unauthenticated,
+        error: e.toString(),
+      );
+      rethrow;
+    }
+  }
+
+  /// Step 2: Verify an SMS OTP code and get tokens.
+  Future<void> verifyOtp(String code) {
+    return _verifyLogin(() {
       final phone = state.phone;
       if (phone == null) throw StateError('Phone not set');
+      return _api.verifyOtp(phone: phone, code: code);
+    });
+  }
 
-      final tokenOutput = await _api.verifyOtp(phone: phone, code: code);
+  /// Step 2 (email channel): Verify an emailed OTP code and get tokens.
+  Future<void> verifyEmailOtp(String code) {
+    return _verifyLogin(() {
+      final email = state.email;
+      if (email == null) throw StateError('Email not set');
+      return _api.verifyEmailOtp(email: email, code: code);
+    });
+  }
+
+  /// Verifies [request]'s code and runs the same post-login steps for either
+  /// delivery channel: decode the token, then check onboarding.
+  Future<void> _verifyLogin(Future<TokenResponse> Function() request) async {
+    state = state.copyWith(state: AuthState.verifyingOtp);
+    try {
+      final tokenOutput = await request();
 
       // Decode JWT to get user ID and expiry.
       final claims = decodeAccessToken(tokenOutput.accessToken);
@@ -250,6 +291,22 @@ class AuthNotifier extends Notifier<AuthContext> {
         accessToken: tokenOutput.accessToken,
         refreshToken: tokenOutput.refreshToken,
         userId: userId,
+      );
+
+      // Persist the online session immediately, not only after a business
+      // context exists. A brand-new owner has no business yet, so the later
+      // `_switchContextAndLock` writes never run until onboarding finishes —
+      // without this, closing the app between Complete Profile and Set PIN
+      // left a saved local profile with no tokens, and Set PIN had nothing to
+      // decode. Invited staff still overwrite this with business-scoped
+      // tokens moments later.
+      await _tokenStorage.saveTokenSet(
+        TokenSet(
+          accessToken: tokenOutput.accessToken,
+          refreshToken: tokenOutput.refreshToken,
+          expiresAt: DateTime.now().add(AppDurations.sessionLifetime),
+          userId: userId,
+        ),
       );
 
       // Step 3: Check onboarding status.
@@ -348,6 +405,10 @@ class AuthNotifier extends Notifier<AuthContext> {
   /// Records the caller's own name/email — the first thing a phone-first
   /// (OTP-only) signup does, since /auth/otp/verify never collects one.
   ///
+  /// For an email-first signup the address is already the account identifier
+  /// (captured during OTP verification), so an omitted [email] falls back to
+  /// it rather than being sent as "clear the email".
+  ///
   /// Also saves the name to the local `LocalUserProfiles` row immediately
   /// (creating it if this is the very first write for this user, since Set
   /// PIN hasn't run yet) — the Profile Picker and PIN unlock read from that
@@ -356,13 +417,19 @@ class AuthNotifier extends Notifier<AuthContext> {
   Future<void> completeProfile({
     required String fullName,
     String? email,
+    String? phone,
   }) async {
     try {
       final accessToken = state.accessToken;
       if (accessToken == null) throw StateError('No access token');
 
+      final effectiveEmail = email ?? state.email;
       final output = await _api.updateProfile(
-        input: UpdateProfileInput(fullName: fullName, email: email),
+        input: UpdateProfileInput(
+          fullName: fullName,
+          email: effectiveEmail,
+          phone: phone,
+        ),
         bearerToken: accessToken,
       );
 
@@ -685,15 +752,36 @@ class AuthNotifier extends Notifier<AuthContext> {
       final userId = state.userId;
       if (userId == null) throw StateError('User ID not set');
 
+      // Coming back to a half-finished signup after a restart: the profile
+      // exists locally but the in-memory auth session may not have been
+      // restored yet. Recover the stored session so claims are available.
+      var accessToken = state.accessToken;
+      if (accessToken == null) {
+        final stored = await _tokenStorage.getTokenSetForUser(userId);
+        if (stored != null) {
+          await restoreSessionViaRefresh(stored);
+          accessToken = state.accessToken;
+        }
+      }
+
       final salt = PinHasher.generateSalt();
       final pinHash = PinHasher.hash(pin, salt);
       final now = DateTime.now();
-      final claims = decodeAccessToken(state.accessToken!);
+      final claims = accessToken == null ? null : decodeAccessToken(accessToken);
 
       // Create or update the profile. A re-login reactivates a
-      // logout-deactivated row here (see `SessionNotifier.logout`).
-      final name = state.fullName;
-      final roleLabel = claims.roles.isNotEmpty ? claims.roles.join(', ') : null;
+      // logout-deactivated row here (see `SessionNotifier.logout`). When the
+      // in-memory onboarding status is missing (cold restart straight into
+      // Set PIN), keep the name already saved locally rather than
+      // overwriting it with a placeholder.
+      var name = state.fullName;
+      if (name == null || name.isEmpty) {
+        final existing = await _profileRepo.getProfile(userId);
+        name = existing?.displayName as String?;
+      }
+      final roleLabel = claims != null && claims.roles.isNotEmpty
+          ? claims.roles.join(', ')
+          : null;
       await _profileRepo.upsertProfile(
         LocalUserProfilesCompanion(
           id: Value(userId),
@@ -707,7 +795,9 @@ class AuthNotifier extends Notifier<AuthContext> {
         ),
       );
 
-      if (state.selectedBusinessId != null && state.selectedStoreId != null) {
+      if (claims != null &&
+          state.selectedBusinessId != null &&
+          state.selectedStoreId != null) {
         await _cachePermissions(
           userId: userId,
           businessId: state.selectedBusinessId!,

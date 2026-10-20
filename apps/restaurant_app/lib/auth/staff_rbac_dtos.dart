@@ -81,17 +81,31 @@ class RolePermissionDto {
 }
 
 /// Request body for POST /businesses/{id}/staff.
+///
+/// Identify the person by [phone] or [email] (server looks them up and
+/// creates a pending invite if neither matches), or by [userId] for an
+/// existing member getting another role.
 class AssignStaffInput {
   final String businessRoleId;
   final String? phone;
+  final String? email;
   final String? userId;
+  final String? fullName;
 
-  AssignStaffInput({required this.businessRoleId, this.phone, this.userId});
+  AssignStaffInput({
+    required this.businessRoleId,
+    this.phone,
+    this.email,
+    this.userId,
+    this.fullName,
+  });
 
   Map<String, dynamic> toJson() => {
         'business_role_id': businessRoleId,
         if (phone != null) 'phone': phone,
+        if (email != null) 'email': email,
         if (userId != null) 'user_id': userId,
+        if (fullName != null) 'full_name': fullName,
       };
 }
 
@@ -125,7 +139,9 @@ class StaffRoleSummaryDto {
 /// GET /businesses/{id}/staff.
 class StaffMemberDto {
   final String userId;
-  final String phone;
+
+  /// Null for staff invited by email who have not added a phone yet.
+  final String? phone;
   final String fullName;
   final String? email;
   final String status; // "active" | "invited" | "suspended" | "locked"
@@ -143,7 +159,7 @@ class StaffMemberDto {
   factory StaffMemberDto.fromJson(Map<String, dynamic> json) {
     return StaffMemberDto(
       userId: json['user_id'] as String,
-      phone: json['phone'] as String,
+      phone: json['phone'] as String?,
       fullName: json['full_name'] as String,
       email: json['email'] as String?,
       status: json['status'] as String,

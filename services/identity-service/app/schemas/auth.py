@@ -38,10 +38,16 @@ class BusinessUserRegisterRequest(BaseModel):
 
 
 class UpdateProfileRequest(BaseModel):
-    """Self-service update of the caller's own name/email (PATCH /users/me)."""
+    """Self-service update of the caller's own name/email/phone (PATCH /users/me).
+
+    Every field is optional except the name; only the fields present in the
+    request are written, so saving a name never clears the identifier the
+    account signs in with.
+    """
 
     full_name: str
     email: NormalizedEmailStr | None = None
+    phone: PhoneStr | None = None
 
 
 class RequestOTPRequest(BaseModel):
@@ -54,6 +60,19 @@ class VerifyOTPRequest(BaseModel):
     """Verify an OTP code submitted by the user."""
 
     phone: PhoneStr
+    code: OTPCodeStr
+
+
+class RequestEmailOTPRequest(BaseModel):
+    """Request an OTP code sent to the user's email address."""
+
+    email: NormalizedEmailStr
+
+
+class VerifyEmailOTPRequest(BaseModel):
+    """Verify an OTP code delivered to the user's email address."""
+
+    email: NormalizedEmailStr
     code: OTPCodeStr
 
 

@@ -122,8 +122,8 @@ class StaffRbacApi {
     }
   }
 
-  /// POST /businesses/{businessId}/staff — invite by phone, or assign an
-  /// additional role to an existing staff member by user id.
+  /// POST /businesses/{businessId}/staff — invite by phone or email, or
+  /// assign an additional role to an existing staff member by user id.
   Future<void> assignStaff({
     required String businessId,
     required AssignStaffInput input,

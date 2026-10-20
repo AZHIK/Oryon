@@ -363,6 +363,10 @@ abstract final class AppStrings {
     'profileSubtitle',
     'This appears on receipts, invites and the staff list',
   );
+  static String get profilePhoneHelper => L10n.t(
+    'profilePhoneHelper',
+    'Optional — lets you sign in by SMS as well',
+  );
   static String get fullName => L10n.t('fullName', 'Full name');
   static String get nameExample => L10n.t('nameExample', 'Amina Hassan');
   static String get emailLabel => L10n.t('emailLabel', 'Email');
@@ -377,15 +381,25 @@ abstract final class AppStrings {
   static String sendCodeFailed(Object e) => 'Failed to send code: $e';
   static String get enterPhoneNumber =>
       L10n.t('enterPhoneNumber', 'Enter your phone number');
+  static String get enterEmail =>
+      L10n.t('enterEmail', 'Enter your email address');
   static String get codeNotRight =>
       L10n.t('codeNotRight', 'That code is not right. Check your messages.');
   static String get enterYourCode => L10n.t('enterYourCode', 'Enter your code');
   static String get signIn => L10n.t('signIn', 'Sign in');
-  static String codeSentTo(String phone) => 'We sent a 6-digit code to $phone';
+  static String codeSentTo(String target) => 'We sent a 6-digit code to $target';
   static String get useRegisteredPhone => L10n.t(
     'useRegisteredPhone',
-    'Use the phone number your manager registered',
+    'Enter your phone number to sign in or create an account',
   );
+  static String get useRegisteredEmail => L10n.t(
+    'useRegisteredEmail',
+    'Enter your email address to sign in or create an account',
+  );
+  static String get useEmailInstead =>
+      L10n.t('useEmailInstead', 'Use email instead');
+  static String get usePhoneInstead =>
+      L10n.t('usePhoneInstead', 'Use phone number instead');
   static String get backToProfiles =>
       L10n.t('backToProfiles', 'Back to profiles');
   static String get phoneNumber => L10n.t('phoneNumber', 'Phone number');
@@ -397,8 +411,11 @@ abstract final class AppStrings {
   static String resendIn(int seconds) => 'Resend code in ${seconds}s';
   static String get resendCode => L10n.t('resendCode', 'Resend code');
   static String get changeNumber => L10n.t('changeNumber', 'Change number');
+  static String get changeEmail => L10n.t('changeEmail', 'Change email');
   static String get codeHint =>
       L10n.t('codeHint', 'We texted you a 6-digit code');
+  static String get emailCodeHint =>
+      L10n.t('emailCodeHint', 'We emailed you a 6-digit code');
   static String get pointOfSale => L10n.t('pointOfSale', 'Point of sale');
   static String get preparingTerminal =>
       L10n.t('preparingTerminal', 'Preparing your terminal');
@@ -2652,6 +2669,21 @@ abstract final class AppStrings {
     "Their invite is sent to this number — it's how the backend finds "
         'or creates their account',
   );
+  static String get inviteEmailHelper => L10n.t(
+    'inviteEmailHelper',
+    "Their invite is sent to this address — it's how the backend finds "
+        'or creates their account',
+  );
+  static String get inviteChannelLabel => L10n.t('inviteChannelLabel', 'Invite via');
+  static String get inviteChannelHelper => L10n.t(
+    'inviteChannelHelper',
+    "Choose how they'll sign in. It's what the backend uses to find or "
+        'create their account.',
+  );
+  static String get invitePhoneOptionHelper =>
+      L10n.t('invitePhoneOptionHelper', 'Send to a phone number');
+  static String get inviteEmailOptionHelper =>
+      L10n.t('inviteEmailOptionHelper', 'Send to an email address');
   static String get addRoleTitle => L10n.t('addRoleTitle', 'Add a role');
   static String get roleFallbackName => L10n.t('roleFallbackName', 'the role');
   static String get addRoleButton => L10n.t('addRoleButton', 'Add role');

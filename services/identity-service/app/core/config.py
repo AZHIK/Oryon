@@ -7,6 +7,7 @@ Use `get_settings()` (cached) rather than instantiating directly.
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,6 +16,9 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        # A stray key in a local .env (e.g. credentials meant for another
+        # tool) must not take the whole service down.
+        extra="ignore",
     )
 
     # ── App ────────────────────────────────────
@@ -56,6 +60,41 @@ class Settings(BaseSettings):
     at_api_key: str = ""
     at_sender_id: str | None = None
 
+    # ── Email ──────────────────────────────────
+    # console logs the full OTP email to stdout (see email_console_send in
+    # the API logs) — useful for local manual testing without a mail
+    # provider. Use brevo in deployed environments.
+    email_provider: Literal["console", "mailjet", "brevo"] = "console"
+
+    # ── Brevo (Transactional Email API v3) ─────
+    # Brevo renamed from Sendinblue, so accept the legacy env var too.
+    brevo_api_key: str = Field(
+        "",
+        validation_alias=AliasChoices("BREVO_API_KEY", "SENDINBLUE_API_KEY", "brevo_api_key"),
+    )
+    brevo_from_email: str = "no-reply@foodlink.africa"
+    brevo_from_name: str = "FoodLink"
+    brevo_api_url: str = "https://api.brevo.com/v3/smtp/email"
+    brevo_timeout_seconds: int = 15
+
+    # ── Mailjet (kept as an alternative provider) ──
+    # Mailjet's own docs use MJ_APIKEY_PUBLIC/MJ_APIKEY_PRIVATE (the names
+    # their dashboard exports); our .env.example uses MAILJET_*. Accept both.
+    mailjet_api_key: str = Field(
+        "",
+        validation_alias=AliasChoices("MAILJET_API_KEY", "MJ_APIKEY_PUBLIC", "mailjet_api_key"),
+    )
+    mailjet_secret_key: str = Field(
+        "",
+        validation_alias=AliasChoices(
+            "MAILJET_SECRET_KEY", "MJ_APIKEY_PRIVATE", "mailjet_secret_key"
+        ),
+    )
+    mailjet_from_email: str = "no-reply@foodlink.africa"
+    mailjet_from_name: str = "FoodLink"
+    mailjet_api_url: str = "https://api.mailjet.com/v3.1/send"
+    mailjet_timeout_seconds: int = 15
+
     # ── CORS ────────────────────────────────────
     # Comma-separated list of allowed origins. In production, set this to
     # the actual Flutter app origin (e.g. https://app.foodlink.com) and the
@@ -79,6 +118,11 @@ class Settings(BaseSettings):
     rate_limit_otp_request_phone_window: int = 600  # 10 min
     rate_limit_otp_request_ip_limit: int = 10
     rate_limit_otp_request_ip_window: int = 600
+
+    rate_limit_otp_request_email_limit: int = 3
+    rate_limit_otp_request_email_window: int = 600  # 10 min
+    rate_limit_otp_request_email_ip_limit: int = 10
+    rate_limit_otp_request_email_ip_window: int = 600
 
     rate_limit_password_reset_request_phone_limit: int = 3
     rate_limit_password_reset_request_phone_window: int = 600
@@ -112,6 +156,11 @@ RATE_LIMIT_OTP_REQUEST_PHONE_LIMIT = _settings.rate_limit_otp_request_phone_limi
 RATE_LIMIT_OTP_REQUEST_PHONE_WINDOW = _settings.rate_limit_otp_request_phone_window
 RATE_LIMIT_OTP_REQUEST_IP_LIMIT = _settings.rate_limit_otp_request_ip_limit
 RATE_LIMIT_OTP_REQUEST_IP_WINDOW = _settings.rate_limit_otp_request_ip_window
+
+RATE_LIMIT_OTP_REQUEST_EMAIL_LIMIT = _settings.rate_limit_otp_request_email_limit
+RATE_LIMIT_OTP_REQUEST_EMAIL_WINDOW = _settings.rate_limit_otp_request_email_window
+RATE_LIMIT_OTP_REQUEST_EMAIL_IP_LIMIT = _settings.rate_limit_otp_request_email_ip_limit
+RATE_LIMIT_OTP_REQUEST_EMAIL_IP_WINDOW = _settings.rate_limit_otp_request_email_ip_window
 
 RATE_LIMIT_PASSWORD_RESET_REQUEST_PHONE_LIMIT = (
     _settings.rate_limit_password_reset_request_phone_limit
