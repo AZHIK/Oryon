@@ -9,7 +9,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.database import get_async_session
 from app.core.exceptions import ExpiredTokenError, InvalidTokenError
 from app.core.security import decode_and_verify_access_token
-from app.models.user import User
+from app.models.user import User, UserStatus
 
 
 async def get_current_claims(
@@ -107,6 +107,21 @@ def require_any_role(
     return _check_any_role
 
 
+def ensure_active_account(user: User, *, detail: str = "Invalid credentials") -> None:
+    """Reject deactivated or suspended/locked accounts.
+
+    Deactivation must be a real containment action (SEC-31): a token must not
+    be issuable for an account an administrator has disabled, even if the
+    account still knows a valid password or OTP.
+    """
+    if not user.is_active or user.status in {UserStatus.SUSPENDED, UserStatus.LOCKED}:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=detail,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 async def get_current_user(
     session: AsyncSession = Depends(get_async_session),
     user_id: str = Depends(get_current_user_id_uuid),
@@ -114,7 +129,7 @@ async def get_current_user(
     """Load the full User model from the database using the authenticated user_id.
 
     Returns the User model instance on success.
-    Raises 401 if user not found (should not happen with valid token).
+    Raises 401 if user not found or the account has been disabled.
     """
     from uuid import UUID
 
@@ -131,4 +146,5 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    ensure_active_account(user, detail="User account is not active")
     return user

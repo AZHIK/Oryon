@@ -4,10 +4,11 @@ All environment variables are loaded through this class.
 Use `get_settings()` (cached) rather than instantiating directly.
 """
 
+import os
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +20,10 @@ class Settings(BaseSettings):
         # A stray key in a local .env (e.g. credentials meant for another
         # tool) must not take the whole service down.
         extra="ignore",
+        # Docker secrets are read from /run/secrets when present. Filenames
+        # must match field names (db_url, redis_url, at_api_key, ...). This
+        # keeps credentials out of `docker inspect` and env files.
+        secrets_dir="/run/secrets" if os.path.isdir("/run/secrets") else None,
     )
 
     # ── App ────────────────────────────────────
@@ -136,6 +141,79 @@ class Settings(BaseSettings):
     rate_limit_platform_login_email_window: int = 900  # 15 min
     rate_limit_platform_login_ip_limit: int = 20
     rate_limit_platform_login_ip_window: int = 900
+
+    @model_validator(mode="after")
+    def _reject_insecure_production_settings(self) -> "Settings":
+        """Fail closed when ENVIRONMENT=prod still carries development defaults.
+
+        Every check below is something that has silently shipped a dev
+        configuration to production in the past (SEC-02). Refusing to boot is
+        safer than serving real users with console OTP/email providers,
+        default database credentials, or localhost CORS.
+        """
+        if self.environment != "prod":
+            return self
+
+        errors: list[str] = []
+
+        if self.debug:
+            errors.append("DEBUG must be false in production")
+        if self.log_level.upper() == "DEBUG":
+            errors.append("LOG_LEVEL must not be DEBUG in production")
+
+        if "oryonfoods:oryonfoods@" in self.db_url:
+            errors.append("DB_URL still uses the default oryonfoods/oryonfoods credentials")
+        if self.redis_url.rstrip("/") == "redis://localhost:6379/0":
+            errors.append(
+                "REDIS_URL still points at the local default; set the production Redis URL"
+            )
+
+        if not self.jwt_private_key and self.jwt_private_key_path in {"", "keys/private.pem"}:
+            errors.append(
+                "JWT_PRIVATE_KEY_PATH must point at the mounted production key "
+                "(not the repo-local default)"
+            )
+        if not self.jwt_public_key and self.jwt_public_key_path in {"", "keys/public.pem"}:
+            errors.append(
+                "JWT_PUBLIC_KEY_PATH must point at the mounted production key "
+                "(not the repo-local default)"
+            )
+
+        if self.sms_provider == "console":
+            errors.append("SMS_PROVIDER=console is not allowed in production")
+        if self.sms_provider == "africastalking":
+            if not self.at_api_key:
+                errors.append("AT_API_KEY is required when SMS_PROVIDER=africastalking")
+            if self.at_username in {"", "sandbox"}:
+                errors.append("AT_USERNAME must be the production username, not 'sandbox'")
+
+        if self.email_provider == "console":
+            errors.append("EMAIL_PROVIDER=console is not allowed in production")
+        if self.email_provider == "brevo" and not self.brevo_api_key:
+            errors.append("BREVO_API_KEY is required when EMAIL_PROVIDER=brevo")
+        if self.email_provider == "mailjet" and not (
+            self.mailjet_api_key and self.mailjet_secret_key
+        ):
+            errors.append(
+                "MAILJET_API_KEY and MAILJET_SECRET_KEY are required when "
+                "EMAIL_PROVIDER=mailjet"
+            )
+
+        origins = [
+            origin.strip()
+            for origin in self.cors_allowed_origins.split(",")
+            if origin.strip()
+        ]
+        if "*" in origins:
+            errors.append("CORS_ALLOWED_ORIGINS must not contain '*' in production")
+        if any("localhost" in origin or "127.0.0.1" in origin for origin in origins):
+            errors.append("CORS_ALLOWED_ORIGINS must not contain localhost origins in production")
+
+        if errors:
+            raise ValueError(
+                "Insecure production configuration:\n  - " + "\n  - ".join(errors)
+            )
+        return self
 
 
 @lru_cache

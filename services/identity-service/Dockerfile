@@ -55,8 +55,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy virtualenv + app code from builder
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app /app
-RUN rm -rf /app/tests /app/.pytest_cache /app/.ruff_cache /app/uv.lock && \
-    chmod -R a+r /app/keys
+RUN rm -rf /app/tests /app/.pytest_cache /app/.ruff_cache /app/uv.lock
+
+# SEC-01: fail the build if any key material still made it into the image.
+# Private keys are injected at runtime (read-only mount / Docker secret).
+RUN if [ -d /app/keys ] && [ -n "$(find /app/keys -type f -name '*.pem' -print -quit)" ]; then \
+        echo "Refusing to build: key material found in /app/keys. Mount keys at runtime instead." >&2; \
+        exit 1; \
+    fi
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \

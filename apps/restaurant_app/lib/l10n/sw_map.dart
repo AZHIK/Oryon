@@ -452,6 +452,8 @@ const Map<String, String> kSwStrings = {
   'helpComingSoon': 'Kituo cha msaada kinakuja hivi karibuni',
   'holdsAllRoles': 'Tayari ana kila wadhifa katika biashara hii.',
   'hoursOfOperation': 'Masaa ya Kazi',
+  'identifierChangeNote':
+      'Ili kubadilisha barua pepe au simu yako, wasiliana na huduma kwa wateja.',
   'inCurrentView': 'Kwenye mwonekano wa sasa',
   'inStockStatus': 'Ipo stokuni',
   'inactiveStatus': 'Haifanyi kazi',

@@ -15,6 +15,7 @@ from app.models.internal import Group, Role, UserGroup, UserRole
 from app.models.platform import PlatformRole, UserPlatformRole
 from app.models.user import User
 from app.schemas.user import UserAdminUpdate, UserListFilters, UserRead
+from app.services.session_service import revoke_all_sessions_for_user
 
 router = APIRouter(prefix="/admin/users", tags=["Admin Users"])
 
@@ -139,6 +140,17 @@ async def update_user(
             setattr(user, field, value)
         db.add(user)
 
+    needs_revoke = bool(
+        ("is_active" in update_data and update_data["is_active"] is False)
+        or (
+            "status" in update_data
+            and str(update_data["status"]) in {"suspended", "locked"}
+        )
+    )
+
+    if needs_revoke:
+        await revoke_all_sessions_for_user(db, user_id)
+
     await db.refresh(user)
     return user
 
@@ -173,6 +185,9 @@ async def deactivate_user(
 
         user.is_active = False
         db.add(user)
+
+    # Deactivation must also kill existing sessions, not just future logins.
+    await revoke_all_sessions_for_user(db, user_id)
 
 
 @router.post("/{user_id}/reactivate", response_model=UserRead)

@@ -46,7 +46,7 @@ from app.core.exceptions import (
 from app.core.permission_codes import PermissionCode
 from app.core.rate_limit import RateLimitDependency, body_field_source
 from app.core.security import create_access_token, hash_password, verify_password
-from app.deps.auth import get_current_claims
+from app.deps.auth import ensure_active_account, get_current_claims
 from app.models.auth import AuthEventType, AuthRiskLevel, RefreshToken, VerificationCodePurpose
 from app.models.business import (
     BusinessRole,
@@ -290,6 +290,10 @@ async def _issue_tokens(
     user: User,
     request: Request | None = None,
 ) -> TokenResponse:
+    # Final safety net: every token-issuing path must refuse a disabled
+    # account, even if an individual endpoint forgot its own check.
+    ensure_active_account(user)
+
     await session.commit()
     user_id_str = str(user.id)
     device_info = request.headers.get("user-agent") if request else None
@@ -593,6 +597,8 @@ async def verify_otp_endpoint(
             detail="Invalid or expired code",
         )
 
+    ensure_active_account(user, detail="Invalid or expired code")
+
     await db.commit()
 
     await _consume_login_code(
@@ -722,6 +728,8 @@ async def verify_email_otp_endpoint(
             detail="Invalid or expired code",
         )
 
+    ensure_active_account(user, detail="Invalid or expired code")
+
     await db.commit()
 
     await _consume_login_code(
@@ -812,6 +820,8 @@ async def login_password(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid phone number or password",
         )
+
+    ensure_active_account(user, detail="Invalid phone number or password")
 
     await record_login_attempt(
         db,
@@ -912,6 +922,8 @@ async def password_reset_confirm(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired code",
         )
+
+    ensure_active_account(user, detail="Invalid or expired code")
 
     await db.commit()
 
@@ -1037,6 +1049,26 @@ async def refresh(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
+        )
+
+    if not user.is_active or user.status in {UserStatus.SUSPENDED, UserStatus.LOCKED}:
+        # rotate_refresh_token already minted the replacement, so revoke the
+        # whole family rather than leaving a valid token the client never saw.
+        await db.commit()
+        await revoke_all_sessions_for_user(db, user.id)
+        await record_login_attempt(
+            db,
+            user_id=user.id,
+            identifier=user.phone or user.email or "refresh_token",
+            success=False,
+            failure_reason="account_inactive",
+            ip_address=ip_address,
+            user_agent=device_info,
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid, expired, or revoked refresh token",
         )
 
     identifier = user.phone or user.email or "refresh_token"

@@ -145,10 +145,14 @@ class TestOnboardingStatus:
 
 
 class TestUpdateProfile:
-    async def test_updates_full_name_and_email(
+    async def test_updates_full_name_and_accepts_unchanged_email(
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         user = await _make_user(db_session)
+        user.email = "jane@example.com"
+        db_session.add(user)
+        await db_session.commit()
+
         resp = await client.patch(
             "/api/v1/users/me",
             json={"full_name": "Jane Doe", "email": "jane@example.com"},
@@ -164,7 +168,24 @@ class TestUpdateProfile:
         assert status_resp.json()["full_name"] == "Jane Doe"
         assert status_resp.json()["email"] == "jane@example.com"
 
-    async def test_email_only_user_can_add_a_phone(
+    async def test_changing_email_requires_verification(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        user = await _make_user(db_session)
+        original_email = user.email
+
+        resp = await client.patch(
+            "/api/v1/users/me",
+            json={"full_name": "Jane Doe", "email": "new-jane@example.com"},
+            headers={"Authorization": f"Bearer {_token(user)}"},
+        )
+        assert resp.status_code == 400
+        assert "requires verification" in resp.json()["detail"]
+
+        await db_session.refresh(user)
+        assert user.email == original_email
+
+    async def test_email_only_user_cannot_add_a_phone_without_verification(
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         user = User(
@@ -184,16 +205,15 @@ class TestUpdateProfile:
             json={"full_name": "Email Signup", "phone": phone},
             headers={"Authorization": f"Bearer {_token(user)}"},
         )
-        assert resp.status_code == 200
-        assert resp.json() == {"full_name": "Email Signup", "email": user.email}
+        assert resp.status_code == 400
+        assert "requires verification" in resp.json()["detail"]
 
         await db_session.refresh(user)
-        assert user.phone == phone
-        assert user.is_phone_verified is False
+        assert user.phone is None
         # The email identifier is untouched.
         assert user.email is not None
 
-    async def test_adding_a_taken_phone_returns_409(
+    async def test_adding_a_taken_phone_still_requires_verification(
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         taken_phone = _valid_phone()
@@ -215,8 +235,8 @@ class TestUpdateProfile:
             json={"full_name": "Email Signup", "phone": taken_phone},
             headers={"Authorization": f"Bearer {_token(user)}"},
         )
-        assert resp.status_code == 409
-        assert "Phone number already registered" in resp.json()["detail"]
+        assert resp.status_code == 400
+        assert "requires verification" in resp.json()["detail"]
 
     async def test_omitted_email_keeps_the_existing_address(
         self, client: AsyncClient, db_session: AsyncSession
@@ -246,7 +266,7 @@ class TestUpdateProfile:
         await db_session.refresh(user)
         assert user.email == original_email
 
-    async def test_duplicate_email_returns_409(
+    async def test_duplicate_email_change_still_requires_verification(
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         taken = await _make_user(db_session)
@@ -260,7 +280,8 @@ class TestUpdateProfile:
             json={"full_name": "Someone", "email": "taken@example.com"},
             headers={"Authorization": f"Bearer {_token(user)}"},
         )
-        assert resp.status_code == 409
+        assert resp.status_code == 400
+        assert "requires verification" in resp.json()["detail"]
 
     async def test_unauthenticated_returns_401(self, client: AsyncClient) -> None:
         resp = await client.patch(

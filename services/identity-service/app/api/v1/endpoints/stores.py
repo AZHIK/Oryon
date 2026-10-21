@@ -26,13 +26,18 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.database import get_async_session
 from app.core.exceptions import InvalidStoreTypeError
 from app.core.permission_codes import PermissionCode
-from app.deps.auth import get_current_claims
+from app.deps.auth import get_current_claims, get_current_user_id_uuid
 from app.deps.permissions import require_business_context, require_business_permission
 from app.models.business import Business, BusinessRole, Store, StoreSetting, UserStoreRole
 from app.models.user import User, UserCategory, UserStatus
 from app.schemas.business_rbac import AssignStaffRequest, StaffMemberRead, StaffRoleSummary
 from app.schemas.store import StoreCreate, StoreRead, StoreUpdate
 from app.schemas.store_setting import StoreSettingRead, StoreSettingUpdate
+from app.services.rbac_guard import (
+    reject_protected_role,
+    require_can_grant,
+    role_permission_codes,
+)
 from app.services.store import generate_store_token, validate_store_type
 
 router = APIRouter(prefix="/api/v1/businesses", tags=["Stores"])
@@ -292,6 +297,8 @@ async def assign_store_staff(
     body: AssignStaffRequest,
     db: AsyncSession = Depends(get_async_session),
     _biz_id: str = Depends(require_business_permission(PermissionCode.USER_STORE_ROLES_ASSIGN)),
+    claims: dict[str, Any] = Depends(get_current_claims),
+    actor_id: str = Depends(get_current_user_id_uuid),
 ) -> dict[str, str]:
     async with db.begin():
         await _get_business_or_404(db, business_id)
@@ -354,6 +361,14 @@ async def assign_store_staff(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Business role not found",
+            )
+        reject_protected_role(role, action="assigned")
+        require_can_grant(claims, await role_permission_codes(db, role.id))
+
+        if str(target_user.id) == actor_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You cannot change your own store role assignments",
             )
 
         existing = (
@@ -441,11 +456,21 @@ async def revoke_store_staff_role(
     role_id: UUID,
     db: AsyncSession = Depends(get_async_session),
     _biz_id: str = Depends(require_business_permission(PermissionCode.USER_STORE_ROLES_REVOKE)),
+    claims: dict[str, Any] = Depends(get_current_claims),
 ) -> None:
     async with db.begin():
         await _get_business_or_404(db, business_id)
         await _get_store_or_404(db, business_id, store_id)
         _require_context_match(business_id, _biz_id)
+
+        role = await db.get(BusinessRole, role_id)
+        if role is None or role.business_id != business_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Business role not found",
+            )
+        reject_protected_role(role, action="revoked")
+        require_can_grant(claims, await role_permission_codes(db, role.id))
 
         usr = (
             await db.exec(

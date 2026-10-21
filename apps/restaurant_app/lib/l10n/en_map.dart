@@ -448,6 +448,7 @@ const Map<String, String> kEnStrings = {
   'helpComingSoon': 'Help center coming soon',
   'holdsAllRoles': 'They already hold every role at this business.',
   'hoursOfOperation': 'Hours of Operation',
+  'identifierChangeNote': 'To change your email or phone, contact support.',
   'imageHint': 'PNG or JPG · up to 5 MB',
   'inCurrentView': 'In current view',
   'inStockStatus': 'In stock',

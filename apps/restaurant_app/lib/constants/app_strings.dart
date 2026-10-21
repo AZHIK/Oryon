@@ -3233,6 +3233,10 @@ abstract final class AppStrings {
   static String get fullNameField => L10n.t('fullNameField', 'Full name');
   static String get emailField3 => L10n.t('emailField3', 'Email');
   static String get phoneField3 => L10n.t('phoneField3', 'Phone');
+  static String get identifierChangeNote => L10n.t(
+    'identifierChangeNote',
+    'To change your email or phone, contact support.',
+  );
   static String get profilePhotoSheet =>
       L10n.t('profilePhotoSheet', 'Profile photo');
   static String get choosePhoto => L10n.t('choosePhoto', 'Choose a photo');

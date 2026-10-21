@@ -36,8 +36,9 @@ services:
       POSTGRES_USER: oryonfoods
       POSTGRES_PASSWORD: oryonfoods
       POSTGRES_DB: oryonfoods_inventory
+    # Dev-only convenience port, loopback-bound so it is never public (SEC-03).
     ports:
-      - "5434:5432"
+      - "127.0.0.1:5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # Creates oryonfoods_inventory_test on FIRST init only (docker-entrypoint

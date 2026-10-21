@@ -43,8 +43,10 @@ services:
       POSTGRES_USER: oryonfoods
       POSTGRES_PASSWORD: oryonfoods
       POSTGRES_DB: oryonfoods_auth
+    # Dev-only convenience port. Bind to loopback so a VPS running this
+    # compose file never exposes Postgres to the internet (SEC-03).
     ports:
-      - "5455:5432"
+      - "127.0.0.1:5455:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck: *healthcheck-postgres
@@ -52,8 +54,9 @@ services:
 
   redis:
     image: redis:7-alpine
+    # Loopback only: Redis has no auth in this dev stack (SEC-03).
     ports:
-      - "6385:6379"
+      - "127.0.0.1:6385:6379"
     healthcheck: *healthcheck-redis
     restart: unless-stopped
 
@@ -88,7 +91,7 @@ services:
       PGADMIN_DEFAULT_EMAIL: dev@oryonfoods.local
       PGADMIN_DEFAULT_PASSWORD: oryonfoods
     ports:
-      - "5050:80"
+      - "127.0.0.1:5050:80"
     depends_on:
       - postgres
     restart: unless-stopped

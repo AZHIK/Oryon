@@ -6,10 +6,13 @@ Use `get_settings()` (cached) rather than instantiating directly.
 
 from __future__ import annotations
 
+import os
 from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlsplit
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +21,9 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        # Docker secrets are read from /run/secrets when present. Filenames
+        # must match field names (db_url, internal_service_token, ...).
+        secrets_dir="/run/secrets" if os.path.isdir("/run/secrets") else None,
     )
 
     # ── App ────────────────────────────────────
@@ -84,6 +90,53 @@ class Settings(BaseSettings):
     # ── Host ───────────────────────────────────
     host: str = "0.0.0.0"
     port: int = 8200
+
+    @model_validator(mode="after")
+    def _reject_insecure_production_settings(self) -> Settings:
+        """Fail closed when ENVIRONMENT=prod still carries development defaults."""
+        if self.environment != "prod":
+            return self
+
+        errors: list[str] = []
+
+        if self.debug:
+            errors.append("DEBUG must be false in production")
+        if self.log_level.upper() == "DEBUG":
+            errors.append("LOG_LEVEL must not be DEBUG in production")
+
+        if "oryonfoods:oryonfoods@" in self.db_url:
+            errors.append("DB_URL still uses the default oryonfoods/oryonfoods credentials")
+
+        if self.internal_service_token == "change-me-internal-token":
+            errors.append("INTERNAL_SERVICE_TOKEN still uses the default value")
+        elif len(self.internal_service_token) < 32:
+            errors.append("INTERNAL_SERVICE_TOKEN must be at least 32 characters")
+
+        for setting_name, url in (
+            ("INVENTORY_SERVICE_URL", self.inventory_service_url),
+            ("IDENTITY_SERVICE_URL", self.identity_service_url),
+        ):
+            host = urlsplit(url).hostname or ""
+            if host in {"", "localhost", "127.0.0.1", "::1"}:
+                errors.append(
+                    f"{setting_name} must point at the production service, not localhost"
+                )
+
+        origins = [
+            origin.strip()
+            for origin in self.cors_allowed_origins.split(",")
+            if origin.strip()
+        ]
+        if "*" in origins:
+            errors.append("CORS_ALLOWED_ORIGINS must not contain '*' in production")
+        if any("localhost" in origin or "127.0.0.1" in origin for origin in origins):
+            errors.append("CORS_ALLOWED_ORIGINS must not contain localhost origins in production")
+
+        if errors:
+            raise ValueError(
+                "Insecure production configuration:\n  - " + "\n  - ".join(errors)
+            )
+        return self
 
 
 @lru_cache

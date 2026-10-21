@@ -10,6 +10,9 @@ per-PO send.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -93,6 +96,33 @@ def _build_token(
 
 
 AUTH_HEADER = {"Authorization": f"Bearer {_build_token()}"}
+
+WEBHOOK_SECRET = "test-whatsapp-app-secret"
+
+
+@pytest.fixture(autouse=True)
+def _configure_webhook_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every webhook in this module is signed with a known test secret."""
+    monkeypatch.setattr(get_settings(), "whatsapp_app_secret", WEBHOOK_SECRET)
+
+
+def _signed_webhook(
+    client: AsyncClient,
+    payload: dict,
+    *,
+    secret: str = WEBHOOK_SECRET,
+):
+    body = json.dumps(payload).encode()
+    signature = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return client.post(
+        "/api/v1/whatsapp/webhook",
+        content=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Hub-Signature-256": f"sha256={signature}",
+        },
+    )
+
 
 
 async def _unit_id(session: AsyncSession, code: str = "kg") -> UUID:
@@ -312,6 +342,32 @@ async def test_webhook_verify_roundtrip(
     assert bad.status_code == 403
 
 
+async def test_webhook_rejects_missing_or_invalid_signature(client: AsyncClient) -> None:
+    payload = _status_payload("wamid.unsigned", "delivered")
+
+    missing = await client.post("/api/v1/whatsapp/webhook", json=payload)
+    assert missing.status_code == 401
+
+    body = json.dumps(payload).encode()
+    invalid = await client.post(
+        "/api/v1/whatsapp/webhook",
+        content=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Hub-Signature-256": "sha256=" + ("0" * 64),
+        },
+    )
+    assert invalid.status_code == 401
+
+
+async def test_webhook_rejects_when_no_app_secret(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "whatsapp_app_secret", None)
+    response = await _signed_webhook(client, _status_payload("wamid.nosecret", "delivered"))
+    assert response.status_code == 401
+
+
 # ── Status callbacks + inbound replies ────────────────────────────────────
 
 
@@ -354,9 +410,7 @@ async def test_webhook_status_flow(
     await db_session.commit()
 
     for state in ("delivered", "read"):
-        response = await client.post(
-            "/api/v1/whatsapp/webhook", json=_status_payload("wamid.flow1", state)
-        )
+        response = await _signed_webhook(client, _status_payload("wamid.flow1", state))
         assert response.status_code == 200
     row = (
         await db_session.exec(
@@ -380,9 +434,7 @@ async def test_webhook_status_flow(
 
 
 async def test_webhook_unknown_wamid_ignored(client: AsyncClient) -> None:
-    response = await client.post(
-        "/api/v1/whatsapp/webhook", json=_status_payload("wamid.unknown", "delivered")
-    )
+    response = await _signed_webhook(client, _status_payload("wamid.unknown", "delivered"))
     assert response.status_code == 200
     assert response.json()["statuses_applied"] == []
 
@@ -417,9 +469,8 @@ async def test_webhook_inbound_reply_matched_with_confirmation(
     submitted = await _submit_order(client, supplier, item)
     po_id = submitted["purchase_orders"][0]["id"]
 
-    response = await client.post(
-        "/api/v1/whatsapp/webhook",
-        json=_inbound_payload("255700000001", "Sawa, confirmed"),
+    response = await _signed_webhook(
+        client, _inbound_payload("255700000001", "Sawa, confirmed")
     )
     assert response.status_code == 200
     replies = response.json()["replies"]
@@ -435,10 +486,7 @@ async def test_webhook_inbound_unmatched_sender_has_no_po(
     await _connect(client, monkeypatch)
     await _supplier(db_session)
     await _item(db_session)
-    response = await client.post(
-        "/api/v1/whatsapp/webhook",
-        json=_inbound_payload("255799988877", "Hello?"),
-    )
+    response = await _signed_webhook(client, _inbound_payload("255799988877", "Hello?"))
     assert response.status_code == 200
     replies = response.json()["replies"]
     assert replies[0]["po_id"] is None

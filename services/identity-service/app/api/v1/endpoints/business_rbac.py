@@ -7,6 +7,7 @@ members.  All endpoints require an ``active_business_id`` in the JWT
 permission code.
 """
 
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -15,6 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.database import get_async_session
 from app.core.permission_codes import PermissionCode, coerce_permission_code
+from app.deps.auth import get_current_claims, get_current_user_id_uuid
 from app.deps.permissions import require_business_permission
 from app.models.business import (
     Business,
@@ -34,6 +36,11 @@ from app.schemas.business_rbac import (
     BusinessRoleUpdateRequest,
     StaffMemberRead,
     StaffRoleSummary,
+)
+from app.services.rbac_guard import (
+    reject_protected_role,
+    require_can_grant,
+    role_permission_codes,
 )
 
 router = APIRouter(prefix="/api/v1/businesses", tags=["Business RBAC"])
@@ -91,6 +98,7 @@ async def create_business_role(
 ) -> BusinessRole:
     async with db.begin():
         await _get_business_or_404(db, business_id)
+        _require_matching_business(business_id, _biz_id)
 
         existing = (
             await db.exec(
@@ -133,6 +141,7 @@ async def update_business_role(
 ) -> BusinessRole:
     async with db.begin():
         role = await _get_business_role_or_404(db, business_id, role_id)
+        _require_matching_business(business_id, _biz_id)
 
         if role.is_protected:
             raise HTTPException(
@@ -180,6 +189,7 @@ async def delete_business_role(
 ) -> None:
     async with db.begin():
         role = await _get_business_role_or_404(db, business_id, role_id)
+        _require_matching_business(business_id, _biz_id)
 
         if role.is_protected:
             raise HTTPException(
@@ -230,10 +240,16 @@ async def assign_role_permission(
     _biz_id: str = Depends(
         require_business_permission(PermissionCode.BUSINESS_ROLES_MANAGE_PERMISSIONS)
     ),
+    claims: dict[str, Any] = Depends(get_current_claims),
     db: AsyncSession = Depends(get_async_session),
 ) -> dict[str, str]:
     async with db.begin():
-        await _get_business_role_or_404(db, business_id, role_id)
+        role = await _get_business_role_or_404(db, business_id, role_id)
+        _require_matching_business(business_id, _biz_id)
+        reject_protected_role(role, action="modified")
+
+        current_permissions = await role_permission_codes(db, role_id)
+        require_can_grant(claims, current_permissions)
 
         try:
             validated_code = coerce_permission_code(body.permission_code)
@@ -242,6 +258,8 @@ async def assign_role_permission(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Invalid permission code: {body.permission_code}",
             ) from None
+
+        require_can_grant(claims, {str(validated_code)})
 
         existing = (
             await db.exec(
@@ -277,10 +295,16 @@ async def remove_role_permission(
     _biz_id: str = Depends(
         require_business_permission(PermissionCode.BUSINESS_ROLES_MANAGE_PERMISSIONS)
     ),
+    claims: dict[str, Any] = Depends(get_current_claims),
     db: AsyncSession = Depends(get_async_session),
 ) -> None:
     async with db.begin():
-        await _get_business_role_or_404(db, business_id, role_id)
+        role = await _get_business_role_or_404(db, business_id, role_id)
+        _require_matching_business(business_id, _biz_id)
+        reject_protected_role(role, action="modified")
+
+        current_permissions = await role_permission_codes(db, role_id)
+        require_can_grant(claims, current_permissions)
 
         rp = (
             await db.exec(
@@ -310,10 +334,13 @@ async def assign_staff_role(
     business_id: UUID,
     body: AssignStaffRequest,
     _biz_id: str = Depends(require_business_permission(PermissionCode.USER_BUSINESS_ROLES_ASSIGN)),
+    claims: dict[str, Any] = Depends(get_current_claims),
+    actor_id: str = Depends(get_current_user_id_uuid),
     db: AsyncSession = Depends(get_async_session),
 ) -> dict[str, str]:
     async with db.begin():
         await _get_business_or_404(db, business_id)
+        _require_matching_business(business_id, _biz_id)
 
         target_user: User | None = None
         if body.user_id is not None:
@@ -364,6 +391,16 @@ async def assign_staff_role(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Business role not found",
+            )
+        reject_protected_role(role, action="assigned")
+
+        role_permissions = await role_permission_codes(db, role.id)
+        require_can_grant(claims, role_permissions)
+
+        if str(target_user.id) == actor_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You cannot change your own role assignments",
             )
 
         if target_user.user_category != UserCategory.BUSINESS_STAFF:
@@ -496,6 +533,7 @@ async def revoke_staff_role(
     token_business_id: str = Depends(
         require_business_permission(PermissionCode.USER_BUSINESS_ROLES_REVOKE)
     ),
+    claims: dict[str, Any] = Depends(get_current_claims),
     db: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Remove one role assignment from a staff member.
@@ -506,6 +544,10 @@ async def revoke_staff_role(
     _require_matching_business(business_id, token_business_id)
 
     async with db.begin():
+        role = await _get_business_role_or_404(db, business_id, role_id)
+        reject_protected_role(role, action="revoked")
+        require_can_grant(claims, await role_permission_codes(db, role.id))
+
         ubr = (
             await db.exec(
                 select(UserBusinessRole).where(

@@ -20,6 +20,10 @@ class VerificationCodePurpose(StrEnum):
     EMAIL_VERIFICATION = "email_verification"
     PASSWORD_RESET = "password_reset"
     LOGIN = "login"
+    # Changing the sign-in identifier is a separate, higher-risk purpose so a
+    # code issued for login can never be replayed to rewrite the account.
+    EMAIL_CHANGE = "email_change"
+    PHONE_CHANGE = "phone_change"
 
 
 class AuthEventType(StrEnum):

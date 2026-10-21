@@ -77,6 +77,36 @@ def _staff_token(user: User, business_id, perms: list[str]) -> str:
     )
 
 
+async def _make_role(
+    db_session: AsyncSession,
+    business_id,
+    *,
+    name: str = "Cashier",
+    permissions: tuple[str, ...] = (),
+    is_protected: bool = False,
+) -> BusinessRole:
+    role = BusinessRole(
+        business_id=business_id,
+        name=f"{name} {uuid4().hex[:8]}",
+        is_protected=is_protected,
+    )
+    db_session.add(role)
+    await db_session.commit()
+    await db_session.refresh(role)
+
+    for permission in permissions:
+        db_session.add(
+            BusinessRolePermission(
+                business_role_id=role.id,
+                permission_code=permission,
+            )
+        )
+    if permissions:
+        await db_session.commit()
+
+    return role
+
+
 class TestCreateBusinessRole:
     async def test_creates_role(self, client: AsyncClient, db_session: AsyncSession) -> None:
         owner = await _make_business_user(db_session)
@@ -810,12 +840,8 @@ class TestAssignStaff:
         other_biz = await _make_business(db_session, other_owner)
         token = _owner_token(owner, biz.id)
 
-        other_role_resp = await client.post(
-            f"/api/v1/businesses/{other_biz.id}/roles",
-            json={"name": "Cashier"},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        other_role_id = other_role_resp.json()["id"]
+        other_role = await _make_role(db_session, other_biz.id, name="Cashier")
+        other_role_id = str(other_role.id)
 
         resp = await client.post(
             f"/api/v1/businesses/{biz.id}/staff",
@@ -1164,13 +1190,8 @@ class TestListRolePermissions:
         other_biz = await _make_business(db_session, other_owner)
         token = _owner_token(owner, biz.id)
 
-        role_id = (
-            await client.post(
-                f"/api/v1/businesses/{other_biz.id}/roles",
-                json={"name": "Cashier"},
-                headers={"Authorization": f"Bearer {token}"},
-            )
-        ).json()["id"]
+        other_role = await _make_role(db_session, other_biz.id, name="Cashier")
+        role_id = str(other_role.id)
 
         # Token is scoped to `biz`, but this role belongs to `other_biz`.
         resp = await client.get(
@@ -1178,3 +1199,273 @@ class TestListRolePermissions:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 404
+
+
+class TestPrivilegeEscalationGuards:
+    """SEC-32: a staff manager must not be able to grant owner-level access."""
+
+    async def test_cannot_assign_protected_owner_role(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        owner = await _make_business_user(db_session)
+        biz = await _make_business(db_session, owner)
+        owner_role = await _make_role(
+            db_session, biz.id, name="Owner", permissions=("*",), is_protected=True
+        )
+        manager = await _make_business_user(db_session)
+        target = await _make_business_user(db_session)
+        token = _staff_token(
+            manager, biz.id, [PermissionCode.USER_BUSINESS_ROLES_ASSIGN.value]
+        )
+
+        resp = await client.post(
+            f"/api/v1/businesses/{biz.id}/staff",
+            json={"user_id": str(target.id), "business_role_id": str(owner_role.id)},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 403
+        assert "protected" in resp.json()["detail"].lower()
+
+    async def test_cannot_assign_role_with_permissions_actor_lacks(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        owner = await _make_business_user(db_session)
+        biz = await _make_business(db_session, owner)
+        role = await _make_role(
+            db_session, biz.id, permissions=(PermissionCode.POS_REFUND.value,)
+        )
+        manager = await _make_business_user(db_session)
+        target = await _make_business_user(db_session)
+        token = _staff_token(
+            manager, biz.id, [PermissionCode.USER_BUSINESS_ROLES_ASSIGN.value]
+        )
+
+        resp = await client.post(
+            f"/api/v1/businesses/{biz.id}/staff",
+            json={"user_id": str(target.id), "business_role_id": str(role.id)},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 403
+        assert "do not hold" in resp.json()["detail"]
+
+    async def test_cannot_change_own_business_role(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        owner = await _make_business_user(db_session)
+        biz = await _make_business(db_session, owner)
+        role = await _make_role(db_session, biz.id)
+        token = _owner_token(owner, biz.id)
+
+        resp = await client.post(
+            f"/api/v1/businesses/{biz.id}/staff",
+            json={"user_id": str(owner.id), "business_role_id": str(role.id)},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 400
+        assert "your own" in resp.json()["detail"].lower()
+
+    async def test_cannot_grant_permission_actor_lacks(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        owner = await _make_business_user(db_session)
+        biz = await _make_business(db_session, owner)
+        role = await _make_role(db_session, biz.id)
+        manager = await _make_business_user(db_session)
+        token = _staff_token(
+            manager,
+            biz.id,
+            [PermissionCode.BUSINESS_ROLES_MANAGE_PERMISSIONS.value],
+        )
+
+        resp = await client.post(
+            f"/api/v1/businesses/{biz.id}/roles/{role.id}/permissions",
+            json={"permission_code": PermissionCode.POS_WRITE.value},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 403
+        assert "do not hold" in resp.json()["detail"]
+
+    async def test_can_grant_permission_actor_already_holds(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        owner = await _make_business_user(db_session)
+        biz = await _make_business(db_session, owner)
+        role = await _make_role(db_session, biz.id)
+        manager = await _make_business_user(db_session)
+        token = _staff_token(
+            manager,
+            biz.id,
+            [
+                PermissionCode.BUSINESS_ROLES_MANAGE_PERMISSIONS.value,
+                PermissionCode.POS_WRITE.value,
+            ],
+        )
+
+        resp = await client.post(
+            f"/api/v1/businesses/{biz.id}/roles/{role.id}/permissions",
+            json={"permission_code": PermissionCode.POS_WRITE.value},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 201
+
+    async def test_cannot_modify_permissions_of_protected_role(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        owner = await _make_business_user(db_session)
+        biz = await _make_business(db_session, owner)
+        role = await _make_role(
+            db_session,
+            biz.id,
+            name="Owner",
+            permissions=(PermissionCode.POS_WRITE.value,),
+            is_protected=True,
+        )
+        token = _owner_token(owner, biz.id)
+
+        resp = await client.post(
+            f"/api/v1/businesses/{biz.id}/roles/{role.id}/permissions",
+            json={"permission_code": PermissionCode.POS_REFUND.value},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 403
+        assert "protected" in resp.json()["detail"].lower()
+
+    async def test_cannot_remove_permission_above_own_level(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        owner = await _make_business_user(db_session)
+        biz = await _make_business(db_session, owner)
+        role = await _make_role(
+            db_session, biz.id, permissions=(PermissionCode.POS_REFUND.value,)
+        )
+        manager = await _make_business_user(db_session)
+        token = _staff_token(
+            manager,
+            biz.id,
+            [
+                PermissionCode.BUSINESS_ROLES_MANAGE_PERMISSIONS.value,
+                PermissionCode.POS_WRITE.value,
+            ],
+        )
+
+        resp = await client.delete(
+            f"/api/v1/businesses/{biz.id}/roles/{role.id}/permissions/"
+            f"{PermissionCode.POS_REFUND.value}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 403
+        assert "do not hold" in resp.json()["detail"]
+
+    async def test_cross_business_role_mutation_rejected(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        owner = await _make_business_user(db_session)
+        other_owner = await _make_business_user(db_session)
+        biz = await _make_business(db_session, owner)
+        other_biz = await _make_business(db_session, other_owner)
+        role = await _make_role(db_session, other_biz.id)
+        token = _owner_token(owner, biz.id)
+
+        resp = await client.post(
+            f"/api/v1/businesses/{other_biz.id}/roles/{role.id}/permissions",
+            json={"permission_code": PermissionCode.POS_WRITE.value},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 403
+        assert "context" in resp.json()["detail"].lower()
+
+    async def test_cannot_assign_protected_role_at_store(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        owner = await _make_business_user(db_session)
+        biz = await _make_business(db_session, owner)
+        store = Store(
+            business_id=biz.id,
+            name=f"Store {uuid4().hex[:8]}",
+            token=uuid4().hex,
+            location_type=LocationType.RESTAURANT_BRANCH,
+        )
+        db_session.add(store)
+        await db_session.commit()
+        await db_session.refresh(store)
+
+        owner_role = await _make_role(
+            db_session, biz.id, name="Owner", permissions=("*",), is_protected=True
+        )
+        manager = await _make_business_user(db_session)
+        target = User(
+            phone=f"+2557{uuid4().int % 100_000_000:08d}",
+            full_name="Store Target",
+            user_category=UserCategory.BUSINESS_STORE_STAFF,
+            status=UserStatus.ACTIVE,
+            password_hash=hash_password(_TEST_PASSWORD),
+        )
+        db_session.add(target)
+        await db_session.commit()
+        await db_session.refresh(target)
+        token = _staff_token(
+            manager, biz.id, [PermissionCode.USER_STORE_ROLES_ASSIGN.value]
+        )
+
+        resp = await client.post(
+            f"/api/v1/businesses/{biz.id}/stores/{store.id}/staff",
+            json={"user_id": str(target.id), "business_role_id": str(owner_role.id)},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 403
+        assert "protected" in resp.json()["detail"].lower()
+
+    async def test_cannot_revoke_protected_owner_role(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        owner = await _make_business_user(db_session)
+        biz = await _make_business(db_session, owner)
+        role = await _make_role(
+            db_session, biz.id, name="Owner", permissions=("*",), is_protected=True
+        )
+        target = await _make_business_user(db_session)
+        db_session.add(
+            UserBusinessRole(
+                user_id=target.id,
+                business_id=biz.id,
+                business_role_id=role.id,
+            )
+        )
+        await db_session.commit()
+
+        token = _owner_token(owner, biz.id)
+        resp = await client.delete(
+            f"/api/v1/businesses/{biz.id}/staff/{target.id}/roles/{role.id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 403
+        assert "protected" in resp.json()["detail"].lower()
+
+    async def test_cannot_revoke_role_above_own_level(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        owner = await _make_business_user(db_session)
+        biz = await _make_business(db_session, owner)
+        role = await _make_role(
+            db_session, biz.id, permissions=(PermissionCode.POS_REFUND.value,)
+        )
+        target = await _make_business_user(db_session)
+        db_session.add(
+            UserBusinessRole(
+                user_id=target.id,
+                business_id=biz.id,
+                business_role_id=role.id,
+            )
+        )
+        await db_session.commit()
+
+        manager = await _make_business_user(db_session)
+        token = _staff_token(
+            manager, biz.id, [PermissionCode.USER_BUSINESS_ROLES_REVOKE.value]
+        )
+        resp = await client.delete(
+            f"/api/v1/businesses/{biz.id}/staff/{target.id}/roles/{role.id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 403
+        assert "do not hold" in resp.json()["detail"]

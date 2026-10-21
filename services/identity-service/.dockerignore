@@ -2,6 +2,9 @@
 .gitignore
 .env
 .env*
+# Key material must never enter the build context. JWT keys are mounted at
+# runtime (see docker-compose.yml / deploy stack).
+keys/
 # Keep README.md and ARCHITECTURE.md — needed for build & documentation
 *.md
 !README.md
@@ -9,6 +12,9 @@
 .venv/
 __pycache__/
 *.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 .vscode/
 .idea/
 .pre-commit-config.yaml

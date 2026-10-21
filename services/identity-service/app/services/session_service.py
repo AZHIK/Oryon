@@ -91,6 +91,9 @@ async def rotate_refresh_token(
     expires_at = now + ttl
     token_hash = hash_refresh_token(token)
 
+    issued: IssuedRefreshToken | None = None
+    replay_detected = False
+
     async with session.begin():
         old_result = await session.exec(
             select(RefreshToken)
@@ -118,44 +121,72 @@ async def rotate_refresh_token(
                     "family_id": str(old.family_id),
                 },
             )
-            raise TokenReuseDetectedError("Refresh token has already been used.")
 
-        if old.revoked_at is not None:
-            raise InvalidRefreshTokenError("Refresh token is invalid, expired, or revoked.")
-
-        if old.expires_at <= now:
-            raise InvalidRefreshTokenError("Refresh token is invalid, expired, or revoked.")
-
-        sess_result = await session.exec(
-            select(UserSession).where(
-                UserSession.refresh_token_id == old.id,
-                UserSession.is_active.is_(True),  # type: ignore[attr-defined]
+            # Cut off the attacker *and* the legitimate session: revoke every
+            # token in this rotation family and deactivate the user's sessions.
+            # Without this, rotation only detects theft (SEC-11).
+            family_tokens = await session.exec(
+                select(RefreshToken).where(RefreshToken.family_id == old.family_id)
             )
-        )
-        sess = sess_result.one()
+            for family_token in family_tokens.all():
+                family_token.revoked_at = family_token.revoked_at or now
 
-        old.revoked_at = now
-        new_refresh_token = RefreshToken(
-            user_id=old.user_id,
-            token_hash=token_hash,
-            device_info=device_info or old.device_info,
-            ip_address=ip_address or old.ip_address,
-            expires_at=expires_at,
-            family_id=old.family_id,
-            previous_token_id=old.id,
-        )
-        session.add(new_refresh_token)
-        await session.flush()
-        old.replaced_by_token_id = new_refresh_token.id
+            active_sessions = await session.exec(
+                select(UserSession).where(
+                    UserSession.user_id == old.user_id,
+                    UserSession.is_active.is_(True),  # type: ignore[attr-defined]
+                )
+            )
+            for user_session in active_sessions.all():
+                user_session.is_active = False
 
-        sess.refresh_token_id = new_refresh_token.id
-        sess.device_info = new_refresh_token.device_info
-        sess.ip_address = new_refresh_token.ip_address
-        sess.last_activity_at = now
-        sess.expires_at = expires_at
-        sess.is_active = True
+            # Raise *after* the transaction commits, so the revocation sticks.
+            replay_detected = True
 
-    return IssuedRefreshToken(token, new_refresh_token, sess)
+        elif old.revoked_at is not None:
+            raise InvalidRefreshTokenError("Refresh token is invalid, expired, or revoked.")
+
+        elif old.expires_at <= now:
+            raise InvalidRefreshTokenError("Refresh token is invalid, expired, or revoked.")
+
+        else:
+            sess_result = await session.exec(
+                select(UserSession).where(
+                    UserSession.refresh_token_id == old.id,
+                    UserSession.is_active.is_(True),  # type: ignore[attr-defined]
+                )
+            )
+            sess = sess_result.one()
+
+            old.revoked_at = now
+            new_refresh_token = RefreshToken(
+                user_id=old.user_id,
+                token_hash=token_hash,
+                device_info=device_info or old.device_info,
+                ip_address=ip_address or old.ip_address,
+                expires_at=expires_at,
+                family_id=old.family_id,
+                previous_token_id=old.id,
+            )
+            session.add(new_refresh_token)
+            await session.flush()
+            old.replaced_by_token_id = new_refresh_token.id
+
+            sess.refresh_token_id = new_refresh_token.id
+            sess.device_info = new_refresh_token.device_info
+            sess.ip_address = new_refresh_token.ip_address
+            sess.last_activity_at = now
+            sess.expires_at = expires_at
+            sess.is_active = True
+
+            issued = IssuedRefreshToken(token, new_refresh_token, sess)
+
+    if replay_detected:
+        raise TokenReuseDetectedError("Refresh token has already been used.")
+
+    if issued is None:  # pragma: no cover - guarded by the branches above
+        raise InvalidRefreshTokenError("Refresh token is invalid, expired, or revoked.")
+    return issued
 
 
 async def revoke_refresh_token(session: AsyncSession, refresh_token_id: UUID) -> None:

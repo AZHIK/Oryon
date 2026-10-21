@@ -43,11 +43,38 @@ class UpdateProfileRequest(BaseModel):
     Every field is optional except the name; only the fields present in the
     request are written, so saving a name never clears the identifier the
     account signs in with.
+
+    Changing ``email`` or ``phone`` is no longer applied directly: those
+    fields must match the current identifier (a no-op save) or the request is
+    rejected. Use the dedicated ``/users/me/email/change/*`` and
+    ``/users/me/phone/change/*`` flows, which prove control of the new
+    identifier before switching it (SEC-06).
     """
 
     full_name: str
     email: NormalizedEmailStr | None = None
     phone: PhoneStr | None = None
+
+
+class EmailChangeRequest(BaseModel):
+    """Start an email change: verify the current password, OTP goes to the new address."""
+
+    new_email: NormalizedEmailStr
+    current_password: str | None = None
+
+
+class PhoneChangeRequest(BaseModel):
+    """Start a phone change: verify the current password, OTP goes to the new number."""
+
+    new_phone: PhoneStr
+    current_password: str | None = None
+
+
+class IdentifierChangeVerifyRequest(BaseModel):
+    """Complete an email/phone change with the signed change token and OTP."""
+
+    change_token: str = Field(min_length=20)
+    code: OTPCodeStr
 
 
 class RequestOTPRequest(BaseModel):

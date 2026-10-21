@@ -4,6 +4,7 @@
 library;
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/api_log_interceptor.dart';
@@ -40,7 +41,9 @@ final posServiceDioProvider = Provider<Dio>((ref) {
     onPermissionsSynced: () => ref.read(permissionsCacheTickProvider.notifier).state++,
   ));
 
-  dio.interceptors.add(const ApiLogInterceptor());
+  if (kDebugMode) {
+    dio.interceptors.add(const ApiLogInterceptor());
+  }
 
   return dio;
 });

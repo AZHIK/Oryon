@@ -17,6 +17,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
@@ -926,7 +927,7 @@ final authProvider = NotifierProvider<AuthNotifier, AuthContext>(
 /// Public (not `_dioClientProvider`) so tests can override it with a fake
 /// `HttpClientAdapter` instead of hitting a live backend.
 final identityServiceDioProvider = Provider<Dio>((ref) {
-  const baseUrl = ApiConfig.identityServiceBaseUrl;
+  final baseUrl = ApiConfig.identityServiceBaseUrl;
 
   final dio = Dio(BaseOptions(
     baseUrl: baseUrl,
@@ -947,8 +948,11 @@ final identityServiceDioProvider = Provider<Dio>((ref) {
     onPermissionsSynced: () => ref.read(permissionsCacheTickProvider.notifier).state++,
   ));
 
-  // Add logging for debugging.
-  dio.interceptors.add(const ApiLogInterceptor());
+  // Debug-only, credential-redacting logging. Never ship request bodies to
+  // a release build's log (SEC-05).
+  if (kDebugMode) {
+    dio.interceptors.add(const ApiLogInterceptor());
+  }
 
   return dio;
 });

@@ -616,6 +616,48 @@ class TestPasswordLogin:
         assert resp.status_code == 401
         assert "invalid" in resp.json()["detail"].lower()
 
+    async def test_deactivated_account_cannot_login(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        phone = _valid_phone()
+        async with db_session.begin():
+            user = User(
+                phone=phone,
+                full_name="Deactivated User",
+                user_category=UserCategory.BUSINESS_STAFF,
+                password_hash=hash_password(_TEST_PASSWORD),
+                is_active=False,
+            )
+            db_session.add(user)
+
+        resp = await client.post(
+            "/api/v1/auth/login/password",
+            json={"phone": phone, "password": _TEST_PASSWORD},
+        )
+        assert resp.status_code == 401
+        assert "invalid" in resp.json()["detail"].lower()
+
+    async def test_suspended_account_cannot_login(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        phone = _valid_phone()
+        async with db_session.begin():
+            user = User(
+                phone=phone,
+                full_name="Suspended User",
+                user_category=UserCategory.BUSINESS_STAFF,
+                password_hash=hash_password(_TEST_PASSWORD),
+                status=UserStatus.SUSPENDED,
+            )
+            db_session.add(user)
+
+        resp = await client.post(
+            "/api/v1/auth/login/password",
+            json={"phone": phone, "password": _TEST_PASSWORD},
+        )
+        assert resp.status_code == 401
+        assert "invalid" in resp.json()["detail"].lower()
+
 
 class TestPasswordReset:
     async def test_full_reset_flow(self, client: AsyncClient, db_session: AsyncSession) -> None:
@@ -696,6 +738,46 @@ class TestRefreshToken:
             json={"refresh_token": old_refresh},
         )
         assert reauth_resp.status_code == 401
+
+    async def test_deactivated_account_cannot_refresh_or_use_access_token(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        phone = _valid_phone()
+        async with db_session.begin():
+            user = User(
+                phone=phone,
+                full_name="Refresh Deactivated",
+                user_category=UserCategory.BUSINESS_STAFF,
+                password_hash=hash_password(_TEST_PASSWORD),
+            )
+            db_session.add(user)
+
+        login_resp = await client.post(
+            "/api/v1/auth/login/password",
+            json={"phone": phone, "password": _TEST_PASSWORD},
+        )
+        assert login_resp.status_code == 200
+        refresh_token = login_resp.json()["refresh_token"]
+        access_token = login_resp.json()["access_token"]
+
+        async with db_session.begin():
+            row = (
+                await db_session.exec(select(User).where(User.phone == phone))
+            ).one()
+            row.is_active = False
+            db_session.add(row)
+
+        refresh_resp = await client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": refresh_token},
+        )
+        assert refresh_resp.status_code == 401
+
+        me_resp = await client.get(
+            "/api/v1/users/me/onboarding-status",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert me_resp.status_code == 401
 
 
 class TestLogout:

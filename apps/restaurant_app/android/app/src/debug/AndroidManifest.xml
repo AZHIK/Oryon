@@ -4,4 +4,7 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Local backends are plain HTTP. This flag is intentionally scoped to
+         debug builds; release builds require HTTPS (SEC-05). -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>

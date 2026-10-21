@@ -250,6 +250,35 @@ class TestTokenFamily:
                 new_raw_token="replay-v3",
             )
 
+        # Replay must revoke the whole family, not just reject this request.
+        family_tokens = (
+            await db_session.exec(
+                select(RefreshToken).where(RefreshToken.user_id == test_user.id)
+            )
+        ).all()
+        assert family_tokens
+        assert all(token.revoked_at is not None for token in family_tokens)
+
+        sessions = (
+            await db_session.exec(
+                select(UserSession).where(UserSession.user_id == test_user.id)
+            )
+        ).all()
+        assert sessions
+        assert all(not user_session.is_active for user_session in sessions)
+
+        # Close the read transaction opened by the assertions above; the
+        # service owns its own begin() block.
+        await db_session.commit()
+
+        # The token minted during the legitimate rotation is now revoked too.
+        with pytest.raises(InvalidRefreshTokenError):
+            await rotate_refresh_token(
+                db_session,
+                raw_token="replay-v2",
+                new_raw_token="replay-v4",
+            )
+
     async def test_reuse_of_rotated_token_raises_twice(
         self, db_session: AsyncSession, test_user: User
     ) -> None:

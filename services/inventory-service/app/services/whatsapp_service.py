@@ -214,15 +214,22 @@ _META_TO_STATUS: dict[str, MessageStatus] = {
 
 
 def verify_signature(raw_body: bytes, signature_header: str | None) -> bool:
-    """Check ``X-Hub-Signature-256``. Skipped (True) when no app secret is
-    configured — the per-business verify token is then the only check."""
+    """Verify Meta's ``X-Hub-Signature-256`` header.
+
+    Fails closed: if no app secret is configured, every inbound webhook is
+    rejected. Production startup already refuses to boot without the secret
+    (SEC-02); this also protects local/dev deployments from silently
+    accepting forged callbacks.
+    """
     secret = get_settings().whatsapp_app_secret
     if not secret:
-        return True
+        logger.error("whatsapp.webhook.no_app_secret")
+        return False
     if not signature_header or not signature_header.startswith("sha256="):
         return False
     expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature_header.removeprefix("sha256="))
+    presented = signature_header.removeprefix("sha256=")
+    return hmac.compare_digest(expected, presented)
 
 
 async def apply_status_callbacks(

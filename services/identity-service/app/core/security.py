@@ -209,6 +209,61 @@ def decode_and_verify_access_token(token: str) -> dict[str, Any]:
     return payload
 
 
+IDENTIFIER_CHANGE_TOKEN_TTL_MINUTES = 10
+
+
+def create_identifier_change_token(
+    *,
+    subject: str,
+    change_type: str,
+    new_value: str,
+) -> str:
+    """Create a short-lived, signed proof of *which* identifier is changing.
+
+    The OTP itself only proves control of the destination. This token binds
+    the destination to the authenticated account, so a code requested for
+    ``attacker@example.com`` cannot be submitted with a different address in
+    the verify call (SEC-06). The ``type`` is deliberately not ``access``, so
+    it can never be used as a bearer token.
+    """
+    if change_type not in {"email_change", "phone_change"}:
+        raise ValueError(f"Unsupported identifier change type: {change_type}")
+
+    settings = get_settings()
+    now = datetime.now(UTC)
+    payload: dict[str, Any] = {
+        "sub": subject,
+        "type": change_type,
+        "new_value": new_value,
+        "iat": now,
+        "exp": now + timedelta(minutes=IDENTIFIER_CHANGE_TOKEN_TTL_MINUTES),
+    }
+    return jwt.encode(payload, _load_private_key(), algorithm=settings.jwt_algorithm)
+
+
+def decode_identifier_change_token(token: str, *, expected_type: str) -> dict[str, Any]:
+    """Verify an identifier-change token and enforce its expected type."""
+    settings = get_settings()
+    try:
+        payload: dict[str, Any] = jwt.decode(
+            token,
+            _load_public_key(),
+            algorithms=[settings.jwt_algorithm],
+            options={"require": ["exp", "iat", "type", "sub", "new_value"]},
+        )
+    except jwt.ExpiredSignatureError:
+        raise ExpiredTokenError("Identifier change token has expired") from None
+    except jwt.InvalidTokenError as exc:
+        raise InvalidTokenError(str(exc)) from None
+
+    if payload.get("type") != expected_type:
+        raise InvalidTokenError("Identifier change token type mismatch")
+    if not isinstance(payload.get("new_value"), str):
+        raise InvalidTokenError("Identifier change token is missing new_value")
+
+    return payload
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 3. Refresh token primitives (generation / hashing only)
 # ═══════════════════════════════════════════════════════════════════════════
