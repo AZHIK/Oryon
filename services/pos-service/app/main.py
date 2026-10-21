@@ -1,4 +1,4 @@
-"""FastAPI application factory for FoodLink POS Service."""
+"""FastAPI application factory for Oryon Foods POS Service."""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager

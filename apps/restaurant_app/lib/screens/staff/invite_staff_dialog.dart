@@ -499,7 +499,7 @@ class _AddRoleDialogState extends ConsumerState<AddRoleDialog> {
 
       if (!mounted) return;
       final roleName =
-          ref.read(roleByIdProvider(roleId))?.name ??
+          ref.read(roleByIdProvider(roleId))?.displayName ??
           AppStrings.roleFallbackName;
       final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).pop();
@@ -570,7 +570,7 @@ class RolePickerField extends StatelessWidget {
                 DropdownMenuItem(
                   value: role.id,
                   child: Text(
-                    role.name,
+                    role.displayName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),

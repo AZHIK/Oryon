@@ -203,7 +203,7 @@ class RolesNotifier extends AsyncNotifier<List<BusinessRole>> {
     if (source == null) throw StateError('Role $id not found');
 
     final businessId = _businessId;
-    final name = _uniqueName('${source.name} copy');
+    final name = _uniqueName('${source.displayName} copy');
     final created = await _api.createRole(
       businessId: businessId,
       input: CreateRoleInput(name: name, description: source.description),
@@ -224,7 +224,8 @@ class RolesNotifier extends AsyncNotifier<List<BusinessRole>> {
   /// copy" would be indistinguishable in every picker in the app.
   String _uniqueName(String preferred) {
     final taken = {
-      for (final role in state.valueOrNull ?? const <BusinessRole>[]) role.name.toLowerCase(),
+      for (final role in state.valueOrNull ?? const <BusinessRole>[])
+        role.displayName.toLowerCase(),
     };
     if (!taken.contains(preferred.toLowerCase())) return preferred;
 

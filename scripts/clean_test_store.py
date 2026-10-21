@@ -32,13 +32,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 import asyncpg
 
 AUTH_DB_URL = os.getenv(
-    "AUTH_DB_URL", "postgresql://foodlink:foodlink@localhost:5455/foodlink_auth"
+    "AUTH_DB_URL", "postgresql://oryonfoods:oryonfoods@localhost:5455/oryonfoods_auth"
 )
 INVENTORY_DB_URL = os.getenv(
-    "INVENTORY_DB_URL", "postgresql://foodlink:foodlink@localhost:5434/foodlink_inventory"
+    "INVENTORY_DB_URL", "postgresql://oryonfoods:oryonfoods@localhost:5434/oryonfoods_inventory"
 )
 POS_DB_URL = os.getenv(
-    "POS_DB_URL", "postgresql://foodlink:foodlink@localhost:5435/foodlink_pos"
+    "POS_DB_URL", "postgresql://oryonfoods:oryonfoods@localhost:5435/oryonfoods_pos"
 )
 
 

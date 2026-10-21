@@ -1,7 +1,7 @@
 [project]
-name = "foodlink-pos"
+name = "oryonfoods-pos"
 version = "0.1.0"
-description = "POS microservice for FoodLink Africa"
+description = "POS microservice for Oryon Foods"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Proprietary" }

@@ -21,8 +21,8 @@ Usage:
     uv run scripts/seed_inventory_suppliers.py --force   # re-link + reseed extras
 
 DB connection (defaults match the local docker-compose ports):
-    --auth-db / $AUTH_DB_URL         (default localhost:5455/foodlink_auth)
-    --inventory-db / $INVENTORY_DB_URL  (default localhost:5434/foodlink_inventory)
+    --auth-db / $AUTH_DB_URL         (default localhost:5455/oryonfoods_auth)
+    --inventory-db / $INVENTORY_DB_URL  (default localhost:5434/oryonfoods_inventory)
 
 Idempotency: suppliers are matched by (business_id, name). Re-running
 without --force keeps existing suppliers and only fills in missing links +
@@ -41,10 +41,10 @@ from uuid import UUID, uuid4
 import asyncpg
 
 AUTH_DB_URL = os.getenv(
-    "AUTH_DB_URL", "postgresql://foodlink:foodlink@localhost:5455/foodlink_auth"
+    "AUTH_DB_URL", "postgresql://oryonfoods:oryonfoods@localhost:5455/oryonfoods_auth"
 )
 INVENTORY_DB_URL = os.getenv(
-    "INVENTORY_DB_URL", "postgresql://foodlink:foodlink@localhost:5434/foodlink_inventory"
+    "INVENTORY_DB_URL", "postgresql://oryonfoods:oryonfoods@localhost:5434/oryonfoods_inventory"
 )
 
 PREFIX = "TZ "

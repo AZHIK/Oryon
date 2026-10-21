@@ -44,7 +44,7 @@ async def _create_staff_token_no_perm(db_session: AsyncSession) -> str:
     async with db_session.begin():
         user = User(
             phone=_unique_phone(),
-            email="staff_no_perm@foodlink.com",
+            email="staff_no_perm@oryonfoods.com",
             full_name="Staff No Perm",
             user_category=UserCategory.PLATFORM_STAFF,
             status=UserStatus.ACTIVE,
@@ -64,7 +64,7 @@ async def _create_staff_token_with_perms(db_session: AsyncSession, perms: list[s
     async with db_session.begin():
         user = User(
             phone=_unique_phone(),
-            email="staff_with_perm@foodlink.com",
+            email="staff_with_perm@oryonfoods.com",
             full_name="Staff With Perm",
             user_category=UserCategory.PLATFORM_STAFF,
             status=UserStatus.ACTIVE,
@@ -340,7 +340,7 @@ class TestAdminUserDelete:
         async with db_session.begin():
             user = User(
                 phone=_unique_phone(),
-                email="selfdeact@foodlink.com",
+                email="selfdeact@oryonfoods.com",
                 full_name="Self Deactivator",
                 user_category=UserCategory.PLATFORM_STAFF,
                 status=UserStatus.ACTIVE,

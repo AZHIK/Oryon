@@ -132,7 +132,7 @@ async def _connect(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch, phone_number_id: str = "12345"
 ) -> dict:
     async def _fake_fetch(**_kwargs):  # noqa: ANN003, ANN202
-        return {"display_phone_number": "+255700000099", "verified_name": "FoodLink"}
+        return {"display_phone_number": "+255700000099", "verified_name": "Oryon Foods"}
 
     monkeypatch.setattr(whatsapp_service, "fetch_phone_number", _fake_fetch)
     response = await client.put(

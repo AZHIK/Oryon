@@ -27,8 +27,8 @@ Usage:
     uv run scripts/seed_tanzania_recipes.py --store-id <uuid> --business-id <uuid> --force
 
 DB connection (defaults match the local docker-compose ports):
-    --auth-db / $AUTH_DB_URL         (default localhost:5455/foodlink_auth)
-    --inventory-db / $INVENTORY_DB_URL  (default localhost:5434/foodlink_inventory)
+    --auth-db / $AUTH_DB_URL         (default localhost:5455/oryonfoods_auth)
+    --inventory-db / $INVENTORY_DB_URL  (default localhost:5434/oryonfoods_inventory)
 
 Idempotency: every row this script owns is prefixed "TZ ". Re-running
 refuses when TZ rows already exist for the store (pass --force to wipe
@@ -47,10 +47,10 @@ from uuid import UUID, uuid4
 import asyncpg
 
 AUTH_DB_URL = os.getenv(
-    "AUTH_DB_URL", "postgresql://foodlink:foodlink@localhost:5455/foodlink_auth"
+    "AUTH_DB_URL", "postgresql://oryonfoods:oryonfoods@localhost:5455/oryonfoods_auth"
 )
 INVENTORY_DB_URL = os.getenv(
-    "INVENTORY_DB_URL", "postgresql://foodlink:foodlink@localhost:5434/foodlink_inventory"
+    "INVENTORY_DB_URL", "postgresql://oryonfoods:oryonfoods@localhost:5434/oryonfoods_inventory"
 )
 
 PREFIX = "TZ "

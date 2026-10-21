@@ -91,7 +91,7 @@ class RestaurantPosApp extends ConsumerWidget {
       ),
       child: MaterialApp.router(
         key: ValueKey('app-${language.code}'),
-        title: '',
+        title: 'Oryon Foods',
         debugShowCheckedModeBanner: false,
         routerConfig: router,
         theme: AppTheme.light(),

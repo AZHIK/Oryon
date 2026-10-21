@@ -34,7 +34,7 @@ class StaffFilterPanel extends ConsumerWidget {
           children: [
             for (final role in roles)
               FilterChip(
-                label: Text(role.name),
+                label: Text(role.displayName),
                 selected: filters.roleIds.contains(role.id),
                 onSelected: (_) => notifier.toggleRole(role.id),
               ),

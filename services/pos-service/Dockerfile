@@ -42,7 +42,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 FROM python:3.12-slim-bookworm AS runtime
 
-RUN groupadd -r foodlink && useradd -r -g foodlink -d /app foodlink
+RUN groupadd -r oryonfoods && useradd -r -g oryonfoods -d /app oryonfoods
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
@@ -57,10 +57,10 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN mkdir -p /var/lib/foodlink/receipts && chown -R foodlink:foodlink /var/lib/foodlink
+RUN mkdir -p /var/lib/oryonfoods/receipts && chown -R oryonfoods:oryonfoods /var/lib/oryonfoods
 
 WORKDIR /app
-USER foodlink
+USER oryonfoods
 
 EXPOSE 8200
 

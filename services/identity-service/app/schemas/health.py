@@ -6,7 +6,7 @@ from pydantic import BaseModel
 class HealthResponse(BaseModel):
     status: str = "ok"
     version: str = "0.1.0"
-    service: str = "foodlink-auth"
+    service: str = "oryonfoods-auth"
 
 
 class ReadinessResponse(BaseModel):

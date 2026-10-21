@@ -1,5 +1,5 @@
 x-healthcheck-postgres: &healthcheck-postgres
-  test: ["CMD-SHELL", "pg_isready -U foodlink -d foodlink_inventory"]
+  test: ["CMD-SHELL", "pg_isready -U oryonfoods -d oryonfoods_inventory"]
   interval: 5s
   timeout: 3s
   retries: 5
@@ -13,12 +13,12 @@ services:
       - "8100:8100"
     env_file: ./.env
     environment:
-      - DB_URL=postgresql+asyncpg://foodlink:foodlink@postgres:5432/foodlink_inventory
+      - DB_URL=postgresql+asyncpg://oryonfoods:oryonfoods@postgres:5432/oryonfoods_inventory
       # Never use the test DB in runtime — .env must leave TEST_DB_URL unset;
       # this empty override guards against a stray TEST_DB_URL in .env.
       - TEST_DB_URL=
     volumes:
-      - item_images:/var/lib/foodlink/item_images
+      - item_images:/var/lib/oryonfoods/item_images
     depends_on:
       postgres:
         condition: service_healthy
@@ -33,14 +33,14 @@ services:
     image: postgres:16-alpine
     env_file: ./.env
     environment:
-      POSTGRES_USER: foodlink
-      POSTGRES_PASSWORD: foodlink
-      POSTGRES_DB: foodlink_inventory
+      POSTGRES_USER: oryonfoods
+      POSTGRES_PASSWORD: oryonfoods
+      POSTGRES_DB: oryonfoods_inventory
     ports:
       - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Creates foodlink_inventory_test on FIRST init only (docker-entrypoint
+      # Creates oryonfoods_inventory_test on FIRST init only (docker-entrypoint
       # scripts do not rerun on an existing data volume).
       - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/10-init-test-db.sql:ro
     healthcheck: *healthcheck-postgres
@@ -54,10 +54,10 @@ services:
       - dev
     env_file: ./.env
     environment:
-      - DB_URL=postgresql+asyncpg://foodlink:foodlink@postgres:5432/foodlink_inventory
+      - DB_URL=postgresql+asyncpg://oryonfoods:oryonfoods@postgres:5432/oryonfoods_inventory
       # Test runs (and conftest) target this separate database so the dev
       # database is never touched by the suite.
-      - TEST_DB_URL=postgresql+asyncpg://foodlink:foodlink@postgres:5432/foodlink_inventory_test
+      - TEST_DB_URL=postgresql+asyncpg://oryonfoods:oryonfoods@postgres:5432/oryonfoods_inventory_test
     volumes:
       - .:/app
     depends_on:

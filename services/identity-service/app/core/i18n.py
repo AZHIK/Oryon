@@ -18,8 +18,8 @@ DEFAULT = "en"
 _CATALOG: dict[str, dict[str, str]] = {
     # -- OTP ---------------------------------------------------------------
     "otp.sms_body": {
-        "en": "Your FoodLink verification code is: {code}. It expires in 5 minutes.",
-        "sw": "Nambari yako ya uthibitisho ya FoodLink ni: {code}. Inaisha baada ya dakika 5.",
+        "en": "Your Oryon Foods verification code is: {code}. It expires in 5 minutes.",
+        "sw": "Nambari yako ya uthibitisho ya Oryon Foods ni: {code}. Inaisha baada ya dakika 5.",
     },
     "otp.not_found": {
         "en": "No verification code found. Please request a new one.",

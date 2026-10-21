@@ -1,6 +1,6 @@
 """pytest fixtures — async client, test database session (real migrations).
 
-The test database is genuinely separate from dev: ``foodlink_inventory_test``
+The test database is genuinely separate from dev: ``oryonfoods_inventory_test``
 (``TEST_DB_URL``).  The schema is built ONCE per test session by running
 ``alembic upgrade head`` against it — the same path production uses — instead
 of the old ``create_all``/``drop_all``-per-test strategy, which silently hid
@@ -31,7 +31,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 if "TEST_DB_URL" not in os.environ:
     _dev_url = os.environ.get(
         "DB_URL",
-        "postgresql+asyncpg://foodlink:foodlink@localhost:5432/foodlink_inventory",
+        "postgresql+asyncpg://oryonfoods:oryonfoods@localhost:5432/oryonfoods_inventory",
     )
     _dev = make_url(_dev_url)
     os.environ["TEST_DB_URL"] = _dev.set(database=f"{_dev.database}_test").render_as_string(

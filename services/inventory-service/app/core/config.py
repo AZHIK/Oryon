@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     log_level: str = "DEBUG"
 
     # ── Database ───────────────────────────────
-    db_url: str = "postgresql+asyncpg://foodlink:foodlink@localhost:5432/foodlink_inventory"
+    db_url: str = "postgresql+asyncpg://oryonfoods:oryonfoods@localhost:5432/oryonfoods_inventory"
 
     # Genuinely separate test database.  When set (TEST_DB_URL env var), the
     # app engine AND Alembic target this database instead of db_url.  The test
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     # Service currently calls that endpoint directly over HTTP (MVP,
     # avoids standing up a broker) instead of publishing to a queue.
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
-    events_exchange: str = "foodlink.events"
+    events_exchange: str = "oryonfoods.events"
 
     # ── Inter-service events (MVP transport: synchronous HTTP) ────
     # Shared secret for service-to-service calls (e.g. POS Service's
@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     # Service's receipt storage: no cloud bucket exists in this repo yet, so
     # files live on a mounted volume. Single-node only; the volume must be
     # part of the backup story alongside the Postgres dump.
-    item_image_storage_root: str = "/var/lib/foodlink/item_images"
+    item_image_storage_root: str = "/var/lib/oryonfoods/item_images"
     # Matches the "up to 5 MB" hint the app's image picker shows.
     item_image_max_bytes: int = 5 * 1024 * 1024
 

@@ -64,7 +64,8 @@ class _OtpLoginScreenState extends ConsumerState<OtpLoginScreen> {
 
   bool _codeSent = false;
   bool _verifying = false;
-  bool _useEmail = false;
+  // Email is the default sign-in channel; phone remains one tap away.
+  bool _useEmail = true;
   String? _inputError;
   String? _codeError;
   int _shakeToken = 0;

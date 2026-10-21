@@ -1,11 +1,11 @@
-# FoodLink POS Service
+# Oryon Foods POS Service
 
-Point-of-sale microservice for FoodLink Africa. Manages sales transactions,
+Point-of-sale microservice for Oryon Foods. Manages sales transactions,
 line items, payments, receipts, local tax configuration, ad-hoc
 other-expense/other-income finance entries, and a business's customer
 ledger (sales may optionally be attributed to a customer via a real FK).
 
-- **Database**: dedicated `foodlink_pos` PostgreSQL instance (not shared).
+- **Database**: dedicated `oryonfoods_pos` PostgreSQL instance (not shared).
 - **Auth**: verifies RS256 JWTs issued by Identity Service (never issues tokens).
 - **Events**: publishes sale lifecycle events (`sale.completed`, `sale.voided`,
   `sale.refunded`) via a shared RabbitMQ exchange.

@@ -24,7 +24,7 @@ async def _create_admin_token(db_session: AsyncSession) -> str:
     async with db_session.begin():
         user = User(
             phone="+255700000001",
-            email="admin@foodlink.com",
+            email="admin@oryonfoods.com",
             full_name="Admin User",
             user_category=UserCategory.PLATFORM_STAFF,
             status=UserStatus.ACTIVE,
@@ -44,7 +44,7 @@ async def _create_non_admin_token(db_session: AsyncSession) -> str:
     async with db_session.begin():
         user = User(
             phone="+255700000002",
-            email="staff@foodlink.com",
+            email="staff@oryonfoods.com",
             full_name="Staff User",
             user_category=UserCategory.PLATFORM_STAFF,
             status=UserStatus.ACTIVE,
@@ -69,7 +69,7 @@ class TestPlatformRegister:
         resp = await client.post(
             "/api/v1/auth/platform/register",
             json={
-                "email": "newstaff@foodlink.com",
+                "email": "newstaff@oryonfoods.com",
                 "full_name": "New Staff",
                 "password": "StrongPass1!",
                 "group_id": str(uuid4()),
@@ -85,7 +85,7 @@ class TestPlatformRegister:
         resp = await client.post(
             "/api/v1/auth/platform/register",
             json={
-                "email": "newstaff2@foodlink.com",
+                "email": "newstaff2@oryonfoods.com",
                 "full_name": "New Staff",
                 "password": "StrongPass1!",
                 "group_id": str(uuid4()),
@@ -103,7 +103,7 @@ class TestPlatformRegister:
 
         admin_token = await _create_admin_token(db_session)
 
-        email = f"staff{uuid4().hex[:8]}@foodlink.com"
+        email = f"staff{uuid4().hex[:8]}@oryonfoods.com"
         resp = await client.post(
             "/api/v1/auth/platform/register",
             json={
@@ -127,7 +127,7 @@ class TestPlatformRegister:
             db_session.add(group)
 
         admin_token = await _create_admin_token(db_session)
-        email = f"dup{uuid4().hex[:8]}@foodlink.com"
+        email = f"dup{uuid4().hex[:8]}@oryonfoods.com"
 
         resp = await client.post(
             "/api/v1/auth/platform/register",
@@ -171,7 +171,7 @@ class TestPlatformLogin:
         async with db_session.begin():
             user = User(
                 phone=_platform_phone(),
-                email=f"analyst{uuid4().hex[:8]}@foodlink.com",
+                email=f"analyst{uuid4().hex[:8]}@oryonfoods.com",
                 full_name="Analyst User",
                 user_category=UserCategory.PLATFORM_STAFF,
                 status=UserStatus.ACTIVE,
@@ -199,7 +199,7 @@ class TestPlatformLogin:
         async with db_session.begin():
             user = User(
                 phone=_platform_phone(),
-                email=f"badlogin{uuid4().hex[:8]}@foodlink.com",
+                email=f"badlogin{uuid4().hex[:8]}@oryonfoods.com",
                 full_name="Bad Login",
                 user_category=UserCategory.PLATFORM_STAFF,
                 status=UserStatus.ACTIVE,
@@ -223,7 +223,7 @@ class TestPlatformMFA:
     ) -> None:
         resp = await client.post(
             "/api/v1/auth/platform/mfa/verify",
-            json={"email": "admin@foodlink.com", "code": "123456"},
+            json={"email": "admin@oryonfoods.com", "code": "123456"},
         )
         assert resp.status_code == 501
         assert "not yet implemented" in resp.json()["detail"].lower()
@@ -236,7 +236,7 @@ class TestPlatformLoginRateLimit:
         async with db_session.begin():
             user = User(
                 phone=_platform_phone(),
-                email="ratelimit@foodlink.com",
+                email="ratelimit@oryonfoods.com",
                 full_name="Rate Limit User",
                 user_category=UserCategory.PLATFORM_STAFF,
                 status=UserStatus.ACTIVE,
@@ -266,7 +266,7 @@ class TestPlatformLoginRateLimit:
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         # Create multiple users with different emails but same IP (test client)
-        emails = [f"user{i}@foodlink.com" for i in range(RATE_LIMIT_PLATFORM_LOGIN_IP_LIMIT + 1)]
+        emails = [f"user{i}@oryonfoods.com" for i in range(RATE_LIMIT_PLATFORM_LOGIN_IP_LIMIT + 1)]
         for email in emails:
             async with db_session.begin():
                 user = User(
@@ -299,8 +299,8 @@ class TestPlatformLoginRateLimit:
     async def test_different_email_not_blocked_by_another_email_limit(
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
-        email1 = "limit1@foodlink.com"
-        email2 = "limit2@foodlink.com"
+        email1 = "limit1@oryonfoods.com"
+        email2 = "limit2@oryonfoods.com"
 
         async with db_session.begin():
             user1 = User(
@@ -411,7 +411,7 @@ class TestPlatformRegisterPermissionGuard:
         async with db_session.begin():
             staff_user = User(
                 phone="+255777000222",
-                email="viewer@foodlink.com",
+                email="viewer@oryonfoods.com",
                 full_name="Viewer Staff",
                 user_category=UserCategory.PLATFORM_STAFF,
                 status=UserStatus.ACTIVE,
@@ -429,7 +429,7 @@ class TestPlatformRegisterPermissionGuard:
         resp = await client.post(
             "/api/v1/auth/platform/register",
             json={
-                "email": "newstaff_viewer_attempt@foodlink.com",
+                "email": "newstaff_viewer_attempt@oryonfoods.com",
                 "full_name": "New Staff",
                 "password": "StrongPass1!",
                 "group_id": str(uuid4()),
@@ -447,7 +447,7 @@ class TestPlatformRegisterPermissionGuard:
             db_session.add(group)
 
         admin_token = await _create_admin_token(db_session)
-        email = f"newstaff_{uuid4().hex[:8]}@foodlink.com"
+        email = f"newstaff_{uuid4().hex[:8]}@oryonfoods.com"
 
         resp = await client.post(
             "/api/v1/auth/platform/register",

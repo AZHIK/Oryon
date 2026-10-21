@@ -1,16 +1,16 @@
-# FoodLink Inventory Service
+# Oryon Foods Inventory Service
 
-Inventory microservice for FoodLink Africa. Handles item catalog, stock
+Inventory microservice for Oryon Foods. Handles item catalog, stock
 levels, movements, adjustments, and procurement — everything that tracks
 "what do we have and where".
 
 ## Architecture
 
-This service is a **resource server** in the FoodLink ecosystem. It:
+This service is a **resource server** in the Oryon Foods ecosystem. It:
 
 - **Verifies** JWT tokens issued by the Identity Service (it never issues
   its own tokens — only the Identity Service possesses the private key).
-- **Owns its own data** in a dedicated `foodlink_inventory` Postgres database
+- **Owns its own data** in a dedicated `oryonfoods_inventory` Postgres database
   (it does not share Identity Service's database).
 - **Publishes and subscribes** to events via a shared RabbitMQ exchange
   (configured via `RABBITMQ_URL` and `EVENTS_EXCHANGE`).

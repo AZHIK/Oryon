@@ -1,6 +1,6 @@
-# restaurant_pos
+# Oryon Foods
 
-A new Flutter project.
+The Oryon Foods point-of-sale and business management app.
 
 ## Getting Started
 

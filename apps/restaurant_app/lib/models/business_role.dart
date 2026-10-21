@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/role_name.dart';
 import 'permission.dart';
 
 /// A named set of permissions that staff are assigned to.
@@ -16,6 +17,10 @@ class BusinessRole {
   final String id;
   final String name;
   final String description;
+
+  /// The name as it should be read on screen. Backend role names are
+  /// snake_case identifiers, so every UI surface uses this rather than [name].
+  String get displayName => humanizeRoleName(name);
 
   /// Ids from [AppPermissions]. A set because order carries no meaning and
   /// membership is the only question ever asked of it.

@@ -7,7 +7,7 @@ Steps to enable:
     2. opentelemetry-bootstrap --action=install
     3. Uncomment the setup function below.
     4. Set env vars:
-       OTEL_SERVICE_NAME=foodlink-auth
+       OTEL_SERVICE_NAME=oryonfoods-auth
        OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
        OTEL_TRACES_SAMPLER=parentbased_traceidratio
        OTEL_TRACES_SAMPLER_ARG=0.1
@@ -21,7 +21,7 @@ Steps to enable:
 #
 # logger = logging.getLogger(__name__)
 #
-# def configure_telemetry(service_name: str = "foodlink-auth") -> None:
+# def configure_telemetry(service_name: str = "oryonfoods-auth") -> None:
 #     provider = TracerProvider()
 #     exporter = OTLPSpanExporter()
 #     processor = BatchSpanProcessor(exporter)

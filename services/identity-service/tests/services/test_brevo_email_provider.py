@@ -22,7 +22,7 @@ API_URL = "https://api.brevo.com/v3/smtp/email"
 def _brevo_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("BREVO_API_KEY", "test-key")
     monkeypatch.setenv("BREVO_FROM_EMAIL", "sender@example.com")
-    monkeypatch.setenv("BREVO_FROM_NAME", "FoodLink Test")
+    monkeypatch.setenv("BREVO_FROM_NAME", "Oryon Foods Test")
     monkeypatch.setenv("BREVO_API_URL", API_URL)
     get_settings.cache_clear()
     yield
@@ -84,7 +84,7 @@ async def test_sends_payload_with_api_key(monkeypatch: pytest.MonkeyPatch) -> No
     payload = captured["payload"]
     assert payload["sender"] == {
         "email": "sender@example.com",
-        "name": "FoodLink Test",
+        "name": "Oryon Foods Test",
     }
     assert payload["to"] == [{"email": "staff@example.com"}]
     assert payload["subject"] == "Your code"

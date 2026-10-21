@@ -335,7 +335,7 @@ final filteredStaffProvider = Provider<List<StaffMember>>((ref) {
   final filters = ref.watch(staffFiltersProvider);
   final search = query.search.trim().toLowerCase();
 
-  String roleNames(StaffMember m) => m.roles.map((r) => r.roleName).join(' ');
+  String roleNames(StaffMember m) => m.roles.map((r) => r.displayName).join(' ');
 
   final rows = members.where((member) {
     if (!filters.matches(member)) return false;

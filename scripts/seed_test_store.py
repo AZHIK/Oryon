@@ -9,12 +9,12 @@ Covers every store-scoped / business-scoped table so all store features
 can be tested manually (store CRUD, inventory, recipes, production,
 reorders, POS sales, customers, finance):
 
-  Identity  (foodlink_auth):      store, store_settings (+ optional staff assignment)
-  Inventory (foodlink_inventory): supplier, item, stocklevel, stockmovement,
-                                  recipe, recipecomponent, productionevent,
-                                  productioneventcomponent, reorder
-  POS       (foodlink_pos):       customers, sales, sale_line_items,
-                                  other_expenses, other_incomes
+  Identity  (oryonfoods_auth):       store, store_settings (+ optional staff assignment)
+  Inventory (oryonfoods_inventory):  supplier, item, stocklevel, stockmovement,
+                                     recipe, recipecomponent, productionevent,
+                                     productioneventcomponent, reorder
+  POS       (oryonfoods_pos):        customers, sales, sale_line_items,
+                                     other_expenses, other_incomes
 
 Usage:
     # Seed a brand-new store under the first restaurant business:
@@ -33,9 +33,9 @@ Usage:
     uv run scripts/seed_test_store.py --delete --store-id <uuid> --business-id <uuid>
 
 DB connection (defaults match the local docker-compose ports):
-    --auth-db / $AUTH_DB_URL         (default localhost:5455/foodlink_auth)
-    --inventory-db / $INVENTORY_DB_URL  (default localhost:5434/foodlink_inventory)
-    --pos-db / $POS_DB_URL           (default localhost:5435/foodlink_pos)
+    --auth-db / $AUTH_DB_URL         (default localhost:5455/oryonfoods_auth)
+    --inventory-db / $INVENTORY_DB_URL  (default localhost:5434/oryonfoods_inventory)
+    --pos-db / $POS_DB_URL           (default localhost:5435/oryonfoods_pos)
 
 Idempotency: a store named <store-name> is created once per business
 (unique constraint). Re-running without --store-id fails fast unless
@@ -57,13 +57,13 @@ from uuid import UUID, uuid4
 import asyncpg
 
 AUTH_DB_URL = os.getenv(
-    "AUTH_DB_URL", "postgresql://foodlink:foodlink@localhost:5455/foodlink_auth"
+    "AUTH_DB_URL", "postgresql://oryonfoods:oryonfoods@localhost:5455/oryonfoods_auth"
 )
 INVENTORY_DB_URL = os.getenv(
-    "INVENTORY_DB_URL", "postgresql://foodlink:foodlink@localhost:5434/foodlink_inventory"
+    "INVENTORY_DB_URL", "postgresql://oryonfoods:oryonfoods@localhost:5434/oryonfoods_inventory"
 )
 POS_DB_URL = os.getenv(
-    "POS_DB_URL", "postgresql://foodlink:foodlink@localhost:5435/foodlink_pos"
+    "POS_DB_URL", "postgresql://oryonfoods:oryonfoods@localhost:5435/oryonfoods_pos"
 )
 
 NOW = datetime.now(timezone.utc)

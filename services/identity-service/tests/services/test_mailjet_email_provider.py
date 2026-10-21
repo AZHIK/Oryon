@@ -24,7 +24,7 @@ def _mailjet_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("MAILJET_API_KEY", "test-key")
     monkeypatch.setenv("MAILJET_SECRET_KEY", "test-secret")
     monkeypatch.setenv("MAILJET_FROM_EMAIL", "sender@example.com")
-    monkeypatch.setenv("MAILJET_FROM_NAME", "FoodLink Test")
+    monkeypatch.setenv("MAILJET_FROM_NAME", "Oryon Foods Test")
     monkeypatch.setenv("MAILJET_API_URL", API_URL)
     get_settings.cache_clear()
     yield
@@ -96,7 +96,7 @@ async def test_sends_payload_with_basic_auth(monkeypatch: pytest.MonkeyPatch) ->
     message = captured["payload"]["Messages"][0]
     assert message["From"] == {
         "Email": "sender@example.com",
-        "Name": "FoodLink Test",
+        "Name": "Oryon Foods Test",
     }
     assert message["To"] == [{"Email": "staff@example.com"}]
     assert message["Subject"] == "Your code"

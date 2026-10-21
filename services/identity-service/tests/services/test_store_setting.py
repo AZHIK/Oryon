@@ -89,7 +89,7 @@ class TestStoreSettingOneToOne:
 class TestStoreSettingRoundTrip:
     async def test_logo_round_trip(self, db_session: AsyncSession) -> None:
         store = await _make_store(db_session)
-        logo_url = "https://cdn.foodlink.com/stores/store-1.png"
+        logo_url = "https://cdn.oryonfoods.com/stores/store-1.png"
 
         async with db_session.begin():
             db_session.add(StoreSetting(store_id=store.id, logo=logo_url))
@@ -161,7 +161,7 @@ class TestBusinessLogo:
             full_name="Logo Test User",
             user_category=UserCategory.BUSINESS_STAFF,
         )
-        logo_url = "https://cdn.foodlink.com/businesses/biz-1.png"
+        logo_url = "https://cdn.oryonfoods.com/businesses/biz-1.png"
 
         async with db_session.begin():
             db_session.add(user)

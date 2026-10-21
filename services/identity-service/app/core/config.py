@@ -24,11 +24,11 @@ class Settings(BaseSettings):
     # ── App ────────────────────────────────────
     environment: Literal["local", "dev", "staging", "prod"] = "local"
     debug: bool = True
-    app_name: str = "FoodLink Auth"
+    app_name: str = "Oryon Foods Auth"
     log_level: str = "DEBUG"
 
     # ── Database ───────────────────────────────
-    db_url: str = "postgresql+asyncpg://foodlink:foodlink@localhost:5432/foodlink_auth"
+    db_url: str = "postgresql+asyncpg://oryonfoods:oryonfoods@localhost:5432/oryonfoods_auth"
 
     # ── Redis ──────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # ── OTP ────────────────────────────────────
     otp_provider: str = "twilio"
     otp_api_key: str = ""
-    otp_sender_id: str = "FoodLink"
+    otp_sender_id: str = "Oryon Foods"
     otp_expire_minutes: int = 5
     otp_max_attempts: int = 5
 
@@ -72,8 +72,8 @@ class Settings(BaseSettings):
         "",
         validation_alias=AliasChoices("BREVO_API_KEY", "SENDINBLUE_API_KEY", "brevo_api_key"),
     )
-    brevo_from_email: str = "no-reply@foodlink.africa"
-    brevo_from_name: str = "FoodLink"
+    brevo_from_email: str = "no-reply@oryonfoods.com"
+    brevo_from_name: str = "Oryon Foods"
     brevo_api_url: str = "https://api.brevo.com/v3/smtp/email"
     brevo_timeout_seconds: int = 15
 
@@ -90,14 +90,14 @@ class Settings(BaseSettings):
             "MAILJET_SECRET_KEY", "MJ_APIKEY_PRIVATE", "mailjet_secret_key"
         ),
     )
-    mailjet_from_email: str = "no-reply@foodlink.africa"
-    mailjet_from_name: str = "FoodLink"
+    mailjet_from_email: str = "no-reply@oryonfoods.com"
+    mailjet_from_name: str = "Oryon Foods"
     mailjet_api_url: str = "https://api.mailjet.com/v3.1/send"
     mailjet_timeout_seconds: int = 15
 
     # ── CORS ────────────────────────────────────
     # Comma-separated list of allowed origins. In production, set this to
-    # the actual Flutter app origin (e.g. https://app.foodlink.com) and the
+    # the actual Flutter app origin (e.g. https://app.oryonfoods.com) and the
     # Next.js admin dashboard domain. Defaults to http://localhost:3000 for
     # local Next.js dev.
     cors_allowed_origins: str = "http://localhost:3000"

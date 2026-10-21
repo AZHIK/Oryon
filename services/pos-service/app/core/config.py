@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     log_level: str = "DEBUG"
 
     # ── Database ───────────────────────────────
-    db_url: str = "postgresql+asyncpg://foodlink:foodlink@localhost:5432/foodlink_pos"
+    db_url: str = "postgresql+asyncpg://oryonfoods:oryonfoods@localhost:5432/oryonfoods_pos"
 
     # ── JWT (verification only — no private key in this service) ──
     jwt_public_key_path: str = "keys/public.pem"
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     # avoids standing up a broker); these settings stay defined so the
     # eventual broker migration doesn't need a new settings section.
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
-    events_exchange: str = "foodlink.events"
+    events_exchange: str = "oryonfoods.events"
 
     # ── Inter-service events (MVP transport: synchronous HTTP) ────
     # Where publish_event posts stock-affecting events (sale.completed,
@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     # replace it later without touching call sites. NOTE: local disk pins
     # this service to a single node — revisit before horizontal scaling,
     # and make sure this volume is included in the backup story.
-    receipt_storage_root: str = "/var/lib/foodlink/receipts"
+    receipt_storage_root: str = "/var/lib/oryonfoods/receipts"
     receipt_max_bytes: int = 5 * 1024 * 1024
 
     # ── Host ───────────────────────────────────

@@ -72,7 +72,7 @@ class _RoleFormDialogState extends ConsumerState<RoleFormDialog> {
         : ref.read(roleByIdProvider(widget.roleId!));
 
     _existing = role;
-    _name.text = role?.name ?? '';
+    _name.text = role?.displayName ?? '';
     _description.text = role?.description ?? '';
     _selected = Set.of(role?.permissionIds ?? const <String>{});
 

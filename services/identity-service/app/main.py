@@ -1,4 +1,4 @@
-"""FastAPI application factory for FoodLink Auth Service."""
+"""FastAPI application factory for Oryon Foods Auth Service."""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -38,7 +38,7 @@ app = FastAPI(
 # CORS — locked to explicit origins from config.
 # The wildcard "*" is intentionally avoided.  Set CORS_ALLOWED_ORIGINS in
 # the environment to the comma-separated list of origins that need access
-# (e.g. http://localhost:3000,https://admin.foodlink.com).  The Flutter app
+# (e.g. http://localhost:3000,https://admin.oryonfoods.com).  The Flutter app
 # origin must be included here if Flutter makes direct browser-based
 # requests (otherwise Flutter uses native HTTP which is not subject to CORS).
 origins = [o.strip() for o in settings.cors_allowed_origins.split(",") if o.strip()]

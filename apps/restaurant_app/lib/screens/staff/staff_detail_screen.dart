@@ -331,7 +331,7 @@ class _AccessPanel extends ConsumerWidget {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            AppStrings.roleRemovedFrom(assignment.roleName, member.name),
+            AppStrings.roleRemovedFrom(assignment.displayName, member.name),
           ),
         ),
       );

@@ -1,5 +1,5 @@
 x-healthcheck-postgres: &healthcheck-postgres
-  test: ["CMD-SHELL", "pg_isready -U foodlink -d foodlink_pos"]
+  test: ["CMD-SHELL", "pg_isready -U oryonfoods -d oryonfoods_pos"]
   interval: 5s
   timeout: 3s
   retries: 5
@@ -13,9 +13,9 @@ services:
       - "8200:8200"
     env_file: ./.env
     environment:
-      - DB_URL=postgresql+asyncpg://foodlink:foodlink@postgres:5432/foodlink_pos
+      - DB_URL=postgresql+asyncpg://oryonfoods:oryonfoods@postgres:5432/oryonfoods_pos
     volumes:
-      - receipt_data:/var/lib/foodlink/receipts
+      - receipt_data:/var/lib/oryonfoods/receipts
     depends_on:
       postgres:
         condition: service_healthy
@@ -30,9 +30,9 @@ services:
     image: postgres:16-alpine
     env_file: ./.env
     environment:
-      POSTGRES_USER: foodlink
-      POSTGRES_PASSWORD: foodlink
-      POSTGRES_DB: foodlink_pos
+      POSTGRES_USER: oryonfoods
+      POSTGRES_PASSWORD: oryonfoods
+      POSTGRES_DB: oryonfoods_pos
     ports:
       - "5435:5432"
     volumes:
@@ -48,10 +48,10 @@ services:
       - dev
     env_file: ./.env
     environment:
-      - DB_URL=postgresql+asyncpg://foodlink:foodlink@postgres:5432/foodlink_pos
+      - DB_URL=postgresql+asyncpg://oryonfoods:oryonfoods@postgres:5432/oryonfoods_pos
     volumes:
       - .:/app
-      - receipt_data:/var/lib/foodlink/receipts
+      - receipt_data:/var/lib/oryonfoods/receipts
     depends_on:
       postgres:
         condition: service_healthy

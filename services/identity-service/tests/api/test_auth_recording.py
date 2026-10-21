@@ -136,7 +136,7 @@ class TestLoginAttemptsRecording:
     async def test_platform_login_failure_creates_login_attempt(
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
-        email = f"staff_{uuid4().hex[:8]}@foodlink.com"
+        email = f"staff_{uuid4().hex[:8]}@oryonfoods.com"
         async with db_session.begin():
             user = User(
                 phone=_phone(),
@@ -164,7 +164,7 @@ class TestLoginAttemptsRecording:
     async def test_platform_login_success_creates_login_attempt(
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
-        email = f"staff_{uuid4().hex[:8]}@foodlink.com"
+        email = f"staff_{uuid4().hex[:8]}@oryonfoods.com"
         async with db_session.begin():
             user = User(
                 phone=_phone(),
@@ -388,7 +388,7 @@ class TestAuthRiskEventsRecording:
     async def test_platform_login_success_creates_login_success_event(
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
-        email = f"staff_{uuid4().hex[:8]}@foodlink.com"
+        email = f"staff_{uuid4().hex[:8]}@oryonfoods.com"
         async with db_session.begin():
             user = User(
                 phone=_phone(),

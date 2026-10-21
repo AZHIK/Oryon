@@ -1,4 +1,4 @@
-"""SQLModel table=True models for FoodLink Inventory Service.
+"""SQLModel table=True models for Oryon Foods Inventory Service.
 
 Each model defined here inherits from SQLModel and has table=True,
 meaning it maps to a Postgres table.

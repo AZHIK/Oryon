@@ -981,7 +981,7 @@ class _TeammateRow extends StatelessWidget {
                 DropdownMenuItem(
                   value: role.id,
                   child: Text(
-                    role.name,
+                    role.displayName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),

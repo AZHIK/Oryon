@@ -42,7 +42,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 FROM python:3.12-slim-bookworm AS runtime
 
-RUN groupadd -r foodlink && useradd -r -g foodlink -d /app foodlink
+RUN groupadd -r oryonfoods && useradd -r -g oryonfoods -d /app oryonfoods
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
@@ -52,14 +52,14 @@ COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app /app
 RUN rm -rf /app/tests /app/.pytest_cache /app/.ruff_cache /app/uv.lock && \
     chmod -R a+r /app/keys
-RUN mkdir -p /var/lib/foodlink/item_images && chown -R foodlink:foodlink /var/lib/foodlink
+RUN mkdir -p /var/lib/oryonfoods/item_images && chown -R oryonfoods:oryonfoods /var/lib/oryonfoods
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app
-USER foodlink
+USER oryonfoods
 
 EXPOSE 8100
 

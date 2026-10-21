@@ -1,6 +1,6 @@
-# FoodLink Auth Service Database Schema
+# Oryon Foods Auth Service Database Schema
 
-This document explains the database schema for the FoodLink Africa authentication
+This document explains the database schema for the Oryon Foods authentication
 and authorization service.
 
 The auth service owns identity, sessions, platform roles, business membership,
@@ -11,7 +11,7 @@ and farmer production plans should live in separate domain services.
 
 ## Design Summary
 
-FoodLink Africa is a multi-sided platform with restaurants, suppliers, farmers,
+Oryon Foods is a multi-sided platform with restaurants, suppliers, farmers,
 drivers, consumers, and platform staff. The schema is designed around these
 needs:
 
@@ -40,7 +40,7 @@ Most core tables include:
 
 ### `users`
 
-Stores the platform-wide identity record for every person using FoodLink Africa.
+Stores the platform-wide identity record for every person using Oryon Foods.
 
 Used for:
 
@@ -165,7 +165,7 @@ Relationships:
 Central catalog of permission codes used by the platform.
 
 This table prevents permission strings from becoming undocumented magic values.
-It is also where FoodLink identifies actions that are sensitive because they
+It is also where Oryon Foods identifies actions that are sensitive because they
 allow AI automation.
 
 Example permission codes:

@@ -363,6 +363,9 @@ void main() {
         overrides: fakeBackend(FakeIdentityBackendState()),
       );
 
+      await tester.tap(find.byKey(OtpLoginKeys.usePhoneInstead));
+      await tester.pumpAndSettle();
+
       await tester.tap(find.byKey(OtpLoginKeys.sendCode));
       await tester.pumpAndSettle();
       expect(find.text('Enter your phone number'), findsOneWidget);
@@ -386,6 +389,9 @@ void main() {
         route: AppRoute.loginPath,
         overrides: fakeBackend(FakeIdentityBackendState()),
       );
+
+      await tester.tap(find.byKey(OtpLoginKeys.usePhoneInstead));
+      await tester.pumpAndSettle();
 
       await tester.enterText(find.byKey(OtpLoginKeys.phone), '712345678');
       await tester.tap(find.byKey(OtpLoginKeys.sendCode));
@@ -413,6 +419,9 @@ void main() {
         route: AppRoute.loginPath,
         overrides: fakeBackend(FakeIdentityBackendState()),
       );
+
+      await tester.tap(find.byKey(OtpLoginKeys.usePhoneInstead));
+      await tester.pumpAndSettle();
 
       await tester.enterText(find.byKey(OtpLoginKeys.phone), '712345678');
       await tester.tap(find.byKey(OtpLoginKeys.sendCode));
@@ -444,8 +453,6 @@ void main() {
         overrides: fakeBackend(FakeIdentityBackendState()),
       );
 
-      await tester.tap(find.byKey(OtpLoginKeys.useEmailInstead));
-      await tester.pumpAndSettle();
       expect(find.byKey(OtpLoginKeys.email), findsOneWidget);
 
       await tester.enterText(find.byKey(OtpLoginKeys.email), 'not-an-email');
@@ -467,8 +474,6 @@ void main() {
         overrides: fakeBackend(FakeIdentityBackendState()),
       );
 
-      await tester.tap(find.byKey(OtpLoginKeys.useEmailInstead));
-      await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(OtpLoginKeys.email),
         'staff@example.com',
@@ -506,6 +511,9 @@ void main() {
         overrides: fakeBackend(FakeIdentityBackendState()),
       );
 
+      await tester.tap(find.byKey(OtpLoginKeys.usePhoneInstead));
+      await tester.pumpAndSettle();
+
       await tester.enterText(find.byKey(OtpLoginKeys.phone), '712345678');
       await tester.tap(find.byKey(OtpLoginKeys.sendCode));
       await tester.pumpAndSettle();
@@ -541,6 +549,9 @@ void main() {
           route: AppRoute.loginPath,
           overrides: fakeBackend(state),
         );
+
+        await tester.tap(find.byKey(OtpLoginKeys.usePhoneInstead));
+        await tester.pumpAndSettle();
 
         await tester.enterText(find.byKey(OtpLoginKeys.phone), '712345678');
         await tester.tap(find.byKey(OtpLoginKeys.sendCode));

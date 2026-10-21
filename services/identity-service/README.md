@@ -1,6 +1,6 @@
-# FoodLink Auth Service
+# Oryon Foods Auth Service
 
-Single sign-on identity / auth microservice for the FoodLink Africa platform.
+Single sign-on identity / auth microservice for the Oryon Foods platform.
 Serves all 4 Flutter apps + the Next.js dashboard with token-based authentication,
 OTP flows, session management, and role-based access control.
 
@@ -138,7 +138,7 @@ To run directly on the host (if you have the dependencies installed):
 
 ```bash
 # DB_URL points at the docker Postgres on localhost:5455
-export TEST_DB_URL=postgresql+asyncpg://foodlink:foodlink@localhost:5455/foodlink_auth_test
+export TEST_DB_URL=postgresql+asyncpg://oryonfoods:oryonfoods@localhost:5455/oryonfoods_auth_test
 uv run pytest
 uv run ruff check app tests
 uv run ruff format --check app tests

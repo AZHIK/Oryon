@@ -54,8 +54,8 @@ def _assert_safe_database() -> None:
         f"Refusing to run the test suite against database {name!r}: every test "
         "truncates all tables in it. Set TEST_DB_URL to a dedicated database "
         "whose name ends in '_test' (it is created automatically), e.g.\n"
-        "  TEST_DB_URL=postgresql+asyncpg://foodlink:foodlink@localhost:5455/"
-        "foodlink_auth_test uv run pytest\n"
+        "  TEST_DB_URL=postgresql+asyncpg://oryonfoods:oryonfoods@localhost:5455/"
+        "oryonfoods_auth_test uv run pytest\n"
         "Set ALLOW_DEV_DB_TESTS=1 only if you really intend to wipe that "
         "database."
     )

@@ -640,7 +640,7 @@ wheels = [
 ]
 
 [[package]]
-name = "foodlink-auth"
+name = "oryonfoods-auth"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

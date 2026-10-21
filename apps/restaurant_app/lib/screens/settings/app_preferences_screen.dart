@@ -350,7 +350,7 @@ class _AccountPanel extends ConsumerWidget {
                     ),
                     Text(
                       [
-                        if (role != null) role.name,
+                        if (role != null) role.displayName,
                         if (member != null && member.email.isNotEmpty)
                           member.email,
                       ].join(' · '),

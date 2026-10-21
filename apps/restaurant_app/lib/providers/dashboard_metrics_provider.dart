@@ -407,7 +407,7 @@ final dashboardActivityProvider = Provider<List<ActivityEntry>>((ref) {
     );
   }
 
-  final roleName = {for (final role in roles) role.id: role.name};
+  final roleName = {for (final role in roles) role.id: role.displayName};
   final clockedIn = [
     for (final member in staff)
       if (member.status == StaffStatus.active && member.lastActiveAt != null)

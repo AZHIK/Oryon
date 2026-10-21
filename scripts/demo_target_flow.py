@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--target-b", default="30", help="Run B target plates (shortfall).")
     ap.add_argument("--actual-b", default="26", help="Run B actual plates achieved.")
     ap.add_argument("--inventory-db", default=os.getenv(
-        "INVENTORY_DB_URL", "postgresql://foodlink:foodlink@localhost:5434/foodlink_inventory"))
+        "INVENTORY_DB_URL", "postgresql://oryonfoods:oryonfoods@localhost:5434/oryonfoods_inventory"))
     return ap.parse_args()
 
 

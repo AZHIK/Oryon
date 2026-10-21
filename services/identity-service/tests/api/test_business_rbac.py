@@ -521,7 +521,7 @@ class TestAssignStaff:
 
         platform_user = User(
             phone=f"+2557{uuid4().int % 100_000_000:08d}",
-            email=f"staff{uuid4().hex[:8]}@foodlink.com",
+            email=f"staff{uuid4().hex[:8]}@oryonfoods.com",
             full_name="Platform Staff",
             user_category=UserCategory.PLATFORM_STAFF,
             status=UserStatus.ACTIVE,

@@ -27,7 +27,7 @@ async def generate_and_send_otp_sms(
         delivery_type=VerificationCodeType.SMS,
     )
 
-    message = f"Your FoodLink verification code is: {raw_code}. It expires in 5 minutes."
+    message = f"Your Oryon Foods verification code is: {raw_code}. It expires in 5 minutes."
 
     provider = get_sms_provider()
     result = await provider.send_sms(phone=phone, message=message)
@@ -72,12 +72,12 @@ async def generate_and_send_otp_email(
     )
 
     expiry_minutes = settings.otp_expire_minutes
-    subject = "Your FoodLink verification code"
+    subject = "Your Oryon Foods verification code"
     text_body = (
-        f"Your FoodLink verification code is: {raw_code}. It expires in {expiry_minutes} minutes."
+        f"Your Oryon Foods verification code is: {raw_code}. It expires in {expiry_minutes} minutes."
     )
     html_body = (
-        "<p>Your FoodLink verification code is:</p>"
+        "<p>Your Oryon Foods verification code is:</p>"
         f'<p style="font-size:24px;font-weight:bold;letter-spacing:4px">{raw_code}</p>'
         f"<p>It expires in {expiry_minutes} minutes.</p>"
     )

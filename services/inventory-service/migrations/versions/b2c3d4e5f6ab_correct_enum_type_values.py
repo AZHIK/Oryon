@@ -17,7 +17,7 @@ strategy), which would have created the types with uppercase member
 names.  Without this cleanup, such a database would now reject the
 lowercase values the ORM sends.
 
-Pre-launch status confirmed: the live ``foodlink_inventory`` database
+Pre-launch status confirmed: the live ``oryonfoods_inventory`` database
 holds only ``alembic_version`` — no business data.  The affected tables
 are empty, so the enum types are simply dropped (CASCADE removes any
 dependent columns) and recreated with the correct values.  This is the

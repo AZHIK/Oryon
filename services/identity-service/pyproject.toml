@@ -1,7 +1,7 @@
 [project]
-name = "foodlink-auth"
+name = "oryonfoods-auth"
 version = "0.1.0"
-description = "Identity / Auth microservice for FoodLink Africa"
+description = "Identity / Auth microservice for Oryon Foods"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Proprietary" }

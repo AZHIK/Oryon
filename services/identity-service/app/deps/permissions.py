@@ -103,10 +103,10 @@ an operational incident.
 
 **Recommended approach:** Extract ``PermissionCode`` (and any other
 shared data contracts such as event schemas) into a small internal
-package, e.g. ``foodlink-shared-contracts``, published to an internal
+package, e.g. ``oryonfoods-shared-contracts``, published to an internal
 PyPI (or distributed as a Git dependency).  All services declare it as a
 dependency.  Adding a new permission code then requires:
-  - one PR to ``foodlink-shared-contracts``
+  - one PR to ``oryonfoods-shared-contracts``
   - version bumps in each consuming service's ``pyproject.toml``
 
 This is the standard "contract library" pattern for internal microservice

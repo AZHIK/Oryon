@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/l10n.dart';
+import '../utils/role_name.dart';
 import '../widgets/data_page/status_badge.dart';
 
 /// Where a staff account stands.
@@ -59,10 +60,14 @@ class StaffRoleAssignment {
   /// True for a role pinned to one location rather than the whole business.
   bool get isStoreScoped => storeId != null;
 
+  /// The role name as people read it, without backend underscores.
+  String get displayName => humanizeRoleName(roleName);
+
   /// "Cashier · Branch Two" for store roles, plain "Cashier" otherwise — the
   /// form every list, badge and export uses so scope never silently drops.
-  String get label =>
-      storeName == null || storeName!.isEmpty ? roleName : '$roleName · $storeName';
+  String get label => storeName == null || storeName!.isEmpty
+      ? displayName
+      : '$displayName · $storeName';
 
   @override
   bool operator ==(Object other) =>

@@ -260,7 +260,7 @@ class StaffScreen extends ConsumerWidget {
   ) {
     final parts = <String>[
       if (filters.roleIds.isNotEmpty)
-        filters.roleIds.map((id) => rolesById[id]?.name ?? id).join(', '),
+        filters.roleIds.map((id) => rolesById[id]?.displayName ?? id).join(', '),
       if (filters.statuses.isNotEmpty)
         filters.statuses.map((s) => s.label).join(', '),
       if (search.trim().isNotEmpty)

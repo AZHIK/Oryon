@@ -39,7 +39,9 @@ class RoleBadge extends StatelessWidget {
 
     final scope = scopeLabel?.trim();
     return StatusBadge(
-      label: scope == null || scope.isEmpty ? role.name : '${role.name} · $scope',
+      label: scope == null || scope.isEmpty
+          ? role.displayName
+          : '${role.displayName} · $scope',
       tone: StatusTone.neutral,
       color: roleColor(context, role),
       icon: roleIcon(role),

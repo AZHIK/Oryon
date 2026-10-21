@@ -1,7 +1,7 @@
 [project]
-name = "foodlink-inventory"
+name = "oryonfoods-inventory"
 version = "0.1.0"
-description = "Inventory microservice for FoodLink Africa"
+description = "Inventory microservice for Oryon Foods"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Proprietary" }

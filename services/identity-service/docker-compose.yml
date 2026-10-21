@@ -1,5 +1,5 @@
 x-healthcheck-postgres: &healthcheck-postgres
-  test: ["CMD-SHELL", "pg_isready -U foodlink -d foodlink_auth"]
+  test: ["CMD-SHELL", "pg_isready -U oryonfoods -d oryonfoods_auth"]
   interval: 5s
   timeout: 3s
   retries: 5
@@ -19,7 +19,7 @@ services:
       - "8009:8000"
     env_file: ./.env
     environment:
-      - DB_URL=postgresql+asyncpg://foodlink:foodlink@postgres:5432/foodlink_auth
+      - DB_URL=postgresql+asyncpg://oryonfoods:oryonfoods@postgres:5432/oryonfoods_auth
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./keys/private.pem:/run/secrets/jwt_private.pem:ro
@@ -40,9 +40,9 @@ services:
     image: postgres:16-alpine
     env_file: ./.env
     environment:
-      POSTGRES_USER: foodlink
-      POSTGRES_PASSWORD: foodlink
-      POSTGRES_DB: foodlink_auth
+      POSTGRES_USER: oryonfoods
+      POSTGRES_PASSWORD: oryonfoods
+      POSTGRES_DB: oryonfoods_auth
     ports:
       - "5455:5432"
     volumes:
@@ -65,7 +65,7 @@ services:
       - dev
     env_file: ./.env
     environment:
-      - DB_URL=postgresql+asyncpg://foodlink:foodlink@postgres:5432/foodlink_auth
+      - DB_URL=postgresql+asyncpg://oryonfoods:oryonfoods@postgres:5432/oryonfoods_auth
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - .:/app
@@ -85,8 +85,8 @@ services:
       - dev
     env_file: ./.env
     environment:
-      PGADMIN_DEFAULT_EMAIL: dev@foodlink.local
-      PGADMIN_DEFAULT_PASSWORD: foodlink
+      PGADMIN_DEFAULT_EMAIL: dev@oryonfoods.local
+      PGADMIN_DEFAULT_PASSWORD: oryonfoods
     ports:
       - "5050:80"
     depends_on:

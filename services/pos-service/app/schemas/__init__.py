@@ -1,4 +1,4 @@
-"""Pydantic schemas for FoodLink POS Service."""
+"""Pydantic schemas for Oryon Foods POS Service."""
 
 from app.schemas.couriers import (
     CourierCreate,

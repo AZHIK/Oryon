@@ -138,7 +138,7 @@ gone mark-sent/mark-confirmed 404); no-number PO.
 `tests/api/test_purchases.py`: create (unfulfilled, qty-only) → partial
 receive (stays unfulfilled) → full receive (fulfilled + costing) → receive
 guarded; cancel rules; removed routes 404; list/permissions.
-Run: `DB_URL=…:5434/foodlink_inventory TEST_DB_URL=…:5434/foodlink_inventory_test
+Run: `DB_URL=…:5434/oryonfoods_inventory TEST_DB_URL=…:5434/oryonfoods_inventory_test
 uv run --project . python -m pytest tests/test_requisitions.py tests/api/test_purchases.py -q`
 (all green; store-scope enforcement is now covered by
 `tests/api/test_store_scope.py`).

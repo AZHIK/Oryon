@@ -17,7 +17,7 @@ from enum import StrEnum
 
 
 class PermissionCode(StrEnum):
-    """Central registry of permission codes across FoodLink services.
+    """Central registry of permission codes across Oryon Foods services.
 
     POS Service-specific codes are prefixed with ``pos.``.
     Codes shared with other services (e.g. ``inventory.``, ``users.``)

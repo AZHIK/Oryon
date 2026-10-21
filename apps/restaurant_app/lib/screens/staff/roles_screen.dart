@@ -145,7 +145,7 @@ class RolesScreen extends ConsumerWidget {
       final copy = await ref.read(rolesProvider.notifier).duplicate(role.id);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppStrings.roleDuplicated(copy.name))),
+        SnackBar(content: Text(AppStrings.roleDuplicated(copy.displayName))),
       );
     } on AuthException catch (e) {
       if (!context.mounted) return;
@@ -161,7 +161,7 @@ class RolesScreen extends ConsumerWidget {
     final confirmed = await showAppDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(AppStrings.deleteRoleTitle(role.name)),
+        title: Text(AppStrings.deleteRoleTitle(role.displayName)),
         content: Text(AppStrings.deleteRoleBody),
         actions: [
           TextButton(
@@ -184,7 +184,7 @@ class RolesScreen extends ConsumerWidget {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(
-        SnackBar(content: Text(AppStrings.roleDeleted(role.name))),
+        SnackBar(content: Text(AppStrings.roleDeleted(role.displayName))),
       );
     } on AuthException catch (e) {
       if (!context.mounted) return;
@@ -228,7 +228,7 @@ List<DataColumnSpec<BusinessRole>> roleColumns(Map<String, int> counts) => [
     field: RoleSort.name,
     role: ColumnRole.primary,
     flex: 5,
-    value: (role) => role.name,
+    value: (role) => role.displayName,
     cellBuilder: (context, role) => _RoleCell(role: role),
   ),
   DataColumnSpec(
@@ -288,7 +288,7 @@ class _RoleCell extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          role.name,
+          role.displayName,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
