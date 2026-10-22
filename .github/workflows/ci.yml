@@ -27,13 +27,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: foodlink
-          POSTGRES_PASSWORD: foodlink
+          POSTGRES_USER: oryonfoods
+          POSTGRES_PASSWORD: oryonfoods
           POSTGRES_DB: postgres
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U foodlink"
+          --health-cmd "pg_isready -U oryonfoods"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -51,8 +51,8 @@ jobs:
       ENVIRONMENT: local
       DEBUG: "true"
       LOG_LEVEL: INFO
-      DB_URL: postgresql+asyncpg://foodlink:foodlink@127.0.0.1:5432/oryonfoods_${{ matrix.service }}_test
-      TEST_DB_URL: postgresql+asyncpg://foodlink:foodlink@127.0.0.1:5432/oryonfoods_${{ matrix.service }}_test
+      DB_URL: postgresql+asyncpg://oryonfoods:oryonfoods@127.0.0.1:5432/oryonfoods_${{ matrix.service }}_test
+      TEST_DB_URL: postgresql+asyncpg://oryonfoods:oryonfoods@127.0.0.1:5432/oryonfoods_${{ matrix.service }}_test
       REDIS_URL: redis://127.0.0.1:6379/0
       JWT_PRIVATE_KEY_PATH: keys/private.pem
       JWT_PUBLIC_KEY_PATH: keys/public.pem
@@ -87,8 +87,8 @@ jobs:
         if: matrix.service == 'pos'
         run: |
           docker run --rm --network host \
-            -e PGPASSWORD=foodlink postgres:16-alpine \
-            createdb -h 127.0.0.1 -U foodlink oryonfoods_pos_test
+            -e PGPASSWORD=oryonfoods postgres:16-alpine \
+            createdb -h 127.0.0.1 -U oryonfoods oryonfoods_pos_test
 
       - name: Lint
         run: uv run ruff check app tests

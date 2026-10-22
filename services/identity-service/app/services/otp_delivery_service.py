@@ -74,7 +74,8 @@ async def generate_and_send_otp_email(
     expiry_minutes = settings.otp_expire_minutes
     subject = "Your Oryon Foods verification code"
     text_body = (
-        f"Your Oryon Foods verification code is: {raw_code}. It expires in {expiry_minutes} minutes."
+        f"Your Oryon Foods verification code is: {raw_code}. "
+        f"It expires in {expiry_minutes} minutes."
     )
     html_body = (
         "<p>Your Oryon Foods verification code is:</p>"

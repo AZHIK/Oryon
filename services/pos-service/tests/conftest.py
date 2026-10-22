@@ -1,6 +1,17 @@
-"""pytest fixtures — async client, test database session."""
+"""pytest fixtures — async client, test database session.
 
+The suite creates and drops every table it touches, so it must never point at
+the dev database.  ``TEST_DB_URL`` selects a dedicated ``*_test`` database;
+without it the suite refuses to run.
+"""
+
+import os
 from collections.abc import AsyncGenerator
+
+# Must happen before the app imports below: the engine is built from DB_URL at
+# import time.
+if _test_db_url := os.environ.get("TEST_DB_URL"):
+    os.environ["DB_URL"] = _test_db_url
 
 import pytest
 import pytest_asyncio
@@ -10,6 +21,28 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.db.session import async_session_factory, engine
 from app.main import app
+
+
+def _assert_safe_database() -> None:
+    """Abort before dropping tables in a database that is not disposable."""
+    from urllib.parse import urlsplit
+
+    from app.core.config import get_settings
+
+    name = urlsplit(get_settings().db_url).path.lstrip("/")
+    if name.endswith("_test"):
+        return
+    if os.environ.get("ALLOW_DEV_DB_TESTS") == "1":
+        return
+    raise RuntimeError(
+        f"Refusing to run the test suite against database {name!r}: every test "
+        "drops all tables in it. Set TEST_DB_URL to a dedicated database whose "
+        "name ends in '_test', e.g.\n"
+        "  TEST_DB_URL=postgresql+asyncpg://oryonfoods:oryonfoods@localhost:5435/"
+        "oryonfoods_pos_test uv run pytest\n"
+        "Set ALLOW_DEV_DB_TESTS=1 only if you really intend to wipe that database."
+    )
+
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -51,6 +84,7 @@ async def _apply_migrations() -> AsyncGenerator[None, None]:
     running Alembic migrations.  This mirrors Identity Service's test setup
     and avoids coupling test execution to migration file state.
     """
+    _assert_safe_database()
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
     try:

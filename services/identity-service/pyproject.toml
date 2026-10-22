@@ -49,6 +49,7 @@ quote-style = "double"
 
 [tool.mypy]
 python_version = "3.12"
+plugins = ["pydantic.mypy"]
 strict = true
 ignore_missing_imports = true
 exclude = ["migrations/versions/"]

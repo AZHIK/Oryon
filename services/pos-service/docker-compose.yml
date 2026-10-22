@@ -52,6 +52,9 @@ services:
     env_file: ./.env
     environment:
       - DB_URL=postgresql+asyncpg://oryonfoods:oryonfoods@postgres:5432/oryonfoods_pos
+      # Test runs (and conftest) target this separate database so the dev
+      # database is never touched by the suite.
+      - TEST_DB_URL=postgresql+asyncpg://oryonfoods:oryonfoods@postgres:5432/oryonfoods_pos_test
       - JWT_PUBLIC_KEY_PATH=/run/secrets/jwt_public.pem
     volumes:
       - .:/app

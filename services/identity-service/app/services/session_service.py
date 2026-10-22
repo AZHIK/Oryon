@@ -143,10 +143,7 @@ async def rotate_refresh_token(
             # Raise *after* the transaction commits, so the revocation sticks.
             replay_detected = True
 
-        elif old.revoked_at is not None:
-            raise InvalidRefreshTokenError("Refresh token is invalid, expired, or revoked.")
-
-        elif old.expires_at <= now:
+        elif old.revoked_at is not None or old.expires_at <= now:
             raise InvalidRefreshTokenError("Refresh token is invalid, expired, or revoked.")
 
         else:
