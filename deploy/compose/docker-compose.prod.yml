@@ -73,6 +73,9 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+      # HAProxy writes its pidfile and runtime state here.
+      - /run
+      - /var/lib/haproxy
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -92,6 +95,10 @@ services:
       VOLUMES: "0"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # The entrypoint renders haproxy.cfg from the template shipped in the
+      # image. Docker seeds this named volume from the image on first use, so
+      # the root filesystem can stay read-only.
+      - socket-proxy-config:/usr/local/etc/haproxy
     networks:
       - socket
     healthcheck:
@@ -415,6 +422,9 @@ services:
       - "traefik.http.routers.pos-uploads.tls.certresolver=le"
       - "traefik.http.routers.pos-uploads.middlewares=secure-headers@file,general-rate-limit@file,body-limit-uploads@file"
       - "traefik.http.routers.pos-uploads.service=pos"
+
+volumes:
+  socket-proxy-config:
 
 networks:
   edge:
