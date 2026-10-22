@@ -23,6 +23,7 @@ to the code.
 | Document | Audience | Purpose |
 |---|---|---|
 | [Production deployment runbook](deployment/PRODUCTION_DEPLOYMENT.md) | Operations, engineering | Production model, host hardening, secrets, deploy/verify, backups, and disaster recovery |
+| [Fresh VPS deployment walkthrough](deployment/VPS_DEPLOYMENT_WALKTHROUGH.md) | Operations | Quick path and step-by-step first deployment from a bare Ubuntu/Docker host to live HTTPS domains |
 | [Deploy package README](../deploy/README.md) | Operations | Exact commands and file layout for the production package |
 | [Deployment package](../deploy/README.md) | Operations | Executable Traefik/compose/secrets/migration/backup package and runbook |
 

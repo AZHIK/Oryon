@@ -33,9 +33,9 @@ Hostnames:
 
 | Service | Public hostname | Internal address |
 |---|---|---|
-| Identity | `auth.<domain>` | `http://identity:8000` |
-| Inventory | `inventory.<domain>` | `http://inventory:8100` |
-| POS | `pos.<domain>` | `http://pos:8200` |
+| Identity | `auth.oryonfoods.com` | `http://identity:8000` |
+| Inventory | `inventory.oryonfoods.com` | `http://inventory:8100` |
+| POS | `pos.oryonfoods.com` | `http://pos:8200` |
 | PostgreSQL | not published | `postgres:5432` |
 | Redis | not published | `redis:6379` |
 
@@ -58,7 +58,8 @@ Trust boundaries:
 - **Region:** choose the closest region to users; confirm data-residency
   obligations under Tanzania's PDPA.
 - **DNS:** create `A` records (and `AAAA` only if IPv6 is configured) for
-  `auth`, `inventory`, and `pos`. Use a TTL of 300 seconds.
+  `auth.oryonfoods.com`, `inventory.oryonfoods.com`, and `pos.oryonfoods.com`.
+  Use a TTL of 300 seconds.
 - **Firewall:** allow only inbound `22`, `80`, and `443`. Keep the provider
   firewall and host firewall aligned; Docker bypasses UFW for published ports,
   which is why the package also installs `DOCKER-USER` rules.
@@ -102,7 +103,17 @@ the API runtime user `10001`. Host upload volumes must be owned by `10001:10001`
 
 ## 4. Configuration
 
-Copy the environment template and edit every `REPLACE`/`example.com` value:
+The fastest path is the interactive wizard:
+
+```bash
+sudo ./scripts/configure.sh
+```
+
+It prompts for hosts, emails, admin allowlist, image tag, and provider values,
+and writes both `.env` (mode `600`) and the provider credential files without
+echoing secrets. Infrastructure image tags and restic settings keep their
+defaults. The manual equivalent is to copy the environment template and edit
+every `REPLACE`/`example.com` value:
 
 ```bash
 cd /opt/oryonfoods
@@ -125,7 +136,7 @@ Required values:
 - `ADMIN_EMAIL`, `ADMIN_FULL_NAME`
 - restic repository and credential-file paths
 
-Generate secrets and rendered configuration:
+Generate secrets and rendered configuration after `.env` is in place:
 
 ```bash
 sudo ./scripts/bootstrap.sh
@@ -150,7 +161,7 @@ non-Swarm Compose bind-mounts file secrets from the host and ignores
 `uid`/`gid`/`mode`. The deploy scripts repair this ownership on every run.
 Back up `secrets/` and the restic password offline before going live.
 
-Fill the provider files that apply:
+If you did not use `configure.sh`, fill the provider files that apply:
 
 ```text
 secrets/at_api_key
@@ -336,7 +347,8 @@ migrations so the previous image remains compatible with the current schema.
 - [ ] `.env` has no placeholders; `secrets/` is `700 root`; secret files are
       owned by the consumer UIDs (`10001`/`70`/`999:1000`) with mode `0400`.
 - [ ] GHCR pull authentication works.
-- [ ] `sudo ./scripts/bootstrap.sh` completed; provider secrets filled.
+- [ ] `sudo ./scripts/configure.sh` and `sudo ./scripts/bootstrap.sh`
+      completed; provider secrets filled.
 - [ ] `sudo ./scripts/deploy.sh` completed without errors.
 - [ ] Smoke test passes, including `/admin/*`, `/api/v1/internal/*`, and HSTS.
 - [ ] `nmap` from outside shows only 22/80/443.

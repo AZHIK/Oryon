@@ -10,6 +10,7 @@ It contains:
 | `compose/docker-compose.prod.yml` | Production stack: Traefik, socket proxy, PostgreSQL, Redis, Identity, Inventory, POS |
 | `compose/initdb/` | First-boot database, owner-role, and runtime-role creation |
 | `traefik/` | Static and dynamic Traefik templates |
+| `scripts/configure.sh` | Interactive first-run wizard: writes `.env` and the provider credential files |
 | `scripts/bootstrap.sh` | Generates secrets, JWT keys, DB URLs, Redis config, and rendered Traefik config |
 | `scripts/deploy.sh` | Pulls images, starts stateful services, migrates, seeds, starts the stack, and smoke-tests |
 | `scripts/migrate.sh` | Alembic migrations under the owner role + runtime-role grants |
@@ -60,7 +61,11 @@ The harden script leaves that step opt-in via `SSH_HARDEN=1`.
 
 ## 2. Site configuration
 
-Copy `.env.example` to `.env` and edit:
+The fastest path is `sudo ./scripts/configure.sh`. It prompts for the hosts,
+emails, admin allowlist, image tag, and provider values; writes `.env` with mode
+`600`; and writes the provider credential files without echoing them. It leaves
+the infrastructure image tags and restic settings at their defaults. The manual
+equivalent is to copy `.env.example` to `.env` and edit:
 
 - `AUTH_HOST`, `INVENTORY_HOST`, `POS_HOST`
 - `ACME_EMAIL`
@@ -80,7 +85,7 @@ network.
 
 ## 3. Generate secrets
 
-Run `sudo ./scripts/bootstrap.sh`. It creates:
+Run `sudo ./scripts/bootstrap.sh` after configuration. It creates:
 
 - PostgreSQL superuser, per-service owner, and per-service runtime passwords
 - database URLs and the Redis URL as Docker secrets
@@ -102,7 +107,7 @@ restic password offline before going live. All deploy, migrate, seed, backup,
 restore, and smoke-test scripts must run as root so they can read the root-only
 `.env`/secrets and repair ownership.
 
-Fill the provider secret files that apply:
+If you did not use `configure.sh`, fill the provider secret files that apply:
 
 ```text
 secrets/at_api_key

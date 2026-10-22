@@ -27,7 +27,7 @@ command -v restic >/dev/null 2>&1 || \
 if [[ ! -f "$ENV_FILE" ]]; then
     cp "$DEPLOY_DIR/.env.example" "$ENV_FILE"
     chmod 600 "$ENV_FILE"
-    fail "Created $ENV_FILE. Edit the domains, ACME email, CORS origin, admin email, and image tag, then re-run."
+    fail "Created $ENV_FILE. Run scripts/configure.sh to fill it, or edit it manually, then re-run."
 fi
 
 set -a
@@ -207,6 +207,6 @@ fix_secret_permissions
 chmod 600 "$ENV_FILE"
 
 log "Secrets and rendered configuration are ready."
-log "Next: fill the provider secret files in $SECRETS_DIR, then run scripts/deploy.sh."
+log "Next: ensure the provider credential files are filled (configure.sh does this), then run scripts/deploy.sh."
 log "Provider files: at_api_key, brevo_api_key, whatsapp_app_secret, whatsapp_webhook_verify_token."
 log "Optional: mailjet_* if EMAIL_PROVIDER=mailjet, and b2_* / restic settings for backups."
