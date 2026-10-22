@@ -66,6 +66,18 @@ done
 
 compose config -q
 
+# Certificates are issued with the HTTP-01 challenge on the first start, so the
+# hostnames must already resolve. Fail before starting the stack instead of
+# letting the smoke test time out with an opaque curl error.
+if [[ "${SKIP_DNS_CHECK:-0}" != "1" ]]; then
+    require_cmd getent
+    for host in "$AUTH_HOST" "$INVENTORY_HOST" "$POS_HOST"; do
+        if ! getent hosts "$host" >/dev/null 2>&1; then
+            fail "DNS does not resolve $host. Create its A/AAAA record before deploying, or set SKIP_DNS_CHECK=1 to bypass this check."
+        fi
+    done
+fi
+
 log "Pulling images ${IMAGE_REGISTRY}/oryon-{identity,inventory,pos}:${IMAGE_TAG}"
 if [[ "${SKIP_PULL:-0}" != "1" ]]; then
     if ! compose pull; then
