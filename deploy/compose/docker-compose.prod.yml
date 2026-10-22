@@ -36,7 +36,7 @@ x-api-defaults: &api-defaults
 services:
   # ── Edge ───────────────────────────────────────────────────
   traefik:
-    image: ${TRAEFIK_IMAGE:-traefik:v3.1}
+    image: ${TRAEFIK_IMAGE:-traefik:v3.7.16}
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -249,7 +249,7 @@ services:
     pids_limit: 256
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=edge"
+      - "traefik.docker.network=oryon_edge"
       - "traefik.http.routers.identity.rule=Host(`${AUTH_HOST}`)"
       - "traefik.http.routers.identity.entrypoints=websecure"
       - "traefik.http.routers.identity.tls=true"
@@ -319,7 +319,7 @@ services:
     pids_limit: 256
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=edge"
+      - "traefik.docker.network=oryon_edge"
       - "traefik.http.routers.inventory.rule=Host(`${INVENTORY_HOST}`)"
       - "traefik.http.routers.inventory.entrypoints=websecure"
       - "traefik.http.routers.inventory.tls=true"
@@ -395,7 +395,7 @@ services:
     pids_limit: 256
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=edge"
+      - "traefik.docker.network=oryon_edge"
       - "traefik.http.routers.pos.rule=Host(`${POS_HOST}`)"
       - "traefik.http.routers.pos.entrypoints=websecure"
       - "traefik.http.routers.pos.tls=true"
@@ -428,6 +428,10 @@ volumes:
 
 networks:
   edge:
+    # Explicit name so it matches providers.docker.network and the
+    # traefik.docker.network labels. Compose would otherwise create
+    # <project>_edge (for example, oryonfoods_edge).
+    name: oryon_edge
     driver: bridge
   data:
     driver: bridge

@@ -46,7 +46,7 @@ providers:
   docker:
     endpoint: "tcp://socket-proxy:2375"
     exposedByDefault: false
-    network: edge
+    network: oryon_edge
     watch: true
     defaultRule: "Host(`invalid.local`)"
   file:

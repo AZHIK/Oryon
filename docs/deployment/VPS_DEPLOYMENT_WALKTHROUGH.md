@@ -259,7 +259,7 @@ ADMIN_ALLOWLIST="127.0.0.1/32"
 IMAGE_REGISTRY=ghcr.io/azhik
 IMAGE_TAG=sha-<full-git-sha>
 
-TRAEFIK_IMAGE=traefik:v3.1
+TRAEFIK_IMAGE=traefik:v3.7.16
 SOCKET_PROXY_IMAGE=tecnativa/docker-socket-proxy:0.2
 POSTGRES_IMAGE=postgres:16.4-alpine
 REDIS_IMAGE=redis:7.4-alpine
