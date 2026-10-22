@@ -135,7 +135,10 @@ jobs:
             'test "$(id -u)" = "10001" && test ! -e /app/keys'
 
       - name: Scan image
-        uses: aquasecurity/trivy-action@0.28.0
+        # Pinned to v0.36.0 by commit SHA: the old `0.28.0` tag was deleted
+        # during the 2026 trivy-action tag re-issue (tags now carry a `v`
+        # prefix), so floating/bare versions no longer resolve.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
