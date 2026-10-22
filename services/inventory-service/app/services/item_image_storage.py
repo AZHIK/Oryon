@@ -28,6 +28,7 @@ Security posture (mirrors receipts):
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 from dataclasses import dataclass
@@ -172,12 +173,10 @@ class LocalDiskItemImageStorage:
         )
 
     def delete(self, storage_key: str) -> None:
-        try:
+        # A tampered key must not turn a delete into a 500 — the DB row
+        # is the source of truth and is cleared regardless.
+        with contextlib.suppress(ItemImageStorageError):
             self.resolve_path(storage_key).unlink(missing_ok=True)
-        except ItemImageStorageError:
-            # A tampered key must not turn a delete into a 500 — the DB row
-            # is the source of truth and is cleared regardless.
-            pass
 
     def resolve_path(self, storage_key: str) -> Path:
         candidate = (self._root / storage_key).resolve()

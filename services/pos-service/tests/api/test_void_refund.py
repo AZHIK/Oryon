@@ -5,14 +5,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.models.pos import Sale, SaleStatus
 from tests.test_token_verification import _build_token
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Helpers
@@ -71,17 +69,15 @@ class TestVoidRefundEndpoint:
     """POST /businesses/{business_id}/sales/{sale_id}/void-or-refund"""
 
     async def test_void_completed_sale_returns_200(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         body, _client_sale_id = await _create_completed_sale(client, business_id)
         sale_id = body["results"][0]["client_sale_id"]
 
-        sale = (
-            await db_session.exec(
-                select(Sale).where(Sale.client_sale_id == sale_id)
-            )
-        ).one()
+        sale = (await db_session.exec(select(Sale).where(Sale.client_sale_id == sale_id))).one()
         assert sale.status == SaleStatus.COMPLETED
 
         headers = _auth_header(business_id=business_id)
@@ -100,15 +96,15 @@ class TestVoidRefundEndpoint:
         assert sale.status == SaleStatus.VOIDED
 
     async def test_refund_completed_sale_returns_200(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         body, _ = await _create_completed_sale(client, business_id)
         sale = (
             await db_session.exec(
-                select(Sale).where(
-                    Sale.client_sale_id == body["results"][0]["client_sale_id"]
-                )
+                select(Sale).where(Sale.client_sale_id == body["results"][0]["client_sale_id"])
             )
         ).one()
 
@@ -128,15 +124,15 @@ class TestVoidRefundEndpoint:
         assert data["refunded_at"] is not None
 
     async def test_without_pos_refund_returns_403(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         body, _ = await _create_completed_sale(client, business_id)
         sale = (
             await db_session.exec(
-                select(Sale).where(
-                    Sale.client_sale_id == body["results"][0]["client_sale_id"]
-                )
+                select(Sale).where(Sale.client_sale_id == body["results"][0]["client_sale_id"])
             )
         ).one()
 
@@ -156,15 +152,15 @@ class TestVoidRefundEndpoint:
         assert resp.status_code == 403
 
     async def test_cross_business_rejected(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         body, _ = await _create_completed_sale(client, business_id)
         sale = (
             await db_session.exec(
-                select(Sale).where(
-                    Sale.client_sale_id == body["results"][0]["client_sale_id"]
-                )
+                select(Sale).where(Sale.client_sale_id == body["results"][0]["client_sale_id"])
             )
         ).one()
 
@@ -185,15 +181,15 @@ class TestVoidRefundEndpoint:
         assert resp.status_code == 404
 
     async def test_void_already_voided_returns_409(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         body, _ = await _create_completed_sale(client, business_id)
         sale = (
             await db_session.exec(
-                select(Sale).where(
-                    Sale.client_sale_id == body["results"][0]["client_sale_id"]
-                )
+                select(Sale).where(Sale.client_sale_id == body["results"][0]["client_sale_id"])
             )
         ).one()
 
@@ -222,18 +218,21 @@ class TestVoidRefundEndpoint:
             headers=headers,
         )
         assert resp2.status_code == 409
-        assert "already" in resp2.json()["detail"].lower() or "cannot" in resp2.json()["detail"].lower()
+        assert (
+            "already" in resp2.json()["detail"].lower()
+            or "cannot" in resp2.json()["detail"].lower()
+        )
 
     async def test_idempotency_same_client_action_id_twice(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         body, _ = await _create_completed_sale(client, business_id)
         sale = (
             await db_session.exec(
-                select(Sale).where(
-                    Sale.client_sale_id == body["results"][0]["client_sale_id"]
-                )
+                select(Sale).where(Sale.client_sale_id == body["results"][0]["client_sale_id"])
             )
         ).one()
 
@@ -262,7 +261,5 @@ class TestVoidRefundEndpoint:
         assert resp2.json()["status"] == "voided"
 
         # Only one sale row
-        sales = (await db_session.exec(
-            select(Sale).where(Sale.id == sale.id)
-        )).all()
+        sales = (await db_session.exec(select(Sale).where(Sale.id == sale.id))).all()
         assert len(sales) == 1

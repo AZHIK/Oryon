@@ -30,7 +30,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.line_items import SaleLineItemInput, SaleLineItemRead
 
-
 # ── Sync input ──────────────────────────────────────────────────────────
 
 
@@ -79,7 +78,7 @@ class SaleSyncInput(BaseModel):
         return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
     @model_validator(mode="after")
-    def _validate_void_reason(self) -> "SaleSyncInput":
+    def _validate_void_reason(self) -> SaleSyncInput:
         if self.status in ("voided", "refunded") and not self.void_or_refund_reason:
             raise ValueError(
                 "void_or_refund_reason is required when status is voided or refunded"
@@ -87,7 +86,7 @@ class SaleSyncInput(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _validate_delivery_fields(self) -> "SaleSyncInput":
+    def _validate_delivery_fields(self) -> SaleSyncInput:
         if self.order_type == "delivery":
             if not self.delivery_address_line1:
                 raise ValueError(

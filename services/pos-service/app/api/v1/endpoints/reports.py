@@ -38,8 +38,8 @@ from app.models.customers import Customer
 from app.models.finance import OtherExpense, OtherIncome
 from app.models.pos import Sale, SaleLineItem, SaleStatus
 from app.schemas.reports import (
-    CustomerGroupsResponse,
     CustomerGroupLine,
+    CustomerGroupsResponse,
     CustomerSpendLine,
     CustomerSpendResponse,
     DailyTakingsDay,
@@ -88,7 +88,9 @@ async def daily_takings(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
-    from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
+    from_date: datetime | None = Query(
+        default=None, description="Start (inclusive) for occurred_at"
+    ),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
     store_id: UUID | None = Depends(store_scope_filter),
 ) -> DailyTakingsResponse:
@@ -106,8 +108,12 @@ async def daily_takings(
                 sa_case((Sale.status == SaleStatus.COMPLETED, Sale.total), else_=Decimal("0"))
             ).label("revenue"),
             sa_func.count(Sale.id).label("sales_count"),
-            sa_func.sum(sa_case((Sale.status == SaleStatus.VOIDED, 1), else_=0)).label("voided_count"),
-            sa_func.sum(sa_case((Sale.status == SaleStatus.REFUNDED, 1), else_=0)).label("refunded_count"),
+            sa_func.sum(sa_case((Sale.status == SaleStatus.VOIDED, 1), else_=0)).label(
+                "voided_count"
+            ),
+            sa_func.sum(sa_case((Sale.status == SaleStatus.REFUNDED, 1), else_=0)).label(
+                "refunded_count"
+            ),
         )
         .where(*_sale_filters(business_id, from_date, to_date, store_id))
         .group_by(day)
@@ -137,7 +143,9 @@ async def item_mix(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
-    from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
+    from_date: datetime | None = Query(
+        default=None, description="Start (inclusive) for occurred_at"
+    ),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
     store_id: UUID | None = Depends(store_scope_filter),
     limit: int = Query(default=50, ge=1, le=200, description="Max items, top revenue first"),
@@ -195,7 +203,9 @@ async def staff_performance(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
-    from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
+    from_date: datetime | None = Query(
+        default=None, description="Start (inclusive) for occurred_at"
+    ),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
     store_id: UUID | None = Depends(store_scope_filter),
 ) -> StaffPerformanceResponse:
@@ -211,14 +221,20 @@ async def staff_performance(
             sa_func.sum(
                 sa_case((Sale.status == SaleStatus.COMPLETED, Sale.total), else_=Decimal("0"))
             ).label("revenue"),
-            sa_func.sum(sa_case((Sale.status == SaleStatus.VOIDED, 1), else_=0)).label("voided_count"),
-            sa_func.sum(sa_case((Sale.status == SaleStatus.REFUNDED, 1), else_=0)).label("refunded_count"),
+            sa_func.sum(sa_case((Sale.status == SaleStatus.VOIDED, 1), else_=0)).label(
+                "voided_count"
+            ),
+            sa_func.sum(sa_case((Sale.status == SaleStatus.REFUNDED, 1), else_=0)).label(
+                "refunded_count"
+            ),
         )
         .where(*_sale_filters(business_id, from_date, to_date, store_id))
         .group_by(Sale.actor_id)
-        .order_by(sa_func.sum(
-            sa_case((Sale.status == SaleStatus.COMPLETED, Sale.total), else_=Decimal("0"))
-        ).desc())
+        .order_by(
+            sa_func.sum(
+                sa_case((Sale.status == SaleStatus.COMPLETED, Sale.total), else_=Decimal("0"))
+            ).desc()
+        )
     )
     rows = (await session.exec(stmt)).all()
 
@@ -256,7 +272,9 @@ async def finance_summary(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
-    from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
+    from_date: datetime | None = Query(
+        default=None, description="Start (inclusive) for occurred_at"
+    ),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
     store_id: UUID | None = Depends(store_scope_filter),
 ) -> FinanceSummaryResponse:
@@ -283,10 +301,7 @@ async def finance_summary(
                 .order_by(sa_func.sum(model.amount).desc())
             )
         ).all()
-        return [
-            FinanceCategoryTotal(category=row[0], total=row[1] or Decimal("0"))
-            for row in rows
-        ]
+        return [FinanceCategoryTotal(category=row[0], total=row[1] or Decimal("0")) for row in rows]
 
     expenses = await _category_totals(OtherExpense)
     incomes = await _category_totals(OtherIncome)
@@ -314,7 +329,9 @@ async def sell_payments(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
-    from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
+    from_date: datetime | None = Query(
+        default=None, description="Start (inclusive) for occurred_at"
+    ),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
     store_id: UUID | None = Depends(store_scope_filter),
 ) -> SellPaymentsResponse:
@@ -351,7 +368,9 @@ async def tax_report(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
-    from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
+    from_date: datetime | None = Query(
+        default=None, description="Start (inclusive) for occurred_at"
+    ),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
     store_id: UUID | None = Depends(store_scope_filter),
 ) -> TaxReportResponse:
@@ -365,11 +384,13 @@ async def tax_report(
                     sa_case((Sale.status == SaleStatus.COMPLETED, Sale.total), else_=Decimal("0"))
                 ).label("revenue"),
                 sa_func.sum(
-                    sa_case((Sale.status == SaleStatus.COMPLETED, Sale.tax_amount), else_=Decimal("0"))
+                    sa_case(
+                        (Sale.status == SaleStatus.COMPLETED, Sale.tax_amount), else_=Decimal("0")
+                    )
                 ).label("tax"),
-                sa_func.sum(
-                    sa_case((Sale.status == SaleStatus.COMPLETED, 1), else_=0)
-                ).label("sales_count"),
+                sa_func.sum(sa_case((Sale.status == SaleStatus.COMPLETED, 1), else_=0)).label(
+                    "sales_count"
+                ),
             )
             .where(*_sale_filters(business_id, from_date, to_date, store_id))
             .group_by(day)
@@ -396,7 +417,9 @@ async def register_summary(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
-    from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
+    from_date: datetime | None = Query(
+        default=None, description="Start (inclusive) for occurred_at"
+    ),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
     store_id: UUID | None = Depends(store_scope_filter),
 ) -> RegisterReportResponse:
@@ -409,9 +432,15 @@ async def register_summary(
                 sa_func.sum(
                     sa_case((Sale.status == SaleStatus.COMPLETED, Sale.total), else_=Decimal("0"))
                 ).label("revenue"),
-                sa_func.sum(sa_case((Sale.status == SaleStatus.COMPLETED, 1), else_=0)).label("sales_count"),
-                sa_func.sum(sa_case((Sale.status == SaleStatus.VOIDED, 1), else_=0)).label("voided_count"),
-                sa_func.sum(sa_case((Sale.status == SaleStatus.REFUNDED, 1), else_=0)).label("refunded_count"),
+                sa_func.sum(sa_case((Sale.status == SaleStatus.COMPLETED, 1), else_=0)).label(
+                    "sales_count"
+                ),
+                sa_func.sum(sa_case((Sale.status == SaleStatus.VOIDED, 1), else_=0)).label(
+                    "voided_count"
+                ),
+                sa_func.sum(sa_case((Sale.status == SaleStatus.REFUNDED, 1), else_=0)).label(
+                    "refunded_count"
+                ),
             )
             .where(*_sale_filters(business_id, from_date, to_date, store_id))
             .group_by(day)
@@ -463,7 +492,9 @@ async def expense_report(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
-    from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
+    from_date: datetime | None = Query(
+        default=None, description="Start (inclusive) for occurred_at"
+    ),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
     store_id: UUID | None = Depends(store_scope_filter),
     category: str | None = Query(default=None, description="Filter by expense category"),
@@ -501,7 +532,9 @@ async def expense_report(
             category=r.category,
             amount=r.amount,
             description=r.description,
-            payment_method=str(r.payment_method.value if hasattr(r.payment_method, "value") else r.payment_method),
+            payment_method=str(
+                r.payment_method.value if hasattr(r.payment_method, "value") else r.payment_method
+            ),
             store_id=r.store_id,
             occurred_at=r.occurred_at,
             actor_id=r.actor_id,
@@ -517,7 +550,9 @@ async def profit_loss(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
-    from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
+    from_date: datetime | None = Query(
+        default=None, description="Start (inclusive) for occurred_at"
+    ),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
     store_id: UUID | None = Depends(store_scope_filter),
 ) -> ProfitLossResponse:
@@ -567,7 +602,9 @@ async def customer_groups(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
-    from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
+    from_date: datetime | None = Query(
+        default=None, description="Start (inclusive) for occurred_at"
+    ),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
 ) -> CustomerGroupsResponse:
     """Customer Groups Report: customers and their spend bucketed by group."""
@@ -619,7 +656,9 @@ async def customer_spend(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _active_business: str = Depends(require_business_permission(PermissionCode.REPORTS_VIEW)),
-    from_date: datetime | None = Query(default=None, description="Start (inclusive) for occurred_at"),
+    from_date: datetime | None = Query(
+        default=None, description="Start (inclusive) for occurred_at"
+    ),
     to_date: datetime | None = Query(default=None, description="End (inclusive) for occurred_at"),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> CustomerSpendResponse:

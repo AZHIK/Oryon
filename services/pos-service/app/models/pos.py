@@ -48,10 +48,10 @@ from decimal import Decimal
 from enum import Enum as PyEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Enum as SAEnum, Numeric, func
+from sqlalchemy import DateTime, Numeric, func
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlmodel import Column, Field, ForeignKey, SQLModel
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Enums

@@ -11,7 +11,6 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-import pytest
 from httpx import AsyncClient
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -36,11 +35,10 @@ REPORTS_VIEW = ["reports.view"]
 INVENTORY_ONLY = ["inventory.view"]
 
 
-def _auth(
-    permissions: list[str] = REPORTS_VIEW, business_id: UUID = BUSINESS_ID
-) -> dict[str, str]:
+def _auth(permissions: list[str] = REPORTS_VIEW, business_id: UUID = BUSINESS_ID) -> dict[str, str]:
     return {
-        "Authorization": f"Bearer {_build_token(permissions=permissions, active_business_id=str(business_id))}"
+        "Authorization": "Bearer "
+        + _build_token(permissions=permissions, active_business_id=str(business_id))
     }
 
 
@@ -74,9 +72,7 @@ async def _create_item(
 
 
 async def _set_level(session: AsyncSession, item_id: UUID, qty: str) -> None:
-    session.add(
-        StockLevel(item_id=item_id, store_id=STORE_ID, current_quantity=Decimal(qty))
-    )
+    session.add(StockLevel(item_id=item_id, store_id=STORE_ID, current_quantity=Decimal(qty)))
     await session.commit()
 
 
@@ -138,9 +134,7 @@ async def _production_event(
 
 
 async def _recipe(session: AsyncSession, sellable_id: UUID, name: str = "Pilau") -> UUID:
-    recipe = Recipe(
-        business_id=BUSINESS_ID, sellable_item_id=sellable_id, name=name
-    )
+    recipe = Recipe(business_id=BUSINESS_ID, sellable_item_id=sellable_id, name=name)
     session.add(recipe)
     await session.commit()
     await session.refresh(recipe)
@@ -179,13 +173,9 @@ class TestWasteSummary:
         assert Decimal(line["quantity_wasted"]) == Decimal("5")
         assert Decimal(line["cost_wasted"]) == Decimal("0")
 
-    async def test_date_filter(
-        self, client: AsyncClient, db_session: AsyncSession
-    ) -> None:
+    async def test_date_filter(self, client: AsyncClient, db_session: AsyncSession) -> None:
         rice = await _create_item(db_session, "Rice")
-        await _waste(
-            db_session, rice.id, "9.000", when=datetime.now(UTC) - timedelta(days=10)
-        )
+        await _waste(db_session, rice.id, "9.000", when=datetime.now(UTC) - timedelta(days=10))
         await _waste(db_session, rice.id, "1.000")
 
         resp = await client.get(
@@ -198,26 +188,30 @@ class TestWasteSummary:
 
 
 class TestProductionSummary:
-    async def _setup(
-        self, db_session: AsyncSession
-    ) -> tuple[UUID, UUID]:
+    async def _setup(self, db_session: AsyncSession) -> tuple[UUID, UUID]:
         pilau = await _create_item(db_session, "Pilau", ItemType.SELLABLE)
         rice = await _create_item(db_session, "Rice")
         recipe_id = await _recipe(db_session, pilau.id)
         await _production_event(
-            db_session, recipe_id, rice.id, "10.000", "8.000",
+            db_session,
+            recipe_id,
+            rice.id,
+            "10.000",
+            "8.000",
             consumptions=[(rice.id, "2.000")],
         )
         await _production_event(
-            db_session, recipe_id, rice.id, "5.000", "5.000",
+            db_session,
+            recipe_id,
+            rice.id,
+            "5.000",
+            "5.000",
             when=datetime.now(UTC) - timedelta(days=10),
             consumptions=[(rice.id, "1.000")],
         )
         return recipe_id, rice.id
 
-    async def test_totals_and_gap(
-        self, client: AsyncClient, db_session: AsyncSession
-    ) -> None:
+    async def test_totals_and_gap(self, client: AsyncClient, db_session: AsyncSession) -> None:
         _, rice_id = await self._setup(db_session)
 
         resp = await client.get(
@@ -230,14 +224,10 @@ class TestProductionSummary:
         assert Decimal(data["suggested_total"]) == Decimal("15")
         assert Decimal(data["actual_total"]) == Decimal("13")
         assert Decimal(data["over_portioned_by"]) == Decimal("-2")
-        consumed = {
-            c["raw_material_item_id"]: c for c in data["ingredients_consumed"]
-        }
+        consumed = {c["raw_material_item_id"]: c for c in data["ingredients_consumed"]}
         assert Decimal(consumed[str(rice_id)]["quantity_consumed"]) == Decimal("3")
 
-    async def test_date_filter(
-        self, client: AsyncClient, db_session: AsyncSession
-    ) -> None:
+    async def test_date_filter(self, client: AsyncClient, db_session: AsyncSession) -> None:
         await self._setup(db_session)
 
         resp = await client.get(
@@ -254,7 +244,9 @@ class TestStockValuation:
         self, client: AsyncClient, db_session: AsyncSession, produce_category_id: str
     ) -> None:
         rice = await _create_item(
-            db_session, "Rice", unit_cost=Decimal("1.5000"),
+            db_session,
+            "Rice",
+            unit_cost=Decimal("1.5000"),
             category_id=UUID(produce_category_id),
         )
         await _set_level(db_session, rice.id, "10.000")
@@ -279,7 +271,8 @@ class TestStockValuation:
 
 class TestAnalyticsRbac:
     async def test_endpoints_reject_without_reports_view(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         for suffix in ("waste-summary", "production-summary", "stock-valuation"):
             resp = await client.get(
@@ -289,7 +282,9 @@ class TestAnalyticsRbac:
             assert resp.status_code == 403, suffix
 
     async def test_cross_business_isolation(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         rice = await _create_item(db_session, "Rice")
         await _waste(db_session, rice.id, "9.000")
@@ -301,9 +296,7 @@ class TestAnalyticsRbac:
             ("production-summary", "ingredients_consumed"),
             ("stock-valuation", "lines"),
         ):
-            resp = await client.get(
-                f"/api/v1/businesses/{other}/{suffix}", headers=headers
-            )
+            resp = await client.get(f"/api/v1/businesses/{other}/{suffix}", headers=headers)
             assert resp.status_code == 200, suffix
             assert resp.json()[key] == [], suffix
 

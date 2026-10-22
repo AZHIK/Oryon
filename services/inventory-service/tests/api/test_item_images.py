@@ -46,7 +46,8 @@ JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00" + b"\x00" * 64
 
 def _auth(permissions: list[str], business_id: UUID = BUSINESS_ID) -> dict[str, str]:
     return {
-        "Authorization": f"Bearer {_build_token(permissions=permissions, active_business_id=str(business_id))}"
+        "Authorization": "Bearer "
+        + _build_token(permissions=permissions, active_business_id=str(business_id))
     }
 
 
@@ -157,9 +158,7 @@ class TestUploadItemImage:
         )
         assert resp.status_code == 400, resp.text
 
-    async def test_unknown_item_is_404(
-        self, client: AsyncClient, _tmp_storage
-    ) -> None:
+    async def test_unknown_item_is_404(self, client: AsyncClient, _tmp_storage) -> None:
         from uuid import uuid4
 
         resp = await client.put(

@@ -41,7 +41,7 @@ cannot meaningfully be extracted into a shared helper.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID
@@ -69,7 +69,6 @@ from app.models.inventory import (
     StockLevel,
     StockMovement,
 )
-from app.models.units import Unit
 from app.models.purchases import (
     GoodsReceipt,
     GoodsReceiptLine,
@@ -78,6 +77,7 @@ from app.models.purchases import (
     PurchaseOrderStatus,
 )
 from app.models.suppliers import Supplier
+from app.models.units import Unit
 from app.schemas.analytics import (
     ActivityLogLine,
     ActivityLogResponse,
@@ -88,9 +88,9 @@ from app.schemas.analytics import (
     IngredientConsumption,
     LotLine,
     LotReportResponse,
+    ProductionSummaryResponse,
     ProductPurchaseLine,
     ProductPurchaseResponse,
-    ProductionSummaryResponse,
     StockAdjustmentLine,
     StockAdjustmentResponse,
     StockValuationLine,
@@ -221,7 +221,9 @@ async def get_item_movements(
     claims: Annotated[dict[str, Any], Depends(get_current_claims)],
     limit: int = Query(default=20, ge=1, le=100, description="Max items per page"),
     offset: int = Query(default=0, ge=0, description="Number of items to skip"),
-    from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
+    from_date: date | None = Query(
+        default=None, alias="from", description="Start date (inclusive)"
+    ),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     movement_type: MovementType | None = Query(default=None, description="Filter by movement type"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
@@ -236,19 +238,16 @@ async def get_item_movements(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
     ensure_store_access(claims, item.store_id)
 
-    stmt = (
-        select(StockMovement)
-        .where(
-            StockMovement.business_id == business_id,
-            StockMovement.item_id == item_id,
-        )
+    stmt = select(StockMovement).where(
+        StockMovement.business_id == business_id,
+        StockMovement.item_id == item_id,
     )
 
     if from_date is not None:
-        dt = datetime.combine(from_date, datetime.min.time(), tzinfo=timezone.utc)
+        dt = datetime.combine(from_date, datetime.min.time(), tzinfo=UTC)
         stmt = stmt.where(StockMovement.created_at >= dt)
     if to_date is not None:
-        dt = datetime.combine(to_date, datetime.max.time(), tzinfo=timezone.utc)
+        dt = datetime.combine(to_date, datetime.max.time(), tzinfo=UTC)
         stmt = stmt.where(StockMovement.created_at <= dt)
     if movement_type is not None:
         stmt = stmt.where(StockMovement.movement_type == movement_type)
@@ -284,14 +283,12 @@ def _day_bounds(
 ) -> tuple[datetime | None, datetime | None]:
     """Inclusive UTC day bounds, mirroring the movement-history filters."""
     start = (
-        datetime.combine(from_date, datetime.min.time(), tzinfo=timezone.utc)
+        datetime.combine(from_date, datetime.min.time(), tzinfo=UTC)
         if from_date is not None
         else None
     )
     end = (
-        datetime.combine(to_date, datetime.max.time(), tzinfo=timezone.utc)
-        if to_date is not None
-        else None
+        datetime.combine(to_date, datetime.max.time(), tzinfo=UTC) if to_date is not None else None
     )
     return start, end
 
@@ -302,7 +299,9 @@ async def waste_summary(
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
     claims: Annotated[dict[str, Any], Depends(get_current_claims)],
-    from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
+    from_date: date | None = Query(
+        default=None, alias="from", description="Start date (inclusive)"
+    ),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
 ) -> WasteSummaryResponse:
@@ -345,9 +344,9 @@ async def waste_summary(
         stmt = stmt.where(StockMovement.created_at <= end)
     if store_id is not None:
         stmt = stmt.where(StockMovement.store_id == store_id)
-    stmt = stmt.group_by(
-        StockMovement.item_id, Item.name, Unit.code, Item.unit_cost
-    ).order_by(sa_func.sum(-StockMovement.quantity_delta).desc())
+    stmt = stmt.group_by(StockMovement.item_id, Item.name, Unit.code, Item.unit_cost).order_by(
+        sa_func.sum(-StockMovement.quantity_delta).desc()
+    )
 
     rows = (await session.exec(stmt)).all()
 
@@ -370,9 +369,7 @@ async def waste_summary(
     total = sum((line.cost_wasted for line in lines), Decimal("0"))
     estimated = any(line.cost_estimated for line in lines)
 
-    logger.info(
-        "reports.waste_summary", business_id=str(business_id), lines=len(lines)
-    )
+    logger.info("reports.waste_summary", business_id=str(business_id), lines=len(lines))
     return WasteSummaryResponse(lines=lines, total_cost_wasted=total, estimated=estimated)
 
 
@@ -382,7 +379,9 @@ async def production_summary(
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
     claims: Annotated[dict[str, Any], Depends(get_current_claims)],
-    from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
+    from_date: date | None = Query(
+        default=None, alias="from", description="Start date (inclusive)"
+    ),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
 ) -> ProductionSummaryResponse:
@@ -422,9 +421,7 @@ async def production_summary(
             ProductionEventComponent.raw_material_item_id,
             Item.name,
             Unit.code,
-            sa_func.sum(ProductionEventComponent.quantity_consumed).label(
-                "quantity"
-            ),
+            sa_func.sum(ProductionEventComponent.quantity_consumed).label("quantity"),
         )
         .join(
             ProductionEvent,
@@ -433,16 +430,12 @@ async def production_summary(
         .join(Item, ProductionEventComponent.raw_material_item_id == Item.id)
         .join(Unit, Item.unit_id == Unit.id, isouter=True)
         .where(*base)
-        .group_by(
-            ProductionEventComponent.raw_material_item_id, Item.name, Unit.code
-        )
+        .group_by(ProductionEventComponent.raw_material_item_id, Item.name, Unit.code)
         .order_by(sa_func.sum(ProductionEventComponent.quantity_consumed).desc())
     )
     comp_rows = (await session.exec(comp_stmt)).all()
 
-    logger.info(
-        "reports.production_summary", business_id=str(business_id), runs=runs
-    )
+    logger.info("reports.production_summary", business_id=str(business_id), runs=runs)
     return ProductionSummaryResponse(
         runs=runs,
         suggested_total=suggested,
@@ -480,8 +473,7 @@ async def stock_valuation(
             Category.name,
             sa_func.count(StockLevel.item_id).label("items"),
             sa_func.sum(
-                StockLevel.current_quantity
-                * sa_func.coalesce(Item.unit_cost, Decimal("0"))
+                StockLevel.current_quantity * sa_func.coalesce(Item.unit_cost, Decimal("0"))
             ).label("value"),
         )
         .join(Item, StockLevel.item_id == Item.id)
@@ -492,8 +484,7 @@ async def stock_valuation(
         stmt = stmt.where(StockLevel.store_id == store_id)
     stmt = stmt.group_by(Category.name).order_by(
         sa_func.sum(
-            StockLevel.current_quantity
-            * sa_func.coalesce(Item.unit_cost, Decimal("0"))
+            StockLevel.current_quantity * sa_func.coalesce(Item.unit_cost, Decimal("0"))
         ).desc()
     )
 
@@ -508,9 +499,7 @@ async def stock_valuation(
     ]
     total = sum((line.total_value for line in lines), Decimal("0"))
 
-    logger.info(
-        "reports.stock_valuation", business_id=str(business_id), total=str(total)
-    )
+    logger.info("reports.stock_valuation", business_id=str(business_id), total=str(total))
     return StockValuationResponse(total_value=total, lines=lines)
 
 
@@ -520,7 +509,9 @@ async def product_purchases(
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
     claims: Annotated[dict[str, Any], Depends(get_current_claims)],
-    from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
+    from_date: date | None = Query(
+        default=None, alias="from", description="Start date (inclusive)"
+    ),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
     supplier_id: UUID | None = Query(default=None, description="Filter by supplier"),
@@ -554,9 +545,7 @@ async def product_purchases(
         ordered_stmt = ordered_stmt.where(PurchaseOrder.store_id == store_id)
     if supplier_id is not None:
         ordered_stmt = ordered_stmt.where(PurchaseOrder.supplier_id == supplier_id)
-    ordered_stmt = ordered_stmt.group_by(
-        PurchaseOrderLine.item_id, PurchaseOrder.supplier_id
-    )
+    ordered_stmt = ordered_stmt.group_by(PurchaseOrderLine.item_id, PurchaseOrder.supplier_id)
     ordered_rows = (await session.exec(ordered_stmt)).all()
     ordered = {(r.item_id, r.supplier_id): r.qty_ordered or Decimal("0") for r in ordered_rows}
 
@@ -565,9 +554,9 @@ async def product_purchases(
             GoodsReceiptLine.item_id.label("item_id"),
             PurchaseOrder.supplier_id.label("supplier_id"),
             sa_func.sum(GoodsReceiptLine.quantity_received).label("qty_received"),
-            sa_func.sum(
-                GoodsReceiptLine.quantity_received * GoodsReceiptLine.unit_cost
-            ).label("cost"),
+            sa_func.sum(GoodsReceiptLine.quantity_received * GoodsReceiptLine.unit_cost).label(
+                "cost"
+            ),
         )
         .join(GoodsReceipt, GoodsReceiptLine.goods_receipt_id == GoodsReceipt.id)
         .join(PurchaseOrder, GoodsReceipt.purchase_order_id == PurchaseOrder.id)
@@ -584,9 +573,7 @@ async def product_purchases(
         received_stmt = received_stmt.where(GoodsReceipt.store_id == store_id)
     if supplier_id is not None:
         received_stmt = received_stmt.where(PurchaseOrder.supplier_id == supplier_id)
-    received_stmt = received_stmt.group_by(
-        GoodsReceiptLine.item_id, PurchaseOrder.supplier_id
-    )
+    received_stmt = received_stmt.group_by(GoodsReceiptLine.item_id, PurchaseOrder.supplier_id)
     received_rows = (await session.exec(received_stmt)).all()
     received = {
         (r.item_id, r.supplier_id): (
@@ -603,9 +590,9 @@ async def product_purchases(
     if keys:
         item_rows = (
             await session.exec(
-                select(Item.id, Item.name, Unit.code).join(
-                    Unit, Item.unit_id == Unit.id, isouter=True
-                ).where(Item.id.in_([k[0] for k in keys]))
+                select(Item.id, Item.name, Unit.code)
+                .join(Unit, Item.unit_id == Unit.id, isouter=True)
+                .where(Item.id.in_([k[0] for k in keys]))
             )
         ).all()
         for iid, name, code in item_rows:
@@ -613,9 +600,7 @@ async def product_purchases(
             units[iid] = code or ""
         sup_rows = (
             await session.exec(
-                select(Supplier.id, Supplier.name).where(
-                    Supplier.id.in_([k[1] for k in keys])
-                )
+                select(Supplier.id, Supplier.name).where(Supplier.id.in_([k[1] for k in keys]))
             )
         ).all()
         sup_names = {row[0]: row[1] for row in sup_rows}
@@ -633,7 +618,7 @@ async def product_purchases(
         )
         for item_id, sup_id in keys
     ]
-    lines.sort(key=lambda l: l.total_cost, reverse=True)
+    lines.sort(key=lambda line: line.total_cost, reverse=True)
     total = sum((line.total_cost for line in lines), Decimal("0"))
     logger.info("reports.product_purchases", business_id=str(business_id), lines=len(lines))
     return ProductPurchaseResponse(lines=lines, total_cost=total)
@@ -645,7 +630,9 @@ async def stock_adjustments(
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
     claims: Annotated[dict[str, Any], Depends(get_current_claims)],
-    from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
+    from_date: date | None = Query(
+        default=None, alias="from", description="Start date (inclusive)"
+    ),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
     limit: int = Query(default=50, ge=1, le=200),
@@ -704,7 +691,9 @@ async def lot_report(
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
     claims: Annotated[dict[str, Any], Depends(get_current_claims)],
-    from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
+    from_date: date | None = Query(
+        default=None, alias="from", description="Start date (inclusive)"
+    ),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
     item_id: UUID | None = Query(default=None, description="Filter by item"),
@@ -757,8 +746,12 @@ async def expiry_report(
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
     claims: Annotated[dict[str, Any], Depends(get_current_claims)],
-    from_date: date | None = Query(default=None, alias="from", description="Expiring from (inclusive)"),
-    to_date: date | None = Query(default=None, alias="to", description="Expiring until (inclusive)"),
+    from_date: date | None = Query(
+        default=None, alias="from", description="Expiring from (inclusive)"
+    ),
+    to_date: date | None = Query(
+        default=None, alias="to", description="Expiring until (inclusive)"
+    ),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> ExpiryReportResponse:
@@ -806,7 +799,9 @@ async def supplier_purchases(
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
     claims: Annotated[dict[str, Any], Depends(get_current_claims)],
-    from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
+    from_date: date | None = Query(
+        default=None, alias="from", description="Start date (inclusive)"
+    ),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
 ) -> SupplierPurchaseResponse:
@@ -818,7 +813,10 @@ async def supplier_purchases(
     """
     store_id = resolve_store_filter(claims, store_id)
     start, end = _day_bounds(from_date, to_date)
-    po_filters = [PurchaseOrder.business_id == business_id, PurchaseOrder.status != PurchaseOrderStatus.CANCELLED]
+    po_filters = [
+        PurchaseOrder.business_id == business_id,
+        PurchaseOrder.status != PurchaseOrderStatus.CANCELLED,
+    ]
     if start is not None:
         po_filters.append(PurchaseOrder.ordered_at >= start)
     if end is not None:
@@ -850,9 +848,9 @@ async def supplier_purchases(
         await session.exec(
             select(
                 PurchaseOrder.supplier_id,
-                sa_func.sum(
-                    GoodsReceiptLine.quantity_received * GoodsReceiptLine.unit_cost
-                ).label("received"),
+                sa_func.sum(GoodsReceiptLine.quantity_received * GoodsReceiptLine.unit_cost).label(
+                    "received"
+                ),
             )
             .join(GoodsReceipt, GoodsReceiptLine.goods_receipt_id == GoodsReceipt.id)
             .join(PurchaseOrder, GoodsReceipt.purchase_order_id == PurchaseOrder.id)
@@ -860,9 +858,7 @@ async def supplier_purchases(
             .group_by(PurchaseOrder.supplier_id)
         )
     ).all()
-    ordered = {
-        row[0]: (counts.get(row[0], 0), row[1] or Decimal("0")) for row in recv_rows
-    }
+    ordered = {row[0]: (counts.get(row[0], 0), row[1] or Decimal("0")) for row in recv_rows}
     for sid, count in counts.items():
         if sid not in ordered:
             ordered[sid] = (count, Decimal("0"))
@@ -870,7 +866,9 @@ async def supplier_purchases(
     names: dict = {}
     if supplier_ids:
         sup_rows = (
-            await session.exec(select(Supplier.id, Supplier.name).where(Supplier.id.in_(supplier_ids)))
+            await session.exec(
+                select(Supplier.id, Supplier.name).where(Supplier.id.in_(supplier_ids))
+            )
         ).all()
         names = {row[0]: row[1] for row in sup_rows}
     lines = [
@@ -882,7 +880,7 @@ async def supplier_purchases(
         )
         for sid in supplier_ids
     ]
-    lines.sort(key=lambda l: l.total_received, reverse=True)
+    lines.sort(key=lambda line: line.total_received, reverse=True)
     logger.info("reports.supplier_purchases", business_id=str(business_id), lines=len(lines))
     return SupplierPurchaseResponse(lines=lines)
 
@@ -893,7 +891,9 @@ async def cost_history(
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
     claims: Annotated[dict[str, Any], Depends(get_current_claims)],
-    from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
+    from_date: date | None = Query(
+        default=None, alias="from", description="Start date (inclusive)"
+    ),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
     item_id: UUID | None = Query(default=None, description="Filter by item"),
@@ -954,7 +954,9 @@ async def activity_log(
     session: Annotated[AsyncSession, Depends(get_db)],
     _jwt_biz_id: Annotated[str, Depends(require_business_permission("reports.view"))],
     claims: Annotated[dict[str, Any], Depends(get_current_claims)],
-    from_date: date | None = Query(default=None, alias="from", description="Start date (inclusive)"),
+    from_date: date | None = Query(
+        default=None, alias="from", description="Start date (inclusive)"
+    ),
     to_date: date | None = Query(default=None, alias="to", description="End date (inclusive)"),
     store_id: UUID | None = Query(default=None, description="Filter by store"),
     movement_type: MovementType | None = Query(default=None, description="Filter by movement type"),
@@ -996,7 +998,9 @@ async def activity_log(
             id=m.id,
             item_id=m.item_id,
             item_name=name,
-            movement_type=str(m.movement_type.value if hasattr(m.movement_type, "value") else m.movement_type),
+            movement_type=str(
+                m.movement_type.value if hasattr(m.movement_type, "value") else m.movement_type
+            ),
             quantity_delta=m.quantity_delta,
             store_id=m.store_id,
             actor_id=m.actor_id,

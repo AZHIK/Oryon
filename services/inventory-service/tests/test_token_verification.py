@@ -8,7 +8,6 @@ Identity Service without calling back to it at runtime.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from uuid import UUID
 
 import jwt
@@ -17,7 +16,6 @@ from fastapi import HTTPException
 
 from app.core.exceptions import ExpiredTokenError, InvalidTokenError
 from app.core.security import (
-    _load_public_key,
     decode_and_verify_access_token,
 )
 from app.deps.auth import (
@@ -136,6 +134,7 @@ class TestDecodeAndVerifyAccessToken:
 
     def test_missing_type_claim_rejected(self) -> None:
         from app.core.config import get_settings
+
         settings = get_settings()
         payload = {
             "sub": "user",
@@ -149,6 +148,7 @@ class TestDecodeAndVerifyAccessToken:
 
     def test_refresh_type_token_is_rejected(self) -> None:
         from app.core.config import get_settings
+
         settings = get_settings()
         payload = {
             "sub": "user",
@@ -245,7 +245,11 @@ class TestRequireBusinessPermission:
 
     async def test_rejects_without_context(self) -> None:
         checker = require_business_permission("inventory.view")
-        claims = {"sub": "user", "user_category": "business_staff", "permissions": ["inventory.view"]}
+        claims = {
+            "sub": "user",
+            "user_category": "business_staff",
+            "permissions": ["inventory.view"],
+        }
         with pytest.raises(HTTPException) as exc:
             await _call(checker, claims, business_id=UUID("550e8400-e29b-41d4-a716-446655440000"))
         assert exc.value.status_code == 403

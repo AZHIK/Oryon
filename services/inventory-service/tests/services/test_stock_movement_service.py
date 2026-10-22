@@ -15,7 +15,6 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.models.inventory import (
-    ActorType,
     Item,
     ItemType,
     MovementType,
@@ -164,9 +163,7 @@ async def test_sale_on_sellable_succeeds(db_session: AsyncSession) -> None:
     )
 
     assert movement.movement_type == MovementType.SALE
-    result = await db_session.exec(
-        select(StockLevel).where(StockLevel.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockLevel).where(StockLevel.item_id == item.id))
     assert result.one().current_quantity == Decimal("20.000")
 
 
@@ -196,9 +193,7 @@ async def test_purchase_received_on_both_succeeds(db_session: AsyncSession) -> N
     )
 
     assert movement2.movement_type == MovementType.SALE
-    result = await db_session.exec(
-        select(StockLevel).where(StockLevel.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockLevel).where(StockLevel.item_id == item.id))
     assert result.one().current_quantity == Decimal("70.000")
 
 
@@ -225,9 +220,7 @@ async def test_waste_on_raw_material_succeeds(db_session: AsyncSession) -> None:
     )
 
     assert movement.movement_type == MovementType.WASTE
-    result = await db_session.exec(
-        select(StockLevel).where(StockLevel.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockLevel).where(StockLevel.item_id == item.id))
     assert result.one().current_quantity == Decimal("45.000")
 
 
@@ -253,9 +246,7 @@ async def test_negative_stock_disallowed_raises_error(db_session: AsyncSession) 
 
     async with async_session_factory() as verify_session:
         assert await _count_rows(verify_session, StockMovement) == 0
-        result = await verify_session.exec(
-            select(StockLevel).where(StockLevel.item_id == item.id)
-        )
+        result = await verify_session.exec(select(StockLevel).where(StockLevel.item_id == item.id))
         assert result.first() is None
 
 
@@ -273,9 +264,7 @@ async def test_negative_stock_allowed_succeeds(db_session: AsyncSession) -> None
     )
 
     assert movement.quantity_delta == Decimal("-5.000")
-    result = await db_session.exec(
-        select(StockLevel).where(StockLevel.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockLevel).where(StockLevel.item_id == item.id))
     assert result.one().current_quantity == Decimal("-5.000")
 
 
@@ -298,9 +287,7 @@ async def test_first_movement_creates_stock_level_row(db_session: AsyncSession) 
     )
 
     assert await _count_rows(db_session, StockLevel) == 1
-    result = await db_session.exec(
-        select(StockLevel).where(StockLevel.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockLevel).where(StockLevel.item_id == item.id))
     assert result.one().current_quantity == Decimal("25.000")
 
 
@@ -325,7 +312,7 @@ async def test_duplicate_event_id_skips_second_movement(db_session: AsyncSession
     assert m1 is not None
 
     # Second call with same event_id
-    m2 = await record_movement(
+    _m2 = await record_movement(
         db=db_session,
         item_id=item.id,
         business_id=BUSINESS_ID,
@@ -342,9 +329,7 @@ async def test_duplicate_event_id_skips_second_movement(db_session: AsyncSession
     assert movements[0].quantity_delta == Decimal("30.000")
 
     # Stock level reflects first movement only
-    result = await db_session.exec(
-        select(StockLevel).where(StockLevel.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockLevel).where(StockLevel.item_id == item.id))
     assert result.one().current_quantity == Decimal("30.000")
 
     # ProcessedEvent row exists
@@ -439,9 +424,7 @@ async def test_concurrent_movements_no_lost_update(db_session: AsyncSession) -> 
     await asyncio.gather(add_50(), add_30())
 
     # Read final state in test session
-    result = await db_session.exec(
-        select(StockLevel).where(StockLevel.item_id == item_id)
-    )
+    result = await db_session.exec(select(StockLevel).where(StockLevel.item_id == item_id))
     sl = result.one()
     assert sl.current_quantity == Decimal("80.000"), (
         f"Expected 80.000, got {sl.current_quantity} — lost update detected"
@@ -461,7 +444,9 @@ async def test_concurrent_movements_no_lost_update(db_session: AsyncSession) -> 
 
 @pytest.mark.asyncio
 async def test_movement_with_valid_data_does_not_raise(db_session: AsyncSession) -> None:
-    item = await _create_item(db_session, item_type=ItemType.BOTH, reorder_threshold=Decimal("10.000"))
+    item = await _create_item(
+        db_session, item_type=ItemType.BOTH, reorder_threshold=Decimal("10.000")
+    )
 
     await record_movement(
         db=db_session,
@@ -472,9 +457,7 @@ async def test_movement_with_valid_data_does_not_raise(db_session: AsyncSession)
         movement_type=MovementType.MANUAL_ADJUSTMENT,
     )
 
-    result = await db_session.exec(
-        select(StockLevel).where(StockLevel.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockLevel).where(StockLevel.item_id == item.id))
     assert result.one().current_quantity == Decimal("5.000")
 
 
@@ -511,9 +494,7 @@ async def test_zero_delta_movement_succeeds(db_session: AsyncSession) -> None:
 
     assert movement.quantity_delta == Decimal("0.000")
 
-    result = await db_session.exec(
-        select(StockLevel).where(StockLevel.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockLevel).where(StockLevel.item_id == item.id))
     assert result.one().current_quantity == Decimal("0.000")
 
 
@@ -531,9 +512,7 @@ async def test_sale_on_both_with_negative_stock_allowed(db_session: AsyncSession
     )
 
     assert movement.quantity_delta == Decimal("-10.000")
-    result = await db_session.exec(
-        select(StockLevel).where(StockLevel.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockLevel).where(StockLevel.item_id == item.id))
     assert result.one().current_quantity == Decimal("-10.000")
 
 
@@ -560,9 +539,7 @@ async def test_skip_negative_check_bypasses_insufficient_stock(db_session: Async
     )
 
     assert movement.quantity_delta == Decimal("-5.000")
-    result = await db_session.exec(
-        select(StockLevel).where(StockLevel.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockLevel).where(StockLevel.item_id == item.id))
     assert result.one().current_quantity == Decimal("-5.000")
 
 

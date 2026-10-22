@@ -81,7 +81,7 @@ async def publish_event(event_name: str, payload: dict[str, Any]) -> None:
         logger.warning("stock_event_publish_error", event_name=event_name, error=str(exc))
 
 
-async def subscribe_event(event_name: str, handler: Any) -> None:
+async def subscribe_event(event_name: str, handler: Any) -> None:  # noqa: ARG001
     """Register a handler for an incoming event.
 
     This is a stub — the function signature defines the interface that will

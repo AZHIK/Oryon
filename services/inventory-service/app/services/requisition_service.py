@@ -319,9 +319,9 @@ async def submit_requisition(
         ).one_or_none()
         if item is None:
             raise LookupError(f"Item '{ln['item_id']}' not found")
-        from app.models.inventory import ItemType as _IT
+        from app.models.inventory import ItemType
 
-        if item.item_type == _IT.SELLABLE:
+        if item.item_type == ItemType.SELLABLE:
             raise ValueError(
                 f"Cannot purchase sellable-only item '{item.name}' — "
                 "order its raw-material components instead."

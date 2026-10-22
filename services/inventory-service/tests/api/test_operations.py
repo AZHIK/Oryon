@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock
 from uuid import UUID
 
 import jwt
@@ -167,9 +166,7 @@ async def test_adjust_stock_increases_quantity(
     assert data["movement_type"] == "manual_adjustment"
     assert data["quantity_delta"] == "5.000"
 
-    result = await db_session.exec(
-        select(StockLevel).where(StockLevel.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockLevel).where(StockLevel.item_id == item.id))
     sl = result.one()
     assert sl.current_quantity == Decimal("15.000")
 
@@ -191,9 +188,7 @@ async def test_adjust_stock_decreases_quantity(
     data = resp.json()
     assert data["quantity_delta"] == "-3.000"
 
-    result = await db_session.exec(
-        select(StockLevel).where(StockLevel.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockLevel).where(StockLevel.item_id == item.id))
     sl = result.one()
     assert sl.current_quantity == Decimal("7.000")
 
@@ -251,9 +246,7 @@ async def test_record_waste_decreases_quantity(
     assert data["movement_type"] == "waste"
     assert data["quantity_delta"] == "-3.000"
 
-    result = await db_session.exec(
-        select(StockLevel).where(StockLevel.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockLevel).where(StockLevel.item_id == item.id))
     sl = result.one()
     assert sl.current_quantity == Decimal("7.000")
 
@@ -336,8 +329,12 @@ async def test_transfer_moves_stock_between_stores(
     db_session: AsyncSession,
 ) -> None:
     item = await _create_item(db_session, name="Transferable Item", store_id=STORE_ID)
-    await _create_stock_level(db_session, item_id=item.id, store_id=STORE_ID, quantity=Decimal("10.000"))
-    await _create_stock_level(db_session, item_id=item.id, store_id=STORE_ID_2, quantity=Decimal("0.000"))
+    await _create_stock_level(
+        db_session, item_id=item.id, store_id=STORE_ID, quantity=Decimal("10.000")
+    )
+    await _create_stock_level(
+        db_session, item_id=item.id, store_id=STORE_ID_2, quantity=Decimal("0.000")
+    )
 
     resp = await client.post(
         f"{BIZ_PREFIX}/transfer",
@@ -379,9 +376,7 @@ async def test_transfer_moves_stock_between_stores(
     sl_dst = result.one()
     assert sl_dst.current_quantity == Decimal("4.000")
 
-    result = await db_session.exec(
-        select(StockMovement).where(StockMovement.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockMovement).where(StockMovement.item_id == item.id))
     movements = list(result.all())
     assert len(movements) == 2
     movement_types = {m.movement_type for m in movements}
@@ -394,8 +389,12 @@ async def test_transfer_insufficient_stock_raises_409(
     db_session: AsyncSession,
 ) -> None:
     item = await _create_item(db_session, allow_negative_stock=False)
-    await _create_stock_level(db_session, item_id=item.id, store_id=STORE_ID, quantity=Decimal("1.000"))
-    await _create_stock_level(db_session, item_id=item.id, store_id=STORE_ID_2, quantity=Decimal("0.000"))
+    await _create_stock_level(
+        db_session, item_id=item.id, store_id=STORE_ID, quantity=Decimal("1.000")
+    )
+    await _create_stock_level(
+        db_session, item_id=item.id, store_id=STORE_ID_2, quantity=Decimal("0.000")
+    )
 
     resp = await client.post(
         f"{BIZ_PREFIX}/transfer",
@@ -409,9 +408,7 @@ async def test_transfer_insufficient_stock_raises_409(
     )
     assert resp.status_code == 409, resp.text
 
-    result = await db_session.exec(
-        select(StockMovement).where(StockMovement.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockMovement).where(StockMovement.item_id == item.id))
     assert list(result.all()) == []
 
 
@@ -465,8 +462,12 @@ async def test_transfer_atomicity_rolls_back_on_failure(
     """If the second record_movement (transfer_in) fails, the first
     (transfer_out) must also be rolled back — no partial transfer."""
     item = await _create_item(db_session, name="Atomic Item", store_id=STORE_ID)
-    await _create_stock_level(db_session, item_id=item.id, store_id=STORE_ID, quantity=Decimal("50.000"))
-    await _create_stock_level(db_session, item_id=item.id, store_id=STORE_ID_2, quantity=Decimal("0.000"))
+    await _create_stock_level(
+        db_session, item_id=item.id, store_id=STORE_ID, quantity=Decimal("50.000")
+    )
+    await _create_stock_level(
+        db_session, item_id=item.id, store_id=STORE_ID_2, quantity=Decimal("0.000")
+    )
 
     from app.api.v1.endpoints import operations as ops_endpoints
 
@@ -509,9 +510,7 @@ async def test_transfer_atomicity_rolls_back_on_failure(
         "transfer_out was NOT rolled back!"
     )
 
-    result = await db_session.exec(
-        select(StockMovement).where(StockMovement.item_id == item.id)
-    )
+    result = await db_session.exec(select(StockMovement).where(StockMovement.item_id == item.id))
     assert list(result.all()) == [], "No movements should have been committed"
 
 
@@ -554,7 +553,9 @@ async def test_unpinned_token_keeps_business_wide_store_access(
     and business staff must still be able to move stock between stores.
     """
     item = await _create_item(db_session, name="Store Gap Item", store_id=STORE_ID)
-    await _create_stock_level(db_session, item_id=item.id, store_id=STORE_ID, quantity=Decimal("10.000"))
+    await _create_stock_level(
+        db_session, item_id=item.id, store_id=STORE_ID, quantity=Decimal("10.000")
+    )
 
     resp = await client.post(
         f"{BIZ_PREFIX}/transfer",
@@ -593,8 +594,7 @@ async def test_waste_requires_waste_record_perm(
         headers=old_token,
     )
     assert resp.status_code == 403, (
-        "Old INVENTORY_ADJUST should no longer grant waste — "
-        "inventory.waste.record is required"
+        "Old INVENTORY_ADJUST should no longer grant waste — inventory.waste.record is required"
     )
 
 
@@ -605,8 +605,12 @@ async def test_transfer_requires_transfer_perm(
 ) -> None:
     """Token with old INVENTORY_ADJUST (but not transfer) is rejected."""
     item = await _create_item(db_session)
-    await _create_stock_level(db_session, item_id=item.id, store_id=STORE_ID, quantity=Decimal("10.000"))
-    await _create_stock_level(db_session, item_id=item.id, store_id=STORE_ID_2, quantity=Decimal("0.000"))
+    await _create_stock_level(
+        db_session, item_id=item.id, store_id=STORE_ID, quantity=Decimal("10.000")
+    )
+    await _create_stock_level(
+        db_session, item_id=item.id, store_id=STORE_ID_2, quantity=Decimal("0.000")
+    )
 
     old_token = _auth_header(permissions=["inventory.view", "inventory.adjust"])
     resp = await client.post(
@@ -620,6 +624,5 @@ async def test_transfer_requires_transfer_perm(
         headers=old_token,
     )
     assert resp.status_code == 403, (
-        "Old INVENTORY_ADJUST should no longer grant transfer — "
-        "inventory.transfer is required"
+        "Old INVENTORY_ADJUST should no longer grant transfer — inventory.transfer is required"
     )

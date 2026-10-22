@@ -9,7 +9,8 @@ from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import case as sa_case, func as sa_func
+from sqlalchemy import case as sa_case
+from sqlalchemy import func as sa_func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -72,7 +73,10 @@ async def sync_sales(
     except (ValueError, KeyError, TypeError):
         actor_id = None
     response = await sync_sale_batch(
-        session, business_id, actor_id, batch,
+        session,
+        business_id,
+        actor_id,
+        batch,
         authorization=request.headers.get("authorization"),
     )
 
@@ -102,16 +106,33 @@ async def list_sales(
     _active_business: str = Depends(require_business_permission(PermissionCode.POS_VIEW)),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    from_date: datetime | None = Query(default=None, description="Start date (inclusive) for occurred_at"),
-    to_date: datetime | None = Query(default=None, description="End date (inclusive) for occurred_at"),
-    status: str | None = Query(default=None, description="Filter by status: completed, voided, refunded"),
-    payment_method: str | None = Query(default=None, description="Filter by payment method: cash, mobile_money, card, other"),
+    from_date: datetime | None = Query(
+        default=None, description="Start date (inclusive) for occurred_at"
+    ),
+    to_date: datetime | None = Query(
+        default=None, description="End date (inclusive) for occurred_at"
+    ),
+    status: str | None = Query(
+        default=None, description="Filter by status: completed, voided, refunded"
+    ),
+    payment_method: str | None = Query(
+        default=None, description="Filter by payment method: cash, mobile_money, card, other"
+    ),
     store_id: UUID | None = Depends(store_scope_filter),
-    order_type: str | None = Query(default=None, description="Filter by order type: dine_in, takeaway, delivery"),
+    order_type: str | None = Query(
+        default=None, description="Filter by order type: dine_in, takeaway, delivery"
+    ),
     courier_id: UUID | None = Query(default=None, description="Filter by assigned courier"),
-    delivery_status: str | None = Query(default=None, description="Filter by delivery status: pending, assigned, out_for_delivery, delivered, failed"),
+    delivery_status: str | None = Query(
+        default=None,
+        description=(
+            "Filter by delivery status: pending, assigned, out_for_delivery, "
+            "delivered, failed"
+        ),
+    ),
 ) -> SaleListResponse:
-    """Paginated sale list, filterable by date range (occurred_at), status, payment method, and location.
+    """Paginated sale list, filterable by date range (occurred_at), status,
+    payment method, and location.
 
     Default sort: occurred_at descending (most recent first).
     """
@@ -156,9 +177,15 @@ async def get_sales_summary(
     business_id: UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
     _active_business: str = Depends(require_business_permission(PermissionCode.POS_VIEW)),
-    from_date: datetime | None = Query(default=None, description="Start date (inclusive) for occurred_at"),
-    to_date: datetime | None = Query(default=None, description="End date (inclusive) for occurred_at"),
-    payment_method: str | None = Query(default=None, description="Filter by payment method: cash, mobile_money, card, other"),
+    from_date: datetime | None = Query(
+        default=None, description="Start date (inclusive) for occurred_at"
+    ),
+    to_date: datetime | None = Query(
+        default=None, description="End date (inclusive) for occurred_at"
+    ),
+    payment_method: str | None = Query(
+        default=None, description="Filter by payment method: cash, mobile_money, card, other"
+    ),
     store_id: UUID | None = Depends(store_scope_filter),
 ) -> SaleSummaryResponse:
     """Lightweight aggregate: total count, revenue (completed only), and payment-method breakdown.
@@ -182,23 +209,25 @@ async def get_sales_summary(
         sa_func.sum(
             sa_case((Sale.status == SaleStatus.COMPLETED, Sale.total), else_=Decimal("0"))
         ).label("total_revenue"),
-        sa_func.sum(
-            sa_case((Sale.status == SaleStatus.VOIDED, 1), else_=0)
-        ).label("voided_count"),
-        sa_func.sum(
-            sa_case((Sale.status == SaleStatus.REFUNDED, 1), else_=0)
-        ).label("refunded_count"),
+        sa_func.sum(sa_case((Sale.status == SaleStatus.VOIDED, 1), else_=0)).label("voided_count"),
+        sa_func.sum(sa_case((Sale.status == SaleStatus.REFUNDED, 1), else_=0)).label(
+            "refunded_count"
+        ),
     ).where(*base_where)
 
     agg_row = (await session.exec(agg_stmt)).one()
 
-    breakdown_stmt = select(
-        Sale.payment_method,
-        sa_func.count(Sale.id).label("count"),
-        sa_func.sum(
-            sa_case((Sale.status == SaleStatus.COMPLETED, Sale.total), else_=Decimal("0"))
-        ).label("revenue"),
-    ).where(*base_where).group_by(Sale.payment_method)
+    breakdown_stmt = (
+        select(
+            Sale.payment_method,
+            sa_func.count(Sale.id).label("count"),
+            sa_func.sum(
+                sa_case((Sale.status == SaleStatus.COMPLETED, Sale.total), else_=Decimal("0"))
+            ).label("revenue"),
+        )
+        .where(*base_where)
+        .group_by(Sale.payment_method)
+    )
 
     breakdown_rows = (await session.exec(breakdown_stmt)).all()
 
@@ -231,9 +260,7 @@ async def get_sale(
 ) -> SaleRead:
     """Retrieve a single sale by server-assigned ID."""
     sale = (
-        await session.exec(
-            select(Sale).where(Sale.id == sale_id, Sale.business_id == business_id)
-        )
+        await session.exec(select(Sale).where(Sale.id == sale_id, Sale.business_id == business_id))
     ).first()
     if sale is None:
         raise HTTPException(
@@ -243,9 +270,7 @@ async def get_sale(
     ensure_store_access(claims, sale.store_id)
 
     line_items = (
-        await session.exec(
-            select(SaleLineItem).where(SaleLineItem.sale_id == sale_id)
-        )
+        await session.exec(select(SaleLineItem).where(SaleLineItem.sale_id == sale_id))
     ).all()
 
     return _sale_to_read(sale, list(line_items))
@@ -279,9 +304,7 @@ async def get_sale_by_client_id(
     ensure_store_access(claims, sale.store_id)
 
     line_items = (
-        await session.exec(
-            select(SaleLineItem).where(SaleLineItem.sale_id == sale.id)
-        )
+        await session.exec(select(SaleLineItem).where(SaleLineItem.sale_id == sale.id))
     ).all()
 
     return _sale_to_read(sale, list(line_items))

@@ -6,24 +6,25 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import get_settings
-from app.core.logging import configure_logging
-from app.core.telemetry import configure_telemetry
 from app.api.v1.endpoints import categories as categories_endpoints
 from app.api.v1.endpoints import item_images as item_images_endpoints
 from app.api.v1.endpoints import items as items_endpoints
 from app.api.v1.endpoints import production as production_endpoints
 from app.api.v1.endpoints import purchases as purchases_endpoints
 from app.api.v1.endpoints import recipes as recipes_endpoints
+from app.api.v1.endpoints import reorders as reorders_endpoints
 from app.api.v1.endpoints import requisitions as requisitions_endpoints
 from app.api.v1.endpoints import runs as runs_endpoints
-from app.api.v1.endpoints import whatsapp as whatsapp_endpoints
-from app.api.v1.endpoints import reorders as reorders_endpoints
 from app.api.v1.endpoints import suppliers as suppliers_endpoints
 from app.api.v1.endpoints import units as units_endpoints
+from app.api.v1.endpoints import whatsapp as whatsapp_endpoints
 from app.api.v1.endpoints.internal_events import router as internal_events_router
-from app.api.v1.endpoints.operations import business_router, items_router as ops_items_router
+from app.api.v1.endpoints.operations import business_router
+from app.api.v1.endpoints.operations import items_router as ops_items_router
 from app.api.v1.endpoints.reports import router as reports_router
+from app.core.config import get_settings
+from app.core.logging import configure_logging
+from app.core.telemetry import configure_telemetry
 from app.routers import health
 
 settings = get_settings()

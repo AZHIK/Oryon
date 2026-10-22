@@ -17,10 +17,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
 from app.models.pos import Sale, SaleLineItem
 from tests.test_token_verification import _build_token
@@ -59,18 +57,18 @@ async def _seed_sale(
     void_or_refund_reason: str | None = None,
 ) -> Sale:
     """Insert a Sale row directly into the database."""
-    from app.models.pos import PaymentMethod as PM, SaleStatus as SS
+    from app.models.pos import PaymentMethod, SaleStatus
 
     sale = Sale(
         business_id=business_id,
         store_id=store_id or uuid4(),
         client_sale_id=client_sale_id,
-        status=SS(status),
+        status=SaleStatus(status),
         subtotal=Decimal(total),
         discount_amount=Decimal("0"),
         tax_amount=Decimal("0"),
         total=Decimal(total),
-        payment_method=PM(payment_method),
+        payment_method=PaymentMethod(payment_method),
         actor_id=None,
         occurred_at=occurred_at or datetime.now(UTC),
         is_time_suspect=is_time_suspect,
@@ -97,11 +95,13 @@ class TestListSalesEndpoint:
     """GET /businesses/{business_id}/sales"""
 
     async def test_list_all_sales_for_business(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
-        s1 = await _seed_sale(db_session, business_id, "list-1", occurred_at=datetime.now(UTC))
-        s2 = await _seed_sale(db_session, business_id, "list-2", occurred_at=datetime.now(UTC))
+        _s1 = await _seed_sale(db_session, business_id, "list-1", occurred_at=datetime.now(UTC))
+        _s2 = await _seed_sale(db_session, business_id, "list-2", occurred_at=datetime.now(UTC))
 
         headers = _auth_header(business_id=business_id)
         resp = await client.get(LIST_URL.format(business_id=business_id), headers=headers)
@@ -112,7 +112,9 @@ class TestListSalesEndpoint:
         assert len(data["items"]) == 2
 
     async def test_date_filter_uses_occurred_at_not_synced_at(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         now = datetime.now(UTC)
@@ -121,12 +123,16 @@ class TestListSalesEndpoint:
         recent_occurred = now - timedelta(hours=1)
 
         old_sale = await _seed_sale(
-            db_session, business_id, "occurred-old",
+            db_session,
+            business_id,
+            "occurred-old",
             occurred_at=old_occurred,
             total="50.00",
         )
         recent_sale = await _seed_sale(
-            db_session, business_id, "occurred-recent",
+            db_session,
+            business_id,
+            "occurred-recent",
             occurred_at=recent_occurred,
             total="75.00",
         )
@@ -157,14 +163,28 @@ class TestListSalesEndpoint:
         )
 
     async def test_filter_by_status(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         await _seed_sale(db_session, business_id, "status-completed", status="completed")
-        await _seed_sale(db_session, business_id, "status-voided", status="voided",
-                         voided_at=datetime.now(UTC), void_or_refund_reason="mistake")
-        await _seed_sale(db_session, business_id, "status-refunded", status="refunded",
-                         refunded_at=datetime.now(UTC), void_or_refund_reason="return")
+        await _seed_sale(
+            db_session,
+            business_id,
+            "status-voided",
+            status="voided",
+            voided_at=datetime.now(UTC),
+            void_or_refund_reason="mistake",
+        )
+        await _seed_sale(
+            db_session,
+            business_id,
+            "status-refunded",
+            status="refunded",
+            refunded_at=datetime.now(UTC),
+            void_or_refund_reason="return",
+        )
 
         headers = _auth_header(business_id=business_id)
 
@@ -189,7 +209,9 @@ class TestListSalesEndpoint:
         assert data["items"][0]["status"] == "voided"
 
     async def test_filter_by_payment_method(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         await _seed_sale(db_session, business_id, "pm-cash", payment_method="cash")
@@ -207,7 +229,9 @@ class TestListSalesEndpoint:
         assert data["items"][0]["payment_method"] == "card"
 
     async def test_filter_by_store(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         loc_a = uuid4()
@@ -227,16 +251,22 @@ class TestListSalesEndpoint:
         assert data["items"][0]["store_id"] == str(loc_a)
 
     async def test_response_includes_is_time_suspect(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
-        normal = await _seed_sale(
-            db_session, business_id, "suspect-normal",
+        _normal = await _seed_sale(
+            db_session,
+            business_id,
+            "suspect-normal",
             is_time_suspect=False,
             occurred_at=datetime.now(UTC),
         )
-        suspect = await _seed_sale(
-            db_session, business_id, "suspect-flagged",
+        _suspect = await _seed_sale(
+            db_session,
+            business_id,
+            "suspect-flagged",
             is_time_suspect=True,
             occurred_at=datetime.now(UTC) - timedelta(days=90),
         )
@@ -251,12 +281,16 @@ class TestListSalesEndpoint:
         assert items_by_id["suspect-flagged"]["is_time_suspect"] is True
 
     async def test_pagination_limits_results(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         for i in range(5):
             await _seed_sale(
-                db_session, business_id, f"page-{i}",
+                db_session,
+                business_id,
+                f"page-{i}",
                 occurred_at=datetime.now(UTC) - timedelta(minutes=i),
             )
 
@@ -273,16 +307,22 @@ class TestListSalesEndpoint:
         assert data["total"] == 5
 
     async def test_default_sort_is_occurred_at_desc(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         now = datetime.now(UTC)
-        s_old = await _seed_sale(
-            db_session, business_id, "sort-old",
+        _s_old = await _seed_sale(
+            db_session,
+            business_id,
+            "sort-old",
             occurred_at=now - timedelta(days=5),
         )
-        s_new = await _seed_sale(
-            db_session, business_id, "sort-new",
+        _s_new = await _seed_sale(
+            db_session,
+            business_id,
+            "sort-new",
             occurred_at=now,
         )
 
@@ -294,7 +334,8 @@ class TestListSalesEndpoint:
         assert items[1]["client_sale_id"] == "sort-old"
 
     async def test_without_pos_view_returns_403(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         business_id = uuid4()
         headers = _auth_header(
@@ -308,7 +349,9 @@ class TestListSalesEndpoint:
         assert resp.status_code == 403
 
     async def test_cross_business_rejected(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         other = uuid4()
@@ -329,7 +372,9 @@ class TestSalesSummaryEndpoint:
     """GET /businesses/{business_id}/sales/summary"""
 
     async def test_summary_all_completed(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         await _seed_sale(db_session, business_id, "sum-c1", total="100.00")
@@ -345,16 +390,30 @@ class TestSalesSummaryEndpoint:
         assert data["refunded_count"] == 0
 
     async def test_summary_excludes_voided_refunded_from_revenue(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         await _seed_sale(db_session, business_id, "sum-rev-completed", total="150.00")
-        await _seed_sale(db_session, business_id, "sum-rev-voided", total="50.00",
-                         status="voided", voided_at=datetime.now(UTC),
-                         void_or_refund_reason="error")
-        await _seed_sale(db_session, business_id, "sum-rev-refunded", total="75.00",
-                         status="refunded", refunded_at=datetime.now(UTC),
-                         void_or_refund_reason="return")
+        await _seed_sale(
+            db_session,
+            business_id,
+            "sum-rev-voided",
+            total="50.00",
+            status="voided",
+            voided_at=datetime.now(UTC),
+            void_or_refund_reason="error",
+        )
+        await _seed_sale(
+            db_session,
+            business_id,
+            "sum-rev-refunded",
+            total="75.00",
+            status="refunded",
+            refunded_at=datetime.now(UTC),
+            void_or_refund_reason="return",
+        )
 
         headers = _auth_header(business_id=business_id)
         resp = await client.get(SUMMARY_URL.format(business_id=business_id), headers=headers)
@@ -366,13 +425,19 @@ class TestSalesSummaryEndpoint:
         assert data["refunded_count"] == 1
 
     async def test_summary_payment_method_breakdown(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         await _seed_sale(db_session, business_id, "bd-cash-1", payment_method="cash", total="50.00")
         await _seed_sale(db_session, business_id, "bd-cash-2", payment_method="cash", total="25.00")
-        await _seed_sale(db_session, business_id, "bd-card-1", payment_method="card", total="100.00")
-        await _seed_sale(db_session, business_id, "bd-mmoney-1", payment_method="mobile_money", total="200.00")
+        await _seed_sale(
+            db_session, business_id, "bd-card-1", payment_method="card", total="100.00"
+        )
+        await _seed_sale(
+            db_session, business_id, "bd-mmoney-1", payment_method="mobile_money", total="200.00"
+        )
 
         headers = _auth_header(business_id=business_id)
         resp = await client.get(SUMMARY_URL.format(business_id=business_id), headers=headers)
@@ -389,13 +454,24 @@ class TestSalesSummaryEndpoint:
         assert breakdown["mobile_money"]["revenue"] == "200.00"
 
     async def test_summary_breakdown_excludes_voided_revenue(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
-        await _seed_sale(db_session, business_id, "bdv-cash-completed", payment_method="cash", total="80.00")
-        await _seed_sale(db_session, business_id, "bdv-cash-voided", payment_method="cash", total="20.00",
-                         status="voided", voided_at=datetime.now(UTC),
-                         void_or_refund_reason="oops")
+        await _seed_sale(
+            db_session, business_id, "bdv-cash-completed", payment_method="cash", total="80.00"
+        )
+        await _seed_sale(
+            db_session,
+            business_id,
+            "bdv-cash-voided",
+            payment_method="cash",
+            total="20.00",
+            status="voided",
+            voided_at=datetime.now(UTC),
+            void_or_refund_reason="oops",
+        )
 
         headers = _auth_header(business_id=business_id)
         resp = await client.get(SUMMARY_URL.format(business_id=business_id), headers=headers)
@@ -408,14 +484,26 @@ class TestSalesSummaryEndpoint:
         assert cash["revenue"] == "80.00"
 
     async def test_summary_date_filter(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         now = datetime.now(UTC)
-        await _seed_sale(db_session, business_id, "sum-dt-old", total="10.00",
-                         occurred_at=now - timedelta(days=10))
-        await _seed_sale(db_session, business_id, "sum-dt-recent", total="20.00",
-                         occurred_at=now - timedelta(hours=1))
+        await _seed_sale(
+            db_session,
+            business_id,
+            "sum-dt-old",
+            total="10.00",
+            occurred_at=now - timedelta(days=10),
+        )
+        await _seed_sale(
+            db_session,
+            business_id,
+            "sum-dt-recent",
+            total="20.00",
+            occurred_at=now - timedelta(hours=1),
+        )
 
         headers = _auth_header(business_id=business_id)
         resp = await client.get(
@@ -429,7 +517,8 @@ class TestSalesSummaryEndpoint:
         assert data["total_revenue"] == "20.00"
 
     async def test_summary_without_pos_view_returns_403(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         business_id = uuid4()
         headers = _auth_header(
@@ -443,7 +532,9 @@ class TestSalesSummaryEndpoint:
         assert resp.status_code == 403
 
     async def test_summary_cross_business_isolation(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         other = uuid4()

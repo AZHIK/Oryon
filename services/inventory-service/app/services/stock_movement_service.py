@@ -162,8 +162,7 @@ def _validate_item_type(item_type: ItemType, movement_type: MovementType) -> Non
     msg_map = _ITEM_TYPE_ERROR_MESSAGES.get(movement_type, {})
     message = msg_map.get(
         item_type,
-        f"Movement type '{movement_type.value}' is not allowed for "
-        f"item_type '{item_type.value}'",
+        f"Movement type '{movement_type.value}' is not allowed for item_type '{item_type.value}'",
     )
     raise ItemTypeMismatchError(message)
 
@@ -286,9 +285,7 @@ async def record_movement(
             return result.first()
 
     # ── Step 1: Lock the item row ───────────────────────────────────
-    result = await db.exec(
-        select(Item).where(Item.id == item_id).with_for_update()
-    )
+    result = await db.exec(select(Item).where(Item.id == item_id).with_for_update())
     item = result.one_or_none()
     if item is None:
         raise ValueError(f"Item with id '{item_id}' not found")
@@ -319,7 +316,11 @@ async def record_movement(
     new_quantity = old_quantity + quantity_delta
 
     # ── Step 4: Negative stock check ────────────────────────────────
-    if not skip_negative_check and new_quantity < Decimal("0.000") and not item.allow_negative_stock:
+    if (
+        not skip_negative_check
+        and new_quantity < Decimal("0.000")
+        and not item.allow_negative_stock
+    ):
         raise InsufficientStockError(
             f"Insufficient stock for item '{item_id}' at store "
             f"'{store_id}': current={old_quantity}, "

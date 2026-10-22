@@ -343,7 +343,9 @@ async def test_item_type_omitted_is_rejected(client: AsyncClient, each_unit_id: 
 
 
 @pytest.mark.asyncio
-async def test_soft_deleted_item_still_viewable(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_soft_deleted_item_still_viewable(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
     """GET single item returns a soft-deleted item (does not 404)."""
     item = await _create_test_item(db_session)
     # Soft-delete via API
@@ -365,9 +367,15 @@ async def test_list_below_threshold(
     # Item A: threshold 10, stock 5 → below
     # Item B: threshold 10, stock 15 → not below
     # Item C: threshold 10, no stock level → not below (no join match)
-    item_a = await _create_test_item(db_session, name="Low Stock Item", reorder_threshold=Decimal("10.000"))
-    item_b = await _create_test_item(db_session, name="Well Stocked Item", reorder_threshold=Decimal("10.000"))
-    item_c = await _create_test_item(db_session, name="No Stock Item", reorder_threshold=Decimal("10.000"))
+    item_a = await _create_test_item(
+        db_session, name="Low Stock Item", reorder_threshold=Decimal("10.000")
+    )
+    item_b = await _create_test_item(
+        db_session, name="Well Stocked Item", reorder_threshold=Decimal("10.000")
+    )
+    _item_c = await _create_test_item(
+        db_session, name="No Stock Item", reorder_threshold=Decimal("10.000")
+    )
 
     await _create_stock_level(db_session, item_id=item_a.id, quantity=Decimal("5.000"))
     await _create_stock_level(db_session, item_id=item_b.id, quantity=Decimal("15.000"))
@@ -440,7 +448,9 @@ async def test_update_empty_body_returns_400(client: AsyncClient, db_session: As
 
 
 @pytest.mark.asyncio
-async def test_delete_already_inactive_returns_409(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_delete_already_inactive_returns_409(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
     item = await _create_test_item(db_session)
     await client.delete(f"{API_PREFIX}/{item.id}", headers=AUTH_HEADER)
     resp = await client.delete(f"{API_PREFIX}/{item.id}", headers=AUTH_HEADER)
@@ -469,7 +479,10 @@ async def test_pagination_behaves_correctly(client: AsyncClient, db_session: Asy
 async def test_list_filters_by_category(
     client: AsyncClient, db_session: AsyncSession, produce_category_id: str
 ) -> None:
-    await _create_test_item(db_session, name="Apple",)
+    await _create_test_item(
+        db_session,
+        name="Apple",
+    )
     item2 = await _create_test_item(db_session, name="Banana")
     item2.category_id = UUID(produce_category_id)
     db_session.add(item2)
@@ -533,8 +546,7 @@ async def test_create_requires_items_create_perm(client: AsyncClient, kg_unit_id
     old_token = _auth_header(permissions=["inventory.view", "inventory.adjust"])
     resp = await client.post(API_PREFIX, json=payload, headers=old_token)
     assert resp.status_code == 403, (
-        "Old INVENTORY_ADJUST should no longer grant create — "
-        "inventory.items.create is required"
+        "Old INVENTORY_ADJUST should no longer grant create — inventory.items.create is required"
     )
 
 

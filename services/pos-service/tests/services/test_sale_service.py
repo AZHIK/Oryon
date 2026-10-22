@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
@@ -17,13 +16,10 @@ from app.schemas.sales import SaleSyncBatchRequest, SaleSyncInput, SyncResult
 from app.schemas.void_refund import VoidRefundRequest
 from app.services.sale_service import (
     InvalidSaleStateError,
-    SaleServiceError,
-    SaleValidationError,
     detect_time_drift,
     sync_sale_batch,
     void_or_refund_sale,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # detect_time_drift

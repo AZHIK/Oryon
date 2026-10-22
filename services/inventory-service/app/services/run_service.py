@@ -71,15 +71,11 @@ async def _load_recipe(
 ) -> tuple[Recipe, list[RecipeComponent], Item]:
     """Fetch recipe + components + sellable, all business-scoped."""
     result = await db.exec(
-        select(Recipe).where(
-            Recipe.id == recipe_id, Recipe.business_id == business_id
-        )
+        select(Recipe).where(Recipe.id == recipe_id, Recipe.business_id == business_id)
     )
     recipe = result.one_or_none()
     if recipe is None:
-        raise RecipeNotFoundError(
-            f"Recipe '{recipe_id}' not found in this business"
-        )
+        raise RecipeNotFoundError(f"Recipe '{recipe_id}' not found in this business")
     comp_result = await db.exec(
         select(RecipeComponent).where(RecipeComponent.recipe_id == recipe.id)
     )
@@ -94,15 +90,11 @@ async def _load_recipe(
             "link it before planning a production run"
         )
     sellable_result = await db.exec(
-        select(Item).where(
-            Item.id == recipe.sellable_item_id, Item.business_id == business_id
-        )
+        select(Item).where(Item.id == recipe.sellable_item_id, Item.business_id == business_id)
     )
     sellable = sellable_result.one_or_none()
     if sellable is None:
-        raise RecipeNotFoundError(
-            f"Sellable item for recipe '{recipe.name}' no longer exists"
-        )
+        raise RecipeNotFoundError(f"Sellable item for recipe '{recipe.name}' no longer exists")
     return recipe, components, sellable
 
 
@@ -184,9 +176,7 @@ async def create_run(
     return run
 
 
-async def _get_run_or_404(
-    db: AsyncSession, business_id: UUID, run_id: UUID
-) -> ProductionRun:
+async def _get_run_or_404(db: AsyncSession, business_id: UUID, run_id: UUID) -> ProductionRun:
     result = await db.exec(
         select(ProductionRun).where(
             ProductionRun.id == run_id, ProductionRun.business_id == business_id
@@ -194,9 +184,7 @@ async def _get_run_or_404(
     )
     run = result.one_or_none()
     if run is None:
-        raise RunNotFoundError(
-            f"Production run '{run_id}' not found in this business"
-        )
+        raise RunNotFoundError(f"Production run '{run_id}' not found in this business")
     return run
 
 
@@ -235,9 +223,7 @@ async def start_run(
         )
 
     comp_result = await db.exec(
-        select(ProductionRunComponent).where(
-            ProductionRunComponent.production_run_id == run.id
-        )
+        select(ProductionRunComponent).where(ProductionRunComponent.production_run_id == run.id)
     )
     snap = {c.raw_material_item_id: c for c in comp_result.all()}
 
@@ -412,9 +398,7 @@ async def publish_run(
             f"Run '{run_id}' is {run.status.value} — only completed runs can publish"
         )
     if run.published_at is not None:
-        existing = await db.exec(
-            select(ProductionEvent).where(ProductionEvent.run_id == run.id)
-        )
+        existing = await db.exec(select(ProductionEvent).where(ProductionEvent.run_id == run.id))
         found = existing.one_or_none()
         if found is not None:
             return found
@@ -423,9 +407,7 @@ async def publish_run(
     assert run.leading_component_item_id is not None  # started implies leading
 
     comp_result = await db.exec(
-        select(ProductionRunComponent).where(
-            ProductionRunComponent.production_run_id == run.id
-        )
+        select(ProductionRunComponent).where(ProductionRunComponent.production_run_id == run.id)
     )
     snap = list(comp_result.all())
     measured = {c.raw_material_item_id: c.measured_quantity for c in snap}
@@ -435,17 +417,13 @@ async def publish_run(
         )
 
     recipe_result = await db.exec(
-        select(Recipe).where(
-            Recipe.id == run.recipe_id, Recipe.business_id == business_id
-        )
+        select(Recipe).where(Recipe.id == run.recipe_id, Recipe.business_id == business_id)
     )
     recipe = recipe_result.one_or_none()
     if recipe is None:
         raise RecipeNotFoundError("This run's recipe no longer exists")
     sellable_result = await db.exec(
-        select(Item).where(
-            Item.id == recipe.sellable_item_id, Item.business_id == business_id
-        )
+        select(Item).where(Item.id == recipe.sellable_item_id, Item.business_id == business_id)
     )
     sellable = sellable_result.one_or_none()
     if sellable is None:
@@ -455,9 +433,7 @@ async def publish_run(
     assert leading_qty is not None
     # Simple cost from weighed items (same rule as quick cooking).
     ingredient_ids = list(measured.keys())
-    item_result = await db.exec(
-        select(Item).where(Item.id.in_(ingredient_ids))
-    )
+    item_result = await db.exec(select(Item).where(Item.id.in_(ingredient_ids)))
     cost_by_item = {i.id: i.unit_cost for i in item_result.all()}
     cost_total: Decimal | None = None
     for raw_id, qty in measured.items():
@@ -467,7 +443,11 @@ async def publish_run(
             line = (qty * basis).quantize(Decimal("0.0001"))
             cost_total = line if cost_total is None else cost_total + line
     cost_per_unit: Decimal | None = None
-    if cost_total is not None and run.actual_output_quantity and run.actual_output_quantity > Decimal("0"):
+    if (
+        cost_total is not None
+        and run.actual_output_quantity
+        and run.actual_output_quantity > Decimal("0")
+    ):
         cost_per_unit = (cost_total / run.actual_output_quantity).quantize(Decimal("0.0001"))
     event = ProductionEvent(
         business_id=business_id,
@@ -596,9 +576,7 @@ async def cancel_run(
     if run.status == RunStatus.CANCELLED:
         return run
     if run.status == RunStatus.COMPLETED:
-        raise InvalidRunStateError(
-            f"Run '{run_id}' is completed — undo its cooking record instead"
-        )
+        raise InvalidRunStateError(f"Run '{run_id}' is completed — undo its cooking record instead")
     if run.published_at is not None:
         raise InvalidRunStateError(
             f"Run '{run_id}' is already published — undo its cooking record instead"
@@ -615,18 +593,12 @@ async def cancel_run(
     else:
         # in_progress: put measured items back.
         comp_result = await db.exec(
-            select(ProductionRunComponent).where(
-                ProductionRunComponent.production_run_id == run.id
-            )
+            select(ProductionRunComponent).where(ProductionRunComponent.production_run_id == run.id)
         )
         snap = list(comp_result.all())
-        measured = {
-            c.raw_material_item_id: c.measured_quantity for c in snap
-        }
+        measured = {c.raw_material_item_id: c.measured_quantity for c in snap}
         if any(q is None for q in measured.values()):
-            raise InvalidRunStateError(
-                f"Run '{run_id}' has no measured quantities to put back"
-            )
+            raise InvalidRunStateError(f"Run '{run_id}' has no measured quantities to put back")
         try:
             for raw_id, qty in measured.items():
                 assert qty is not None

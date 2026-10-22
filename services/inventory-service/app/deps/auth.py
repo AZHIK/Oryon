@@ -318,9 +318,7 @@ def ensure_store_access(claims: dict[str, Any], store_id: UUID | str) -> None:
         )
 
 
-def resolve_store_filter(
-    claims: dict[str, Any], requested_store_id: UUID | None
-) -> UUID | None:
+def resolve_store_filter(claims: dict[str, Any], requested_store_id: UUID | None) -> UUID | None:
     """Resolve the store a list/report query must be constrained to.
 
     - Unpinned token: the caller's filter is returned unchanged.
@@ -340,7 +338,9 @@ def resolve_store_filter(
 
 
 async def require_internal_service_token(
-    x_internal_service_token: Annotated[str | None, Header(alias="X-Internal-Service-Token")] = None,
+    x_internal_service_token: Annotated[
+        str | None, Header(alias="X-Internal-Service-Token")
+    ] = None,
 ) -> None:
     """Dependency: require a shared-secret header for service-to-service calls.
 

@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID
@@ -388,10 +388,10 @@ async def list_production_events(
     if store_id is not None:
         stmt = stmt.where(ProductionEvent.store_id == store_id)
     if from_date is not None:
-        dt = datetime.combine(from_date, datetime.min.time(), tzinfo=timezone.utc)
+        dt = datetime.combine(from_date, datetime.min.time(), tzinfo=UTC)
         stmt = stmt.where(ProductionEvent.occurred_at >= dt)
     if to_date is not None:
-        dt = datetime.combine(to_date, datetime.max.time(), tzinfo=timezone.utc)
+        dt = datetime.combine(to_date, datetime.max.time(), tzinfo=UTC)
         stmt = stmt.where(ProductionEvent.occurred_at <= dt)
 
     stmt = stmt.order_by(ProductionEvent.occurred_at.desc()).offset(offset).limit(limit)

@@ -8,7 +8,7 @@ the ``db_session`` fixture.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -27,7 +27,6 @@ from app.models import (
     StockLevel,
     StockMovement,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Instantiation shape tests (no DB required)
@@ -118,7 +117,6 @@ class TestItemModel:
         assert ItemType.SELLABLE.value == "sellable"
         assert ItemType.RAW_MATERIAL.value == "raw_material"
         assert ItemType.BOTH.value == "both"
-
 
 
 class TestRecipeModel:
@@ -225,9 +223,7 @@ class TestPersistence:
         assert item.created_at is not None
         assert item.updated_at is not None
 
-    async def test_stock_levels_unique_constraint_enforced(
-        self, db_session: AsyncSession
-    ) -> None:
+    async def test_stock_levels_unique_constraint_enforced(self, db_session: AsyncSession) -> None:
         """Verify the (item_id, store_id) unique constraint is load-bearing."""
         item = await self._create_item(db_session)
         biz_loc = UUID("00000000-0000-0000-0000-000000000002")
@@ -373,5 +369,7 @@ class TestPersistence:
 
         from sqlmodel import select
 
-        result = await db_session.exec(select(StockMovement).where(StockMovement.item_id == item.id))
+        result = await db_session.exec(
+            select(StockMovement).where(StockMovement.item_id == item.id)
+        )
         assert result.first() is None

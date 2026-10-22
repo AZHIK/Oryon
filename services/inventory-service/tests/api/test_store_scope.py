@@ -77,7 +77,10 @@ def _biz_token() -> dict[str, str]:
         "active_business_id": str(BUSINESS_ID),
     }
     return {
-        "Authorization": f"Bearer {jwt.encode(payload, TEST_PRIVATE_KEY, algorithm=settings.jwt_algorithm)}"
+        "Authorization": (
+            "Bearer "
+            f"{jwt.encode(payload, TEST_PRIVATE_KEY, algorithm=settings.jwt_algorithm)}"
+        )
     }
 
 
@@ -110,9 +113,7 @@ async def _make_item(
 async def _make_stock(
     session: AsyncSession, item_id: UUID, store_id: UUID, qty: str = "10.000"
 ) -> None:
-    session.add(
-        StockLevel(item_id=item_id, store_id=store_id, current_quantity=Decimal(qty))
-    )
+    session.add(StockLevel(item_id=item_id, store_id=store_id, current_quantity=Decimal(qty)))
     await session.commit()
 
 
@@ -123,9 +124,7 @@ class TestItemScope:
         await _make_item(db_session, STORE_ID, name="Own Flour")
         await _make_item(db_session, STORE_ID_2, name="Other Flour")
 
-        resp = await client.get(
-            f"{BIZ}/items", headers=_store_header(STORE_ID)
-        )
+        resp = await client.get(f"{BIZ}/items", headers=_store_header(STORE_ID))
         assert resp.status_code == 200
         names = [i["name"] for i in resp.json()]
         assert names == ["Own Flour"]
@@ -241,7 +240,9 @@ class TestReorderScope:
         db_session.add(supplier)
         await db_session.commit()
         item = await _make_item(
-            db_session, store_id, name="Reorder Item",
+            db_session,
+            store_id,
+            name="Reorder Item",
             item_type=ItemType.RAW_MATERIAL,
         )
         resp = await client.post(
@@ -263,9 +264,7 @@ class TestReorderScope:
         await self._seed_reorder(client, db_session, STORE_ID)
         await self._seed_reorder(client, db_session, STORE_ID_2)
 
-        resp = await client.get(
-            f"{BIZ}/reorders", headers=_store_header(STORE_ID)
-        )
+        resp = await client.get(f"{BIZ}/reorders", headers=_store_header(STORE_ID))
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 1
@@ -292,9 +291,7 @@ class TestReportsScope:
         other = await _make_item(db_session, STORE_ID_2, name="Other Flour")
         await _make_stock(db_session, other.id, STORE_ID_2)
 
-        resp = await client.get(
-            f"{BIZ}/stock", headers=_store_header(STORE_ID)
-        )
+        resp = await client.get(f"{BIZ}/stock", headers=_store_header(STORE_ID))
         assert resp.status_code == 200
         stores = {row["store_id"] for row in resp.json()}
         assert stores == {str(STORE_ID)}

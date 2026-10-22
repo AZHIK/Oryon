@@ -29,7 +29,9 @@ ALL_INCOME_PERMS = [
 ]
 
 
-def _auth_header(*, business_id: UUID | None = None, permissions: list[str] | None = None) -> dict[str, str]:
+def _auth_header(
+    *, business_id: UUID | None = None, permissions: list[str] | None = None
+) -> dict[str, str]:
     biz_id = business_id or uuid4()
     token = _build_token(
         extra_claims={
@@ -81,7 +83,8 @@ class TestSyncAndMutations:
         """A token with only finance.expenses.* must NOT be able to sync incomes."""
         business_id = uuid4()
         headers = _auth_header(
-            business_id=business_id, permissions=["finance.view", "finance.expenses.create"],
+            business_id=business_id,
+            permissions=["finance.view", "finance.expenses.create"],
         )
         resp = await client.post(
             SYNC_URL.format(business_id=business_id),
@@ -110,7 +113,8 @@ class TestSyncAndMutations:
         assert patch_resp.json()["source"] == "Updated Source"
 
         del_resp = await client.delete(
-            DETAIL_URL.format(business_id=business_id, income_id=income_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, income_id=income_id),
+            headers=headers,
         )
         assert del_resp.status_code == 204
 

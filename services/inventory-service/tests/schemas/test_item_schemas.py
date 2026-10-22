@@ -8,7 +8,6 @@ from pydantic import ValidationError
 
 from app.schemas.items import ItemCreate, ItemRead, ItemUpdate
 
-
 UNIT_ID = UUID("33333333-3333-3333-3333-333333333333")
 
 

@@ -21,7 +21,9 @@ DOWNLOAD_URL = "/api/v1/businesses/{business_id}/finance/attachments/{attachment
 _TINY_PNG = b"\x89PNG\r\n\x1a\n" + b"fake-but-signature-valid-png-payload"
 
 
-def _auth_header(*, business_id: UUID | None = None, permissions: list[str] | None = None) -> dict[str, str]:
+def _auth_header(
+    *, business_id: UUID | None = None, permissions: list[str] | None = None
+) -> dict[str, str]:
     biz_id = business_id or uuid4()
     token = _build_token(
         extra_claims={

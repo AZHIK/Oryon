@@ -8,9 +8,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.models.pos import SaleLineItem
-from app.models.pos import Sale
-from app.models.pos import SaleStatus, PaymentMethod
+from app.models.pos import PaymentMethod, Sale, SaleLineItem, SaleStatus
 
 
 class TestSaleModel:

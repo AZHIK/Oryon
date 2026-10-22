@@ -7,7 +7,6 @@ untouched — every test here uses a pinned token unless stated otherwise.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
 from uuid import UUID, uuid4
 
 from httpx import AsyncClient

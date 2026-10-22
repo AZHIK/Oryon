@@ -381,7 +381,7 @@ async def record_production_event(
             if raw_id in levels
             else Decimal("0.000")
         )
-        for raw_id in consumption.keys()
+        for raw_id in consumption
     }
     sellable_old = (
         levels[sellable.id].current_quantity
@@ -623,7 +623,7 @@ async def void_production_event(
     item_result = await db.exec(
         select(Item).where(Item.id.in_(lock_ids)).order_by(Item.id).with_for_update()
     )
-    items = {i.id: i for i in item_result.all()}
+    _items = {i.id: i for i in item_result.all()}
     level_result = await db.exec(
         select(StockLevel)
         .where(StockLevel.item_id.in_(lock_ids), StockLevel.store_id == event.store_id)

@@ -13,7 +13,7 @@ from uuid import UUID
 import jwt
 import pytest
 from httpx import AsyncClient
-from sqlmodel import select, update
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import get_settings
@@ -23,7 +23,6 @@ from app.models.inventory import (
     Item,
     ItemType,
     MovementType,
-    StockLevel,
     StockMovement,
 )
 from app.models.units import Unit

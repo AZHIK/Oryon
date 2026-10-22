@@ -28,7 +28,9 @@ ALL_CUSTOMER_PERMS = [
 ALL_PERMS = ALL_CUSTOMER_PERMS + ["pos.write", "pos.view", "pos.refund"]
 
 
-def _auth_header(*, business_id: UUID | None = None, permissions: list[str] | None = None) -> dict[str, str]:
+def _auth_header(
+    *, business_id: UUID | None = None, permissions: list[str] | None = None
+) -> dict[str, str]:
     biz_id = business_id or uuid4()
     token = _build_token(
         extra_claims={
@@ -75,7 +77,9 @@ def _sale_input(**overrides: object) -> dict:
 
 class TestSyncEndpoint:
     async def test_sync_new_customer_returns_created_with_client_id_as_pk(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         headers = _auth_header(business_id=business_id)
@@ -92,14 +96,14 @@ class TestSyncEndpoint:
         assert body["results"][0]["status"] == "created"
         assert body["results"][0]["client_customer_id"] == str(customer_id)
 
-        customer = (
-            await db_session.exec(select(Customer).where(Customer.id == customer_id))
-        ).one()
+        customer = (await db_session.exec(select(Customer).where(Customer.id == customer_id))).one()
         assert customer.name == "Jane Doe"
         assert customer.business_id == business_id
 
     async def test_sync_twice_same_business_returns_duplicate(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         headers = _auth_header(business_id=business_id)
@@ -120,13 +124,12 @@ class TestSyncEndpoint:
         )
         assert resp2.json()["results"][0]["status"] == "duplicate"
 
-        rows = (
-            await db_session.exec(select(Customer).where(Customer.id == customer_id))
-        ).all()
+        rows = (await db_session.exec(select(Customer).where(Customer.id == customer_id))).all()
         assert len(rows) == 1
 
     async def test_id_owned_by_another_business_fails_not_duplicate(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         business_a = uuid4()
         business_b = uuid4()
@@ -148,7 +151,8 @@ class TestSyncEndpoint:
         assert "already in use" in result["reason"]
 
     async def test_mixed_batch_returns_200_with_per_entry_results(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         business_id = uuid4()
         headers = _auth_header(business_id=business_id)
@@ -263,7 +267,8 @@ class TestListEndpoint:
             headers=_auth_header(business_id=business_a),
         )
         list_resp = await client.get(
-            LIST_URL.format(business_id=business_b), headers=_auth_header(business_id=business_b),
+            LIST_URL.format(business_id=business_b),
+            headers=_auth_header(business_id=business_b),
         )
         assert list_resp.json()["total"] == 0
 
@@ -279,7 +284,8 @@ class TestAggregates:
             headers=headers,
         )
         resp = await client.get(
-            DETAIL_URL.format(business_id=business_id, customer_id=customer_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, customer_id=customer_id),
+            headers=headers,
         )
         body = resp.json()
         assert body["total_orders"] == 0
@@ -287,7 +293,9 @@ class TestAggregates:
         assert body["last_order_at"] is None
 
     async def test_sync_sale_with_customer_id_links_and_aggregates(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         headers = _auth_header(business_id=business_id)
@@ -307,7 +315,8 @@ class TestAggregates:
         assert sale_resp.json()["results"][0]["status"] == "created"
 
         detail_resp = await client.get(
-            DETAIL_URL.format(business_id=business_id, customer_id=customer_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, customer_id=customer_id),
+            headers=headers,
         )
         body = detail_resp.json()
         assert body["total_orders"] == 1
@@ -315,7 +324,8 @@ class TestAggregates:
         assert body["last_order_at"] is not None
 
     async def test_voided_and_refunded_sales_excluded_from_totals(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         business_id = uuid4()
         headers = _auth_header(business_id=business_id)
@@ -333,21 +343,34 @@ class TestAggregates:
         )
         await client.post(
             SALE_SYNC_URL.format(business_id=business_id),
-            json={"sales": [_sale_input(
-                customer_id=str(customer_id), status="voided", void_or_refund_reason="test",
-            )]},
+            json={
+                "sales": [
+                    _sale_input(
+                        customer_id=str(customer_id),
+                        status="voided",
+                        void_or_refund_reason="test",
+                    )
+                ]
+            },
             headers=headers,
         )
         await client.post(
             SALE_SYNC_URL.format(business_id=business_id),
-            json={"sales": [_sale_input(
-                customer_id=str(customer_id), status="refunded", void_or_refund_reason="test",
-            )]},
+            json={
+                "sales": [
+                    _sale_input(
+                        customer_id=str(customer_id),
+                        status="refunded",
+                        void_or_refund_reason="test",
+                    )
+                ]
+            },
             headers=headers,
         )
 
         detail_resp = await client.get(
-            DETAIL_URL.format(business_id=business_id, customer_id=customer_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, customer_id=customer_id),
+            headers=headers,
         )
         body = detail_resp.json()
         assert body["total_orders"] == 1
@@ -368,15 +391,21 @@ class TestAggregates:
         client_sale_id = str(uuid4())
         sale_resp = await client.post(
             SALE_SYNC_URL.format(business_id=business_id),
-            json={"sales": [_sale_input(
-                customer_id=str(customer_id), client_sale_id=client_sale_id,
-            )]},
+            json={
+                "sales": [
+                    _sale_input(
+                        customer_id=str(customer_id),
+                        client_sale_id=client_sale_id,
+                    )
+                ]
+            },
             headers=headers,
         )
         assert sale_resp.json()["results"][0]["status"] == "created"
 
         before = await client.get(
-            DETAIL_URL.format(business_id=business_id, customer_id=customer_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, customer_id=customer_id),
+            headers=headers,
         )
         assert before.json()["total_orders"] == 1
 
@@ -397,7 +426,8 @@ class TestAggregates:
         )
 
         after = await client.get(
-            DETAIL_URL.format(business_id=business_id, customer_id=customer_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, customer_id=customer_id),
+            headers=headers,
         )
         assert after.json()["total_orders"] == 0
         assert Decimal(after.json()["total_spent"]) == Decimal("0")
@@ -419,7 +449,8 @@ class TestAggregates:
 
         list_resp = await client.get(LIST_URL.format(business_id=business_id), headers=headers)
         detail_resp = await client.get(
-            DETAIL_URL.format(business_id=business_id, customer_id=customer_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, customer_id=customer_id),
+            headers=headers,
         )
         list_item = next(i for i in list_resp.json()["items"] if i["id"] == str(customer_id))
         assert list_item["total_orders"] == detail_resp.json()["total_orders"]
@@ -467,7 +498,8 @@ class TestSaleCustomerValidation:
             headers=headers,
         )
         await client.delete(
-            DETAIL_URL.format(business_id=business_id, customer_id=customer_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, customer_id=customer_id),
+            headers=headers,
         )
 
         resp = await client.post(
@@ -488,7 +520,8 @@ class TestSaleCustomerValidation:
         assert resp.json()["results"][0]["status"] == "created"
 
     async def test_sale_synced_before_its_customer_then_retried_succeeds(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         """A sale referencing a not-yet-synced customer fails, then the
         exact same batch succeeds once the customer exists — proving the
@@ -562,7 +595,8 @@ class TestMutations:
         customer_id = await self._create(client, business_id, headers)
 
         await client.delete(
-            DETAIL_URL.format(business_id=business_id, customer_id=customer_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, customer_id=customer_id),
+            headers=headers,
         )
         resp = await client.patch(
             DETAIL_URL.format(business_id=business_id, customer_id=customer_id),
@@ -587,10 +621,12 @@ class TestMutations:
         customer_id = await self._create(client, business_id, headers)
 
         first = await client.delete(
-            DETAIL_URL.format(business_id=business_id, customer_id=customer_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, customer_id=customer_id),
+            headers=headers,
         )
         second = await client.delete(
-            DETAIL_URL.format(business_id=business_id, customer_id=customer_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, customer_id=customer_id),
+            headers=headers,
         )
         assert first.status_code == 204
         assert second.status_code == 204
@@ -608,7 +644,8 @@ class TestMutations:
         )
 
         await client.delete(
-            DETAIL_URL.format(business_id=business_id, customer_id=customer_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, customer_id=customer_id),
+            headers=headers,
         )
 
         sale_resp = await client.get(
@@ -625,7 +662,8 @@ class TestPermissions:
         # override" (falsy), so an unrelated code is used instead of an
         # empty list to actually exercise the missing-permission path.
         no_perms_headers = _auth_header(
-            business_id=business_id, permissions=["reports.view"],
+            business_id=business_id,
+            permissions=["reports.view"],
         )
 
         sync_resp = await client.post(
@@ -635,11 +673,14 @@ class TestPermissions:
         )
         assert sync_resp.status_code == 403
 
-        list_resp = await client.get(LIST_URL.format(business_id=business_id), headers=no_perms_headers)
+        list_resp = await client.get(
+            LIST_URL.format(business_id=business_id), headers=no_perms_headers
+        )
         assert list_resp.status_code == 403
 
         detail_resp = await client.get(
-            DETAIL_URL.format(business_id=business_id, customer_id=uuid4()), headers=no_perms_headers,
+            DETAIL_URL.format(business_id=business_id, customer_id=uuid4()),
+            headers=no_perms_headers,
         )
         assert detail_resp.status_code == 403
 
@@ -651,7 +692,8 @@ class TestPermissions:
         assert patch_resp.status_code == 403
 
         delete_resp = await client.delete(
-            DETAIL_URL.format(business_id=business_id, customer_id=uuid4()), headers=no_perms_headers,
+            DETAIL_URL.format(business_id=business_id, customer_id=uuid4()),
+            headers=no_perms_headers,
         )
         assert delete_resp.status_code == 403
 
@@ -674,6 +716,7 @@ class TestRouteOrdering:
         business_id = uuid4()
         headers = _auth_header(business_id=business_id)
         resp = await client.get(
-            DETAIL_URL.format(business_id=business_id, customer_id=uuid4()), headers=headers,
+            DETAIL_URL.format(business_id=business_id, customer_id=uuid4()),
+            headers=headers,
         )
         assert resp.status_code == 404

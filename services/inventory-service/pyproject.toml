@@ -32,10 +32,16 @@ exclude = [".venv/", "migrations/versions/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "ARG"]
+# ``class X(str, Enum)`` is intentional: SQLModel/SQLAlchemy rely on the
+# string value for serialization and DB storage.
+ignore = ["UP042"]
 
 [tool.ruff.lint.per-file-ignores]
+# FastAPI's Depends/File/Query are meant to be called in argument defaults.
+"app/api/**" = ["B008"]
 "app/deps/*.py" = ["B008", "ARG001"]
-"tests/*.py" = ["ARG002"]
+# Fixtures are injected by name, so some test parameters go intentionally unused.
+"tests/**" = ["ARG001", "ARG002", "B017"]
 
 [tool.ruff.format]
 quote-style = "double"

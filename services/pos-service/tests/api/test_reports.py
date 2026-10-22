@@ -14,13 +14,11 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.finance import OtherExpense, OtherIncome
-from app.models.pos import PaymentMethod as PM
-from app.models.pos import Sale, SaleLineItem, SaleStatus as SS
+from app.models.pos import PaymentMethod, Sale, SaleLineItem, SaleStatus
 from tests.test_token_verification import _build_token
 
 BASE = "/api/v1/businesses/{business_id}/reports"
@@ -62,12 +60,12 @@ async def _seed_sale(
         business_id=business_id,
         store_id=store_id or uuid4(),
         client_sale_id=client_sale_id,
-        status=SS(status),
+        status=SaleStatus(status),
         subtotal=Decimal(total),
         discount_amount=Decimal("0"),
         tax_amount=Decimal("0"),
         total=Decimal(total),
-        payment_method=PM(payment_method),
+        payment_method=PaymentMethod(payment_method),
         actor_id=actor_id,
         occurred_at=occurred_at or datetime.now(UTC),
     )
@@ -106,7 +104,7 @@ async def _seed_expense(
             category=category,
             amount=Decimal(amount),
             description="test expense",
-            payment_method=PM.CASH,
+            payment_method=PaymentMethod.CASH,
             occurred_at=occurred_at or datetime.now(UTC),
             is_deleted=is_deleted,
         )
@@ -131,7 +129,7 @@ async def _seed_income(
             category=category,
             amount=Decimal(amount),
             description="test income",
-            payment_method=PM.CASH,
+            payment_method=PaymentMethod.CASH,
             occurred_at=occurred_at or datetime.now(UTC),
         )
     )
@@ -140,7 +138,9 @@ async def _seed_income(
 
 class TestDailyTakingsEndpoint:
     async def test_buckets_days_with_averages(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         now = datetime.now(UTC)
@@ -148,7 +148,11 @@ class TestDailyTakingsEndpoint:
         await _seed_sale(db_session, business_id, "dt-a", total="100.00", occurred_at=day_one)
         await _seed_sale(db_session, business_id, "dt-b", total="50.00", occurred_at=day_one)
         await _seed_sale(
-            db_session, business_id, "dt-c", total="200.00", status="voided",
+            db_session,
+            business_id,
+            "dt-c",
+            total="200.00",
+            status="voided",
             occurred_at=now,
         )
 
@@ -168,16 +172,24 @@ class TestDailyTakingsEndpoint:
         assert today["voided_count"] == 1
 
     async def test_date_window_filters(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         now = datetime.now(UTC)
         await _seed_sale(
-            db_session, business_id, "dtw-old", total="10.00",
+            db_session,
+            business_id,
+            "dtw-old",
+            total="10.00",
             occurred_at=now - timedelta(days=10),
         )
         await _seed_sale(
-            db_session, business_id, "dtw-new", total="20.00",
+            db_session,
+            business_id,
+            "dtw-new",
+            total="20.00",
             occurred_at=now - timedelta(hours=1),
         )
 
@@ -193,20 +205,29 @@ class TestDailyTakingsEndpoint:
 
 class TestItemMixEndpoint:
     async def test_completed_only_top_revenue_first(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         burger, fries, soda = uuid4(), uuid4(), uuid4()
         await _seed_sale(
-            db_session, business_id, "mix-1",
+            db_session,
+            business_id,
+            "mix-1",
             lines=[(burger, "2", "20.00"), (fries, "1", "5.00")],
         )
         await _seed_sale(
-            db_session, business_id, "mix-2",
+            db_session,
+            business_id,
+            "mix-2",
             lines=[(burger, "1", "10.00"), (soda, "3", "9.00")],
         )
         await _seed_sale(
-            db_session, business_id, "mix-void", status="voided",
+            db_session,
+            business_id,
+            "mix-void",
+            status="voided",
             lines=[(soda, "100", "300.00")],
         )
 
@@ -217,7 +238,9 @@ class TestItemMixEndpoint:
         assert resp.status_code == 200, resp.text
         lines = resp.json()["lines"]
         assert [line["item_id"] for line in lines] == [
-            str(burger), str(soda), str(fries),
+            str(burger),
+            str(soda),
+            str(fries),
         ]
         assert lines[0]["quantity"] == "3.000"
         assert lines[0]["revenue"] == "30.00"
@@ -225,11 +248,15 @@ class TestItemMixEndpoint:
         assert next(line for line in lines if line["item_id"] == str(soda))["quantity"] == "3.000"
 
     async def test_limit_is_honored(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         await _seed_sale(
-            db_session, business_id, "mixlim-1",
+            db_session,
+            business_id,
+            "mixlim-1",
             lines=[(uuid4(), "1", "10.00"), (uuid4(), "1", "20.00")],
         )
 
@@ -244,15 +271,21 @@ class TestItemMixEndpoint:
 
 class TestStaffPerformanceEndpoint:
     async def test_buckets_by_actor_with_unknown_row(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         ava, marco = uuid4(), uuid4()
         await _seed_sale(db_session, business_id, "sp-ava-1", total="100.00", actor_id=ava)
         await _seed_sale(db_session, business_id, "sp-ava-2", total="50.00", actor_id=ava)
         await _seed_sale(
-            db_session, business_id, "sp-marco-void", total="30.00",
-            status="voided", actor_id=marco,
+            db_session,
+            business_id,
+            "sp-marco-void",
+            total="30.00",
+            status="voided",
+            actor_id=marco,
         )
         await _seed_sale(db_session, business_id, "sp-anon", total="20.00")
 
@@ -271,17 +304,31 @@ class TestStaffPerformanceEndpoint:
 
 class TestFinanceSummaryEndpoint:
     async def test_nets_sales_plus_incomes_minus_expenses(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         await _seed_sale(db_session, business_id, "fin-sale", total="200.00")
         await _seed_sale(
-            db_session, business_id, "fin-void", total="999.00", status="voided",
+            db_session,
+            business_id,
+            "fin-void",
+            total="999.00",
+            status="voided",
         )
-        await _seed_expense(db_session, business_id, "fin-exp-rent", category="rent", amount="50.00")
-        await _seed_expense(db_session, business_id, "fin-exp-util", category="utilities", amount="20.00")
         await _seed_expense(
-            db_session, business_id, "fin-exp-dead", category="rent", amount="1000.00",
+            db_session, business_id, "fin-exp-rent", category="rent", amount="50.00"
+        )
+        await _seed_expense(
+            db_session, business_id, "fin-exp-util", category="utilities", amount="20.00"
+        )
+        await _seed_expense(
+            db_session,
+            business_id,
+            "fin-exp-dead",
+            category="rent",
+            amount="1000.00",
             is_deleted=True,
         )
         await _seed_income(db_session, business_id, "fin-inc", category="catering", amount="30.00")
@@ -298,26 +345,31 @@ class TestFinanceSummaryEndpoint:
         assert data["expense_total"] == "70.00"
         assert data["net"] == "160.00"
         assert {c["category"]: c["total"] for c in data["expenses_by_category"]} == {
-            "rent": "50.00", "utilities": "20.00",
+            "rent": "50.00",
+            "utilities": "20.00",
         }
 
 
 class TestReportsRbac:
     async def test_reports_reject_without_reports_view(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         business_id = uuid4()
         for suffix in ("daily-takings", "item-mix", "staff-performance", "finance-summary"):
             resp = await client.get(
                 f"{BASE.format(business_id=business_id)}/{suffix}",
                 headers=_auth_header(
-                    business_id=business_id, permissions=["pos.view"],
+                    business_id=business_id,
+                    permissions=["pos.view"],
                 ),
             )
             assert resp.status_code == 403, suffix
 
     async def test_reports_cross_business_isolation(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         other = uuid4()
@@ -325,7 +377,8 @@ class TestReportsRbac:
 
         headers = _auth_header(business_id=other, permissions=["reports.view"])
         resp = await client.get(
-            f"{BASE.format(business_id=other)}/daily-takings", headers=headers,
+            f"{BASE.format(business_id=other)}/daily-takings",
+            headers=headers,
         )
         assert resp.status_code == 200
         assert resp.json()["days"] == []

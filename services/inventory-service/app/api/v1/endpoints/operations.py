@@ -186,7 +186,9 @@ async def record_waste(
     return movement
 
 
-@business_router.post("/transfer", response_model=list[StockMovementRead], status_code=status.HTTP_201_CREATED)
+@business_router.post(
+    "/transfer", response_model=list[StockMovementRead], status_code=status.HTTP_201_CREATED
+)
 async def transfer_stock(
     business_id: UUID,
     body: TransferStockRequest,

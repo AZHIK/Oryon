@@ -26,7 +26,9 @@ ALL_FINANCE_PERMS = [
 ]
 
 
-def _auth_header(*, business_id: UUID | None = None, permissions: list[str] | None = None) -> dict[str, str]:
+def _auth_header(
+    *, business_id: UUID | None = None, permissions: list[str] | None = None
+) -> dict[str, str]:
     biz_id = business_id or uuid4()
     token = _build_token(
         extra_claims={
@@ -54,7 +56,9 @@ def _expense_input(**overrides: object) -> dict:
 
 class TestSyncEndpoint:
     async def test_sync_new_expense_returns_created(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         headers = _auth_header(business_id=business_id)
@@ -80,7 +84,9 @@ class TestSyncEndpoint:
         assert expense.category == "rent"
 
     async def test_sync_twice_returns_duplicate(
-        self, client: AsyncClient, db_session: AsyncSession,
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         business_id = uuid4()
         headers = _auth_header(business_id=business_id)
@@ -108,7 +114,8 @@ class TestSyncEndpoint:
         assert len(rows) == 1
 
     async def test_mixed_batch_returns_200_with_per_entry_results(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         business_id = uuid4()
         headers = _auth_header(business_id=business_id)
@@ -131,7 +138,8 @@ class TestSyncEndpoint:
         assert results["bad-1"] == "failed"
 
     async def test_unknown_receipt_attachment_fails_not_errors(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         business_id = uuid4()
         headers = _auth_header(business_id=business_id)
@@ -208,7 +216,7 @@ class TestListAndSummary:
     async def test_soft_deleted_excluded_from_list_and_summary(self, client: AsyncClient) -> None:
         business_id = uuid4()
         headers = _auth_header(business_id=business_id)
-        sync_resp = await client.post(
+        await client.post(
             SYNC_URL.format(business_id=business_id),
             json={"expenses": [_expense_input(client_expense_id="to-delete")]},
             headers=headers,
@@ -217,7 +225,8 @@ class TestListAndSummary:
         expense_id = list_resp.json()["items"][0]["id"]
 
         del_resp = await client.delete(
-            DETAIL_URL.format(business_id=business_id, expense_id=expense_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, expense_id=expense_id),
+            headers=headers,
         )
         assert del_resp.status_code == 204
 
@@ -240,7 +249,7 @@ class TestListAndSummary:
 
 class TestMutations:
     async def _create(self, client: AsyncClient, business_id: UUID, headers: dict) -> str:
-        resp = await client.post(
+        await client.post(
             SYNC_URL.format(business_id=business_id),
             json={"expenses": [_expense_input()]},
             headers=headers,
@@ -281,7 +290,8 @@ class TestMutations:
         expense_id = await self._create(client, business_id, headers)
 
         await client.delete(
-            DETAIL_URL.format(business_id=business_id, expense_id=expense_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, expense_id=expense_id),
+            headers=headers,
         )
         resp = await client.patch(
             DETAIL_URL.format(business_id=business_id, expense_id=expense_id),
@@ -296,10 +306,12 @@ class TestMutations:
         expense_id = await self._create(client, business_id, headers)
 
         first = await client.delete(
-            DETAIL_URL.format(business_id=business_id, expense_id=expense_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, expense_id=expense_id),
+            headers=headers,
         )
         second = await client.delete(
-            DETAIL_URL.format(business_id=business_id, expense_id=expense_id), headers=headers,
+            DETAIL_URL.format(business_id=business_id, expense_id=expense_id),
+            headers=headers,
         )
         assert first.status_code == 204
         assert second.status_code == 204
@@ -323,7 +335,8 @@ class TestMutations:
         expense_id = await self._create(client, business_id, headers)
 
         limited_headers = _auth_header(
-            business_id=business_id, permissions=["finance.view", "finance.expenses.create"],
+            business_id=business_id,
+            permissions=["finance.view", "finance.expenses.create"],
         )
         resp = await client.delete(
             DETAIL_URL.format(business_id=business_id, expense_id=expense_id),

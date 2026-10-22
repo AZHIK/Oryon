@@ -195,8 +195,8 @@ async def test_sale_completed_partial_retry_idempotency(db_session: AsyncSession
     process item B."""
     # We'll test this by calling record_movement directly for item A
     # (simulating success before crash), then calling the full handler.
-    from app.services.stock_movement_service import record_movement
     from app.models.inventory import ActorType, MovementType
+    from app.services.stock_movement_service import record_movement
 
     item_a = await _create_item(db_session, name="Partial A")
     item_b = await _create_item(db_session, name="Partial B")

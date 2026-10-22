@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Awaitable, Callable
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -21,11 +21,6 @@ from app.models.pos import (
     SaleLineItem,
     SaleStatus,
 )
-from app.services.courier_service import (
-    CourierValidationError,
-    validate_courier_for_sale,
-)
-from app.schemas.line_items import SaleLineItemInput
 from app.schemas.sales import (
     SaleSyncBatchRequest,
     SaleSyncBatchResponse,
@@ -33,6 +28,10 @@ from app.schemas.sales import (
     SyncResult,
 )
 from app.schemas.void_refund import VoidRefundRequest
+from app.services.courier_service import (
+    CourierValidationError,
+    validate_courier_for_sale,
+)
 
 
 class SaleServiceError(DomainError):
@@ -62,11 +61,9 @@ def detect_time_drift(
     settings = get_settings()
     now = synced_at or datetime.now(UTC)
 
-    if occurred_at < now - timedelta(hours=settings.time_drift_suspect_threshold_hours):
-        return True
-    if occurred_at > now + timedelta(minutes=settings.time_drift_future_tolerance_minutes):
-        return True
-    return False
+    return occurred_at < now - timedelta(
+        hours=settings.time_drift_suspect_threshold_hours
+    ) or occurred_at > now + timedelta(minutes=settings.time_drift_future_tolerance_minutes)
 
 
 async def _validate_customer_belongs_to_business(

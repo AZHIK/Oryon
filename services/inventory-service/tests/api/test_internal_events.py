@@ -69,7 +69,9 @@ def _sale_completed_body(event_id: str, item_id: UUID, quantity: str = "2") -> d
 
 
 @pytest.mark.asyncio
-async def test_sale_completed_decrements_stock(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_sale_completed_decrements_stock(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
     item = await _create_test_item(db_session)
     await _create_stock_level(db_session, item.id, quantity=Decimal("10.000"))
 
@@ -91,7 +93,9 @@ async def test_sale_completed_decrements_stock(client: AsyncClient, db_session: 
 
 
 @pytest.mark.asyncio
-async def test_duplicate_event_id_is_idempotent(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_duplicate_event_id_is_idempotent(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
     item = await _create_test_item(db_session)
     await _create_stock_level(db_session, item.id, quantity=Decimal("10.000"))
     event_id = str(uuid4())

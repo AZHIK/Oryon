@@ -78,12 +78,12 @@ async def void_or_refund(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
-        )
+        ) from exc
     except InvalidSaleStateError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
-        )
+        ) from exc
 
     line_items = (
         await session.exec(

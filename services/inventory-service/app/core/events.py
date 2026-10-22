@@ -18,7 +18,7 @@ async def publish_event(event_name: str, payload: dict[str, Any]) -> None:
     logger.info("event_published", event_name=event_name, payload=payload)
 
 
-async def subscribe_event(event_name: str, handler: Any) -> None:
+async def subscribe_event(event_name: str, handler: Any) -> None:  # noqa: ARG001
     """Register a handler for an incoming event.
 
     This is a stub — the function signature defines the interface that will
