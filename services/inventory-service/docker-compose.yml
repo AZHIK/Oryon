@@ -17,7 +17,9 @@ services:
       # Never use the test DB in runtime — .env must leave TEST_DB_URL unset;
       # this empty override guards against a stray TEST_DB_URL in .env.
       - TEST_DB_URL=
+      - JWT_PUBLIC_KEY_PATH=/run/secrets/jwt_public.pem
     volumes:
+      - ./keys/public.pem:/run/secrets/jwt_public.pem:ro
       - item_images:/var/lib/oryonfoods/item_images
     depends_on:
       postgres:
@@ -59,8 +61,10 @@ services:
       # Test runs (and conftest) target this separate database so the dev
       # database is never touched by the suite.
       - TEST_DB_URL=postgresql+asyncpg://oryonfoods:oryonfoods@postgres:5432/oryonfoods_inventory_test
+      - JWT_PUBLIC_KEY_PATH=/run/secrets/jwt_public.pem
     volumes:
       - .:/app
+      - ./keys/public.pem:/run/secrets/jwt_public.pem:ro
     depends_on:
       postgres:
         condition: service_healthy

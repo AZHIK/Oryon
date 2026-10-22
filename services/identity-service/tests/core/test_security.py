@@ -208,6 +208,72 @@ class TestJWTAccessToken:
         assert isinstance(payload["exp"], (int, float))
 
 
+class TestJwtEnvironmentBinding:
+    """SEC-12: issuer/audience/key-id binding for production tokens."""
+
+    def _hardened_settings(self):
+        from app.core.config import get_settings
+
+        return get_settings().model_copy(
+            update={
+                "jwt_issuer": "https://auth.example.test",
+                "jwt_audience": "oryonfoods-api",
+                "jwt_key_id": "primary",
+            }
+        )
+
+    def test_access_token_carries_issuer_audience_jti_and_kid(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import app.core.security as security
+
+        monkeypatch.setattr(security, "get_settings", self._hardened_settings)
+        token = create_access_token(subject="u1", user_category="business_staff")
+
+        header = jwt.get_unverified_header(token)
+        payload = jwt.decode(token, options={"verify_signature": False})
+        assert header["kid"] == "primary"
+        assert payload["iss"] == "https://auth.example.test"
+        assert payload["aud"] == "oryonfoods-api"
+        assert payload["jti"]
+        assert decode_and_verify_access_token(token)["aud"] == "oryonfoods-api"
+
+    def test_unknown_key_id_is_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import app.core.security as security
+
+        settings = self._hardened_settings()
+        monkeypatch.setattr(security, "get_settings", lambda: settings)
+        token = create_access_token(subject="u1", user_category="business_staff")
+        payload = jwt.decode(token, options={"verify_signature": False})
+        wrong_key = jwt.encode(
+            payload,
+            security._load_private_key(),
+            algorithm=settings.jwt_algorithm,
+            headers={"kid": "retired-key"},
+        )
+
+        with pytest.raises(InvalidTokenError, match="unknown key"):
+            decode_and_verify_access_token(wrong_key)
+
+    def test_wrong_issuer_is_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import app.core.security as security
+
+        settings = self._hardened_settings()
+        monkeypatch.setattr(security, "get_settings", lambda: settings)
+        token = create_access_token(subject="u1", user_category="business_staff")
+        payload = jwt.decode(token, options={"verify_signature": False})
+        payload["iss"] = "https://attacker.example.test"
+        wrong_issuer = jwt.encode(
+            payload,
+            security._load_private_key(),
+            algorithm=settings.jwt_algorithm,
+            headers={"kid": "primary"},
+        )
+
+        with pytest.raises(InvalidTokenError):
+            decode_and_verify_access_token(wrong_issuer)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 3. Refresh token primitives
 # ═══════════════════════════════════════════════════════════════════════════

@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     jwt_private_key_path: str = "keys/private.pem"
     jwt_public_key_path: str = "keys/public.pem"
     jwt_algorithm: str = "RS256"
+    # Optional in local/dev; required in prod. A stable issuer/audience pair
+    # prevents a token minted for another environment or service from being
+    # accepted here, and `kid` gives key rotation a selection point.
+    jwt_issuer: str | None = None
+    jwt_audience: str | None = None
+    jwt_key_id: str | None = None
     jwt_access_token_ttl_minutes: int = 15
     jwt_refresh_token_ttl_days: int = 7
     jwt_private_key: str | None = None
@@ -178,6 +184,12 @@ class Settings(BaseSettings):
                 "JWT_PUBLIC_KEY_PATH must point at the mounted production key "
                 "(not the repo-local default)"
             )
+        if not self.jwt_issuer:
+            errors.append("JWT_ISSUER is required in production")
+        if not self.jwt_audience:
+            errors.append("JWT_AUDIENCE is required in production")
+        if not self.jwt_key_id:
+            errors.append("JWT_KEY_ID is required in production")
 
         if self.sms_provider == "console":
             errors.append("SMS_PROVIDER=console is not allowed in production")
@@ -195,14 +207,11 @@ class Settings(BaseSettings):
             self.mailjet_api_key and self.mailjet_secret_key
         ):
             errors.append(
-                "MAILJET_API_KEY and MAILJET_SECRET_KEY are required when "
-                "EMAIL_PROVIDER=mailjet"
+                "MAILJET_API_KEY and MAILJET_SECRET_KEY are required when EMAIL_PROVIDER=mailjet"
             )
 
         origins = [
-            origin.strip()
-            for origin in self.cors_allowed_origins.split(",")
-            if origin.strip()
+            origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()
         ]
         if "*" in origins:
             errors.append("CORS_ALLOWED_ORIGINS must not contain '*' in production")
@@ -210,9 +219,7 @@ class Settings(BaseSettings):
             errors.append("CORS_ALLOWED_ORIGINS must not contain localhost origins in production")
 
         if errors:
-            raise ValueError(
-                "Insecure production configuration:\n  - " + "\n  - ".join(errors)
-            )
+            raise ValueError("Insecure production configuration:\n  - " + "\n  - ".join(errors))
         return self
 
 

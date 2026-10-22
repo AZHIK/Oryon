@@ -1,0 +1,18 @@
+# Example SSH hardening. Review before applying.
+#
+# Install as /etc/ssh/sshd_config.d/99-oryonfoods.conf only after confirming
+# key-based login works. Then validate with `sshd -t` and reload SSH.
+#
+# Never disable password authentication before your key is installed.
+
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+MaxAuthTries 3
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax 2
+X11Forwarding no
+AllowAgentForwarding no
+AllowTcpForwarding no

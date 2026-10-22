@@ -1,0 +1,8 @@
+.env
+secrets/*
+!secrets/.gitkeep
+generated/*
+!generated/.gitkeep
+backups/
+restore/
+*.log

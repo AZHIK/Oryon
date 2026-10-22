@@ -103,10 +103,13 @@ ship with a network restriction + alerting as an interim control.
 | SEC-30 | P3 | Dev compose files are not a production topology |
 
 > **Remediation status:** P0 fixes for SEC-01, SEC-02, SEC-04, SEC-05, SEC-06, and
-> the P1 code fixes for SEC-11, SEC-31, and SEC-32 are implemented in the working
-> tree. SEC-03 and the proxy half of SEC-13 are partially addressed; the production
-> `deploy/` stack is still required. See [`REMEDIATION_LOG.md`](./REMEDIATION_LOG.md)
-> for exact changes, test results, and remaining work.
+> the P1 code fixes for SEC-11, SEC-12, SEC-31, and SEC-32 are implemented in the
+> working tree. The production `deploy/` stack now provides the SEC-03/SEC-13
+> network and edge controls and is validated locally; it still has to be applied
+> to the live host. The stale dev public key tracked for POS (SEC-29) has been
+> removed from source control and keys are mounted at runtime. See
+> [`REMEDIATION_LOG.md`](./REMEDIATION_LOG.md) for exact changes, test results, and
+> remaining work.
 
 ---
 
@@ -413,8 +416,9 @@ all, so the new address is immediately usable as a login identifier.
 
 - `services/identity-service/app/api/v1/endpoints/platform_auth.py`: the
   `/mfa/verify` endpoint returns `501 NOT_IMPLEMENTED`.
-- Admin routes (`/api/v1/admin/*`, `/api/v1/auth/platform/*`) are served on the
-  same host as the public API and have no IP allowlist or separate hostname.
+- Admin routes (`/admin/*`, `/api/v1/auth/platform/*`) are served on the same
+  host as the public API and have no IP allowlist or separate hostname. The
+  routers are mounted at `/admin` in the current codebase, not `/api/v1/admin`.
 - Platform-staff passwords are strong (12+ chars), but a single phished password
   yields full platform administration.
 
@@ -425,8 +429,10 @@ potentially the ability to grant `*` permissions.
 
 **Fix (interim, before code change)**
 
-- Route `/api/v1/admin/*` and `/api/v1/auth/platform/*` through a Traefik
-  `ipAllowList` restricted to the office IP / VPN / Tailscale range.
+- Route `/admin/*` and `/api/v1/auth/platform/*` through a Traefik
+  `ipAllowList` restricted to the office IP / VPN / Tailscale range. The
+  production package does this; verify the real `/admin/users` path, not a
+  non-existent `/api/v1/admin/...` path.
 - Add a strict rate limit and alert on any 401/403 burst against those paths.
 - Do not enable the admin dashboard on a public hostname.
 
@@ -516,8 +522,9 @@ chat.
    and `600` files, owned by `root:root`; deploy as a user that is **not** in the
    `docker` group unless necessary (note: docker group ≈ root).
 4. Rotate the AT/Brevo keys before go-live since they have lived in plaintext.
-5. Never pass `--env-file` from the repository; use
-   `docker compose --env-file /opt/oryonfoods/secrets/compose.env`.
+5. Keep only non-secret site configuration in `/opt/oryonfoods/.env` and pass
+   that file to Compose. Credentials and keys belong in Docker secrets under
+   `/opt/oryonfoods/secrets`, never in `.env`.
 6. Remove default credentials from any script that could run in production, or
    make the scripts refuse to run unless the target host is localhost.
 
@@ -1097,10 +1104,11 @@ overridden.
 
 ### SEC-29 — Public key distribution (P3)
 
-`services/pos-service/keys/public.pem` is tracked in git. A public key is not a
-secret, but production distribution should be deliberate: mount the current
-Identity public key into Inventory/POS at deploy time, version it, and update it
-as part of key rotation. Do not rely on a checked-in copy staying in sync.
+`services/pos-service/keys/public.pem` was tracked in git. It has been removed
+from source control; `keys/` is now excluded from the Inventory/POS build
+contexts. Production mounts the current Identity public key at
+`/run/secrets/jwt_public.pem` and sets `JWT_PUBLIC_KEY_PATH` on all three
+services. Key rotation is a deploy-time operation, not a source-control PR.
 
 ---
 

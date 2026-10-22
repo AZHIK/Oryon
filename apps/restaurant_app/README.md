@@ -1,6 +1,6 @@
-# Oryon Foods
+# Oryon
 
-The Oryon Foods point-of-sale and business management app.
+The Oryon point-of-sale and business management app.
 
 ## Getting Started
 

@@ -1,6 +1,6 @@
 # Permission Enforcement Integration Pattern Guide
 
-This guide explains how to add permission enforcement to any screen in the Foodo app. Use this pattern for POS, Inventory, Staff, Sales, Settings, and all other feature screens.
+This guide explains how to add permission enforcement to any screen in the Oryon app. Use this pattern for POS, Inventory, Staff, Sales, Settings, and all other feature screens.
 
 ---
 

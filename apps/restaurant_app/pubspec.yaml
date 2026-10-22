@@ -1,5 +1,5 @@
 name: restaurant_pos
-description: "The Oryon Foods point-of-sale and business management app."
+description: "The Oryon point-of-sale and business management app."
 publish_to: 'none'
 
 version: 1.0.0+1

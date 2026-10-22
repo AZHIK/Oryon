@@ -4,6 +4,8 @@
 .env*
 *.md
 !README.md
+# JWT keys are mounted at runtime; never bake them into the image.
+keys/
 .venv/
 __pycache__/
 *.py[cod]

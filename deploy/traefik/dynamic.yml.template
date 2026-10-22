@@ -1,0 +1,69 @@
+# Traefik v3 dynamic configuration — rendered by scripts/bootstrap.sh
+# Source template: deploy/traefik/dynamic.yml.template
+
+http:
+  middlewares:
+    secure-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        # Enable only after every current and future subdomain is HTTPS-only.
+        stsPreload: false
+        forceSTSHeader: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: strict-origin-when-cross-origin
+        permissionsPolicy: "camera=(), microphone=(), geolocation=()"
+        customFrameOptionsValue: SAMEORIGIN
+        customResponseHeaders:
+          Server: ""
+          X-Powered-By: ""
+
+    compress:
+      compress: {}
+
+    body-limit:
+      buffering:
+        maxRequestBodyBytes: 1048576
+        memRequestBodyBytes: 524288
+        retryExpression: "IsNetworkError() && Attempts() < 2"
+
+    body-limit-uploads:
+      buffering:
+        maxRequestBodyBytes: 6291456
+        memRequestBodyBytes: 1048576
+
+    general-rate-limit:
+      rateLimit:
+        average: 300
+        burst: 600
+        period: 1m
+        sourceCriterion:
+          ipStrategy:
+            depth: 0
+
+    auth-rate-limit:
+      rateLimit:
+        average: 30
+        burst: 60
+        period: 1m
+        sourceCriterion:
+          ipStrategy:
+            depth: 0
+
+    # Public admin/platform paths are denied unless the client is in the
+    # operator-controlled allowlist. The default is loopback-only.
+    admin-allowlist:
+      ipAllowList:
+        sourceRange: [__ADMIN_ALLOWLIST__]
+
+    deny-all:
+      ipAllowList:
+        sourceRange:
+          - "127.0.0.1/32"
+
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+      sniStrict: true

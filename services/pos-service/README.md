@@ -17,10 +17,15 @@ ledger (sales may optionally be attributed to a customer via a real FK).
 
 ```bash
 cp .env.example .env
-cp ../identity-service/keys/public.pem keys/
+mkdir -p keys
+cp ../identity-service/keys/public.pem keys/public.pem
 uv sync
 uv run uvicorn app.main:app --reload
 ```
+
+The key file is for local development only. It is gitignored and excluded from
+Docker builds; production mounts Identity's public key at
+`/run/secrets/jwt_public.pem` and sets `JWT_PUBLIC_KEY_PATH`.
 
 ---
 
@@ -158,10 +163,15 @@ stage.
 
 ```bash
 cp .env.example .env
-cp ../identity-service/keys/public.pem keys/   # required for JWT verification
+mkdir -p keys
+cp ../identity-service/keys/public.pem keys/public.pem   # local uv run only
 uv sync
 uv run uvicorn app.main:app --reload
 ```
+
+The key file is gitignored and excluded from Docker builds. Production mounts
+Identity's public key at `/run/secrets/jwt_public.pem` and sets
+`JWT_PUBLIC_KEY_PATH`; Docker Compose does the same for local development.
 
 ---
 

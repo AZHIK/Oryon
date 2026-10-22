@@ -1,0 +1,14 @@
+[Unit]
+Description=Oryon Foods Docker ingress firewall
+Documentation=file:/opt/oryonfoods/README.md
+Wants=docker.service
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/oryonfoods/host/docker-user-firewall.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

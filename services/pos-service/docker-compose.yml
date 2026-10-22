@@ -14,7 +14,9 @@ services:
     env_file: ./.env
     environment:
       - DB_URL=postgresql+asyncpg://oryonfoods:oryonfoods@postgres:5432/oryonfoods_pos
+      - JWT_PUBLIC_KEY_PATH=/run/secrets/jwt_public.pem
     volumes:
+      - ./keys/public.pem:/run/secrets/jwt_public.pem:ro
       - receipt_data:/var/lib/oryonfoods/receipts
     depends_on:
       postgres:
@@ -50,8 +52,10 @@ services:
     env_file: ./.env
     environment:
       - DB_URL=postgresql+asyncpg://oryonfoods:oryonfoods@postgres:5432/oryonfoods_pos
+      - JWT_PUBLIC_KEY_PATH=/run/secrets/jwt_public.pem
     volumes:
       - .:/app
+      - ./keys/public.pem:/run/secrets/jwt_public.pem:ro
       - receipt_data:/var/lib/oryonfoods/receipts
     depends_on:
       postgres:

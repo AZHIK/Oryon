@@ -1,11 +1,11 @@
 {
-    "name": "Oryon Foods",
-    "short_name": "Oryon Foods",
+    "name": "Oryon",
+    "short_name": "Oryon",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "Oryon Foods point-of-sale and business management app.",
+    "description": "Oryon point-of-sale and business management app.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

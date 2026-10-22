@@ -1,0 +1,467 @@
+name: oryonfoods
+
+# ─────────────────────────────────────────────────────────────
+# Oryon Foods production stack
+#
+# Usage (from /opt/oryonfoods):
+#   docker compose --env-file .env -f compose/docker-compose.prod.yml ...
+#
+# Only Traefik publishes host ports. Every API is reachable exclusively
+# through the edge network; Postgres/Redis are on an internal-only network.
+# ─────────────────────────────────────────────────────────────
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-api-defaults: &api-defaults
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging: *logging
+  stop_grace_period: 30s
+  ulimits:
+    nofile:
+      soft: 65536
+      hard: 65536
+
+services:
+  # ── Edge ───────────────────────────────────────────────────
+  traefik:
+    image: ${TRAEFIK_IMAGE:-traefik:v3.1}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../generated/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ../generated/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ../generated/letsencrypt:/letsencrypt
+    networks:
+      - edge
+      - socket
+    depends_on:
+      socket-proxy:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging: *logging
+
+  socket-proxy:
+    image: ${SOCKET_PROXY_IMAGE:-tecnativa/docker-socket-proxy:0.2}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      CONTAINERS: "1"
+      SERVICES: "1"
+      NETWORKS: "1"
+      EVENTS: "1"
+      PING: "1"
+      VERSION: "1"
+      INFO: "1"
+      POST: "0"
+      DELETE: "0"
+      EXEC: "0"
+      IMAGES: "0"
+      VOLUMES: "0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - socket
+    logging: *logging
+
+  # ── Stateful core ──────────────────────────────────────────
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16.4-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    secrets:
+      - postgres_password
+      - identity_owner_db_password
+      - identity_app_db_password
+      - inventory_owner_db_password
+      - inventory_app_db_password
+      - pos_owner_db_password
+      - pos_app_db_password
+    volumes:
+      - /srv/oryonfoods/postgres:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    networks:
+      - data
+    shm_size: 256mb
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    command:
+      - postgres
+      - -c
+      - max_connections=80
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=1GB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - wal_compression=on
+      - -c
+      - log_min_duration_statement=1000
+      - -c
+      - log_checkpoints=on
+    logging: *logging
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7.4-alpine}
+    restart: unless-stopped
+    # Run directly as the image's redis user. The entrypoint's root-only
+    # bootstrap needs DAC_OVERRIDE/CHOWN, which cap_drop: ALL removes.
+    user: "999:1000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - ../generated/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - /srv/oryonfoods/redis:/data
+    secrets:
+      - redis_password
+    networks:
+      - data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli --no-auth-warning -a "$$(cat /run/secrets/redis_password)" ping
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    logging: *logging
+
+  # ── APIs ───────────────────────────────────────────────────
+  identity:
+    <<: *api-defaults
+    image: ${IMAGE_REGISTRY}/oryon-identity:${IMAGE_TAG}
+    environment:
+      ENVIRONMENT: prod
+      DEBUG: "false"
+      LOG_LEVEL: INFO
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?set CORS_ALLOWED_ORIGINS}
+      SMS_PROVIDER: ${SMS_PROVIDER:-africastalking}
+      AT_USERNAME: ${AT_USERNAME:?set AT_USERNAME}
+      AT_SENDER_ID: ${AT_SENDER_ID:-}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-brevo}
+      BREVO_FROM_EMAIL: ${BREVO_FROM_EMAIL:?set BREVO_FROM_EMAIL}
+      BREVO_FROM_NAME: ${BREVO_FROM_NAME:-Oryon Foods}
+      JWT_PRIVATE_KEY_PATH: /run/secrets/jwt_private.pem
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public.pem
+      JWT_ISSUER: https://${AUTH_HOST}
+      JWT_AUDIENCE: oryonfoods-api
+      JWT_KEY_ID: primary
+    secrets:
+      - source: identity_db_url
+        target: db_url
+      - source: identity_redis_url
+        target: redis_url
+      - source: jwt_private_key
+        target: jwt_private.pem
+      - source: jwt_public_key
+        target: jwt_public.pem
+      - source: at_api_key
+        target: at_api_key
+      - source: brevo_api_key
+        target: brevo_api_key
+      - source: mailjet_api_key
+        target: mailjet_api_key
+      - source: mailjet_secret_key
+        target: mailjet_secret_key
+      - source: admin_password
+        target: admin_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - edge
+      - data
+    expose:
+      - "8000"
+    mem_limit: 512m
+    pids_limit: 256
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=edge"
+      - "traefik.http.routers.identity.rule=Host(`${AUTH_HOST}`)"
+      - "traefik.http.routers.identity.entrypoints=websecure"
+      - "traefik.http.routers.identity.tls=true"
+      - "traefik.http.routers.identity.tls.certresolver=le"
+      - "traefik.http.routers.identity.middlewares=secure-headers@file,general-rate-limit@file,body-limit@file,compress@file"
+      - "traefik.http.routers.identity.service=identity"
+      - "traefik.http.services.identity.loadbalancer.server.port=8000"
+      - "traefik.http.services.identity.loadbalancer.healthcheck.path=/health"
+      - "traefik.http.services.identity.loadbalancer.healthcheck.interval=15s"
+      - "traefik.http.services.identity.loadbalancer.healthcheck.timeout=5s"
+
+      - "traefik.http.routers.identity-auth.rule=Host(`${AUTH_HOST}`) && PathPrefix(`/api/v1/auth`)"
+      - "traefik.http.routers.identity-auth.priority=250"
+      - "traefik.http.routers.identity-auth.entrypoints=websecure"
+      - "traefik.http.routers.identity-auth.tls=true"
+      - "traefik.http.routers.identity-auth.tls.certresolver=le"
+      - "traefik.http.routers.identity-auth.middlewares=secure-headers@file,auth-rate-limit@file,body-limit@file"
+      - "traefik.http.routers.identity-auth.service=identity"
+
+      - "traefik.http.routers.identity-restricted.rule=Host(`${AUTH_HOST}`) && (Path(`/admin`) || PathPrefix(`/admin/`) || PathPrefix(`/api/v1/admin`) || PathPrefix(`/api/v1/auth/platform`) || Path(`/docs`) || PathPrefix(`/docs/`) || Path(`/redoc`) || Path(`/openapi.json`) || Path(`/health/ready`))"
+      - "traefik.http.routers.identity-restricted.priority=300"
+      - "traefik.http.routers.identity-restricted.entrypoints=websecure"
+      - "traefik.http.routers.identity-restricted.tls=true"
+      - "traefik.http.routers.identity-restricted.tls.certresolver=le"
+      - "traefik.http.routers.identity-restricted.middlewares=secure-headers@file,auth-rate-limit@file,body-limit@file,admin-allowlist@file"
+      - "traefik.http.routers.identity-restricted.service=identity"
+
+  inventory:
+    <<: *api-defaults
+    image: ${IMAGE_REGISTRY}/oryon-inventory:${IMAGE_TAG}
+    environment:
+      ENVIRONMENT: prod
+      DEBUG: "false"
+      LOG_LEVEL: INFO
+      SERVICE_NAME: inventory-service
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?set CORS_ALLOWED_ORIGINS}
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public.pem
+      PUBLIC_BASE_URL: https://${INVENTORY_HOST}
+      TEST_DB_URL: ""
+      WHATSAPP_GRAPH_BASE_URL: ${WHATSAPP_GRAPH_BASE_URL:-https://graph.facebook.com}
+      WHATSAPP_GRAPH_VERSION: ${WHATSAPP_GRAPH_VERSION:-v21.0}
+      JWT_ISSUER: https://${AUTH_HOST}
+      JWT_AUDIENCE: oryonfoods-api
+      JWT_KEY_ID: primary
+    secrets:
+      - source: inventory_db_url
+        target: db_url
+      - source: jwt_public_key
+        target: jwt_public.pem
+      - source: internal_service_token
+        target: internal_service_token
+      - source: whatsapp_app_secret
+        target: whatsapp_app_secret
+      - source: whatsapp_webhook_verify_token
+        target: whatsapp_webhook_verify_token
+    volumes:
+      - /srv/oryonfoods/item_images:/var/lib/oryonfoods/item_images
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - edge
+      - data
+    expose:
+      - "8100"
+    mem_limit: 512m
+    pids_limit: 256
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=edge"
+      - "traefik.http.routers.inventory.rule=Host(`${INVENTORY_HOST}`)"
+      - "traefik.http.routers.inventory.entrypoints=websecure"
+      - "traefik.http.routers.inventory.tls=true"
+      - "traefik.http.routers.inventory.tls.certresolver=le"
+      - "traefik.http.routers.inventory.middlewares=secure-headers@file,general-rate-limit@file,body-limit@file,compress@file"
+      - "traefik.http.routers.inventory.service=inventory"
+      - "traefik.http.services.inventory.loadbalancer.server.port=8100"
+      - "traefik.http.services.inventory.loadbalancer.healthcheck.path=/health"
+      - "traefik.http.services.inventory.loadbalancer.healthcheck.interval=15s"
+      - "traefik.http.services.inventory.loadbalancer.healthcheck.timeout=5s"
+
+      - "traefik.http.routers.inventory-internal.rule=Host(`${INVENTORY_HOST}`) && PathPrefix(`/api/v1/internal`)"
+      - "traefik.http.routers.inventory-internal.priority=300"
+      - "traefik.http.routers.inventory-internal.entrypoints=websecure"
+      - "traefik.http.routers.inventory-internal.tls=true"
+      - "traefik.http.routers.inventory-internal.tls.certresolver=le"
+      - "traefik.http.routers.inventory-internal.middlewares=deny-all@file"
+      - "traefik.http.routers.inventory-internal.service=inventory"
+
+      - "traefik.http.routers.inventory-restricted.rule=Host(`${INVENTORY_HOST}`) && (Path(`/docs`) || PathPrefix(`/docs/`) || Path(`/redoc`) || Path(`/openapi.json`) || Path(`/health/ready`))"
+      - "traefik.http.routers.inventory-restricted.priority=300"
+      - "traefik.http.routers.inventory-restricted.entrypoints=websecure"
+      - "traefik.http.routers.inventory-restricted.tls=true"
+      - "traefik.http.routers.inventory-restricted.tls.certresolver=le"
+      - "traefik.http.routers.inventory-restricted.middlewares=deny-all@file"
+      - "traefik.http.routers.inventory-restricted.service=inventory"
+
+      - 'traefik.http.routers.inventory-uploads.rule=Host(`${INVENTORY_HOST}`) && PathRegexp(`/api/v1/businesses/[^/]+/items/[^/]+/image`)'
+      - "traefik.http.routers.inventory-uploads.priority=200"
+      - "traefik.http.routers.inventory-uploads.entrypoints=websecure"
+      - "traefik.http.routers.inventory-uploads.tls=true"
+      - "traefik.http.routers.inventory-uploads.tls.certresolver=le"
+      - "traefik.http.routers.inventory-uploads.middlewares=secure-headers@file,general-rate-limit@file,body-limit-uploads@file"
+      - "traefik.http.routers.inventory-uploads.service=inventory"
+
+  pos:
+    <<: *api-defaults
+    image: ${IMAGE_REGISTRY}/oryon-pos:${IMAGE_TAG}
+    environment:
+      ENVIRONMENT: prod
+      DEBUG: "false"
+      LOG_LEVEL: INFO
+      SERVICE_NAME: pos-service
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?set CORS_ALLOWED_ORIGINS}
+      JWT_PUBLIC_KEY_PATH: /run/secrets/jwt_public.pem
+      INVENTORY_SERVICE_URL: http://inventory:8100/api/v1
+      IDENTITY_SERVICE_URL: http://identity:8000/api/v1
+      JWT_ISSUER: https://${AUTH_HOST}
+      JWT_AUDIENCE: oryonfoods-api
+      JWT_KEY_ID: primary
+    secrets:
+      - source: pos_db_url
+        target: db_url
+      - source: jwt_public_key
+        target: jwt_public.pem
+      - source: internal_service_token
+        target: internal_service_token
+    volumes:
+      - /srv/oryonfoods/receipts:/var/lib/oryonfoods/receipts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      identity:
+        condition: service_healthy
+      inventory:
+        condition: service_healthy
+    networks:
+      - edge
+      - data
+    expose:
+      - "8200"
+    mem_limit: 512m
+    pids_limit: 256
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=edge"
+      - "traefik.http.routers.pos.rule=Host(`${POS_HOST}`)"
+      - "traefik.http.routers.pos.entrypoints=websecure"
+      - "traefik.http.routers.pos.tls=true"
+      - "traefik.http.routers.pos.tls.certresolver=le"
+      - "traefik.http.routers.pos.middlewares=secure-headers@file,general-rate-limit@file,body-limit@file,compress@file"
+      - "traefik.http.routers.pos.service=pos"
+      - "traefik.http.services.pos.loadbalancer.server.port=8200"
+      - "traefik.http.services.pos.loadbalancer.healthcheck.path=/health"
+      - "traefik.http.services.pos.loadbalancer.healthcheck.interval=15s"
+      - "traefik.http.services.pos.loadbalancer.healthcheck.timeout=5s"
+
+      - "traefik.http.routers.pos-restricted.rule=Host(`${POS_HOST}`) && (Path(`/docs`) || PathPrefix(`/docs/`) || Path(`/redoc`) || Path(`/openapi.json`) || Path(`/health/ready`))"
+      - "traefik.http.routers.pos-restricted.priority=300"
+      - "traefik.http.routers.pos-restricted.entrypoints=websecure"
+      - "traefik.http.routers.pos-restricted.tls=true"
+      - "traefik.http.routers.pos-restricted.tls.certresolver=le"
+      - "traefik.http.routers.pos-restricted.middlewares=deny-all@file"
+      - "traefik.http.routers.pos-restricted.service=pos"
+
+      - 'traefik.http.routers.pos-uploads.rule=Host(`${POS_HOST}`) && PathRegexp(`/api/v1/businesses/[^/]+/finance/attachments`)'
+      - "traefik.http.routers.pos-uploads.priority=200"
+      - "traefik.http.routers.pos-uploads.entrypoints=websecure"
+      - "traefik.http.routers.pos-uploads.tls=true"
+      - "traefik.http.routers.pos-uploads.tls.certresolver=le"
+      - "traefik.http.routers.pos-uploads.middlewares=secure-headers@file,general-rate-limit@file,body-limit-uploads@file"
+      - "traefik.http.routers.pos-uploads.service=pos"
+
+networks:
+  edge:
+    driver: bridge
+  data:
+    driver: bridge
+    internal: true
+  socket:
+    driver: bridge
+    internal: true
+
+secrets:
+  postgres_password:
+    file: ../secrets/postgres_password
+  identity_owner_db_password:
+    file: ../secrets/identity_owner_db_password
+  identity_app_db_password:
+    file: ../secrets/identity_app_db_password
+  inventory_owner_db_password:
+    file: ../secrets/inventory_owner_db_password
+  inventory_app_db_password:
+    file: ../secrets/inventory_app_db_password
+  pos_owner_db_password:
+    file: ../secrets/pos_owner_db_password
+  pos_app_db_password:
+    file: ../secrets/pos_app_db_password
+  redis_password:
+    file: ../secrets/redis_password
+  identity_db_url:
+    file: ../secrets/identity_db_url
+  identity_redis_url:
+    file: ../secrets/identity_redis_url
+  inventory_db_url:
+    file: ../secrets/inventory_db_url
+  pos_db_url:
+    file: ../secrets/pos_db_url
+  internal_service_token:
+    file: ../secrets/internal_service_token
+  jwt_private_key:
+    file: ../secrets/jwt_private.pem
+  jwt_public_key:
+    file: ../secrets/jwt_public.pem
+  at_api_key:
+    file: ../secrets/at_api_key
+  brevo_api_key:
+    file: ../secrets/brevo_api_key
+  mailjet_api_key:
+    file: ../secrets/mailjet_api_key
+  mailjet_secret_key:
+    file: ../secrets/mailjet_secret_key
+  whatsapp_app_secret:
+    file: ../secrets/whatsapp_app_secret
+  whatsapp_webhook_verify_token:
+    file: ../secrets/whatsapp_webhook_verify_token
+  admin_password:
+    file: ../secrets/admin_password

@@ -7,6 +7,7 @@ They can be unit-tested in isolation and reused by other microservices.
 from __future__ import annotations
 
 import secrets
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -136,10 +137,15 @@ def create_access_token(
     payload: dict[str, Any] = {
         "sub": subject,
         "type": "access",
+        "jti": str(uuid.uuid4()),
         "user_category": user_category,
         "iat": now,
         "exp": now + timedelta(minutes=settings.jwt_access_token_ttl_minutes),
     }
+    if settings.jwt_issuer:
+        payload["iss"] = settings.jwt_issuer
+    if settings.jwt_audience:
+        payload["aud"] = settings.jwt_audience
 
     if user_category == "platform_staff":
         payload["group"] = group or ""
@@ -170,7 +176,20 @@ def create_access_token(
         payload["permissions"] = permissions or []
 
     private_key = _load_private_key()
-    return jwt.encode(payload, private_key, algorithm=settings.jwt_algorithm)
+    headers = {"kid": settings.jwt_key_id} if settings.jwt_key_id else None
+    return jwt.encode(payload, private_key, algorithm=settings.jwt_algorithm, headers=headers)
+
+
+def _verify_expected_key_id(token: str, expected_key_id: str | None) -> None:
+    """Reject tokens signed by a key other than the one this deployment expects."""
+    if not expected_key_id:
+        return
+    try:
+        header = jwt.get_unverified_header(token)
+    except jwt.InvalidTokenError as exc:
+        raise InvalidTokenError(str(exc)) from None
+    if header.get("kid") != expected_key_id:
+        raise InvalidTokenError("Token was signed by an unknown key")
 
 
 def decode_and_verify_access_token(token: str) -> dict[str, Any]:
@@ -190,13 +209,24 @@ def decode_and_verify_access_token(token: str) -> dict[str, Any]:
     """
     settings = get_settings()
     public_key = _load_public_key()
+    _verify_expected_key_id(token, settings.jwt_key_id)
+
+    required_claims = ["exp", "iat", "type"]
+    decode_kwargs: dict[str, Any] = {}
+    if settings.jwt_issuer:
+        decode_kwargs["issuer"] = settings.jwt_issuer
+        required_claims.append("iss")
+    if settings.jwt_audience:
+        decode_kwargs["audience"] = settings.jwt_audience
+        required_claims.append("aud")
 
     try:
         payload: dict[str, Any] = jwt.decode(
             token,
             public_key,
             algorithms=[settings.jwt_algorithm],
-            options={"require": ["exp", "iat", "type"]},
+            options={"require": required_claims},
+            **decode_kwargs,
         )
     except jwt.ExpiredSignatureError:
         raise ExpiredTokenError("Access token has expired") from None
@@ -234,22 +264,45 @@ def create_identifier_change_token(
     payload: dict[str, Any] = {
         "sub": subject,
         "type": change_type,
+        "jti": str(uuid.uuid4()),
         "new_value": new_value,
         "iat": now,
         "exp": now + timedelta(minutes=IDENTIFIER_CHANGE_TOKEN_TTL_MINUTES),
     }
-    return jwt.encode(payload, _load_private_key(), algorithm=settings.jwt_algorithm)
+    if settings.jwt_issuer:
+        payload["iss"] = settings.jwt_issuer
+    if settings.jwt_audience:
+        payload["aud"] = settings.jwt_audience
+    headers = {"kid": settings.jwt_key_id} if settings.jwt_key_id else None
+    return jwt.encode(
+        payload,
+        _load_private_key(),
+        algorithm=settings.jwt_algorithm,
+        headers=headers,
+    )
 
 
 def decode_identifier_change_token(token: str, *, expected_type: str) -> dict[str, Any]:
     """Verify an identifier-change token and enforce its expected type."""
     settings = get_settings()
+    _verify_expected_key_id(token, settings.jwt_key_id)
+
+    required_claims = ["exp", "iat", "type", "sub", "new_value"]
+    decode_kwargs: dict[str, Any] = {}
+    if settings.jwt_issuer:
+        decode_kwargs["issuer"] = settings.jwt_issuer
+        required_claims.append("iss")
+    if settings.jwt_audience:
+        decode_kwargs["audience"] = settings.jwt_audience
+        required_claims.append("aud")
+
     try:
         payload: dict[str, Any] = jwt.decode(
             token,
             _load_public_key(),
             algorithms=[settings.jwt_algorithm],
-            options={"require": ["exp", "iat", "type", "sub", "new_value"]},
+            options={"require": required_claims},
+            **decode_kwargs,
         )
     except jwt.ExpiredSignatureError:
         raise ExpiredTokenError("Identifier change token has expired") from None

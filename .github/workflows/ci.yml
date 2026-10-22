@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [identity, inventory, pos]
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: foodlink
+          POSTGRES_PASSWORD: foodlink
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U foodlink"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      ENVIRONMENT: local
+      DEBUG: "true"
+      LOG_LEVEL: INFO
+      DB_URL: postgresql+asyncpg://foodlink:foodlink@127.0.0.1:5432/oryonfoods_${{ matrix.service }}_test
+      TEST_DB_URL: postgresql+asyncpg://foodlink:foodlink@127.0.0.1:5432/oryonfoods_${{ matrix.service }}_test
+      REDIS_URL: redis://127.0.0.1:6379/0
+      JWT_PRIVATE_KEY_PATH: keys/private.pem
+      JWT_PUBLIC_KEY_PATH: keys/public.pem
+      ITEM_IMAGE_STORAGE_ROOT: /tmp/oryonfoods/item_images
+      RECEIPT_STORAGE_ROOT: /tmp/oryonfoods/receipts
+
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}-service
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python and uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Create test storage directories
+        run: mkdir -p "$ITEM_IMAGE_STORAGE_ROOT" "$RECEIPT_STORAGE_ROOT"
+
+      - name: Generate local JWT keys
+        if: matrix.service == 'identity'
+        run: uv run python scripts/generate_keys.py
+
+      - name: Create POS test database
+        if: matrix.service == 'pos'
+        run: |
+          docker run --rm --network host \
+            -e PGPASSWORD=foodlink postgres:16-alpine \
+            createdb -h 127.0.0.1 -U foodlink oryonfoods_pos_test
+
+      - name: Lint
+        run: uv run ruff check app tests
+
+      - name: Test
+        run: uv run pytest -q
+
+  flutter:
+    name: Flutter analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/restaurant_app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.1"
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze

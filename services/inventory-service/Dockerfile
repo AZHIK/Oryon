@@ -42,7 +42,8 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 FROM python:3.12-slim-bookworm AS runtime
 
-RUN groupadd -r oryonfoods && useradd -r -g oryonfoods -d /app oryonfoods
+# Fixed UID/GID so host volume and Docker-secret ownership is predictable.
+RUN groupadd -r -g 10001 oryonfoods && useradd -r -u 10001 -g oryonfoods -d /app oryonfoods
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
@@ -50,8 +51,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app /app
-RUN rm -rf /app/tests /app/.pytest_cache /app/.ruff_cache /app/uv.lock && \
-    chmod -R a+r /app/keys
+RUN rm -rf /app/tests /app/.pytest_cache /app/.ruff_cache /app/uv.lock
+
+# JWT public keys are mounted at runtime and must never be baked into the
+# image. The build fails closed if a key accidentally enters the context.
+RUN if [ -d /app/keys ] && [ -n "$(find /app/keys -type f -name '*.pem' -print -quit)" ]; then \
+        echo "Refusing to build: key material found in /app/keys. Mount keys at runtime instead." >&2; \
+        exit 1; \
+    fi
+
 RUN mkdir -p /var/lib/oryonfoods/item_images && chown -R oryonfoods:oryonfoods /var/lib/oryonfoods
 
 ENV PATH="/app/.venv/bin:$PATH" \

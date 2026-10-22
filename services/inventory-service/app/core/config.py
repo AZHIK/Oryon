@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # ── JWT (verification only — no private key in this service) ──
     jwt_public_key_path: str = "keys/public.pem"
     jwt_algorithm: str = "RS256"
+    # Required in prod; optional locally so existing local tokens still work.
+    jwt_issuer: str | None = None
+    jwt_audience: str | None = None
+    jwt_key_id: str | None = None
     jwt_public_key: str | None = None
 
     # ── RabbitMQ ───────────────────────────────
@@ -104,7 +108,7 @@ class Settings(BaseSettings):
 
         if "oryonfoods:oryonfoods@" in self.db_url:
             errors.append("DB_URL still uses the default oryonfoods/oryonfoods credentials")
-        if self.test_db_url is not None:
+        if self.test_db_url:
             errors.append("TEST_DB_URL must not be set in production")
 
         if self.internal_service_token == "change-me-internal-token":
@@ -117,10 +121,15 @@ class Settings(BaseSettings):
                 "WHATSAPP_APP_SECRET is required in production; unsigned webhooks are rejected"
             )
 
+        if not self.jwt_issuer:
+            errors.append("JWT_ISSUER is required in production")
+        if not self.jwt_audience:
+            errors.append("JWT_AUDIENCE is required in production")
+        if not self.jwt_key_id:
+            errors.append("JWT_KEY_ID is required in production")
+
         origins = [
-            origin.strip()
-            for origin in self.cors_allowed_origins.split(",")
-            if origin.strip()
+            origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()
         ]
         if "*" in origins:
             errors.append("CORS_ALLOWED_ORIGINS must not contain '*' in production")
@@ -131,9 +140,7 @@ class Settings(BaseSettings):
             errors.append("PUBLIC_BASE_URL must use https:// in production")
 
         if errors:
-            raise ValueError(
-                "Insecure production configuration:\n  - " + "\n  - ".join(errors)
-            )
+            raise ValueError("Insecure production configuration:\n  - " + "\n  - ".join(errors))
         return self
 
 

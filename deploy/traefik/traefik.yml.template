@@ -1,0 +1,71 @@
+# Traefik v3 static configuration — rendered by scripts/bootstrap.sh
+# Source template: deploy/traefik/traefik.yml.template
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+log:
+  level: INFO
+  format: json
+
+accessLog:
+  format: json
+  fields:
+    headers:
+      names:
+        Authorization: drop
+        Cookie: drop
+        Set-Cookie: drop
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        certResolver: le
+    transport:
+      respondingTimeouts:
+        readTimeout: 30s
+        idleTimeout: 180s
+
+  # Internal only; never published to the host.
+  traefik:
+    address: ":8080"
+
+providers:
+  docker:
+    endpoint: "tcp://socket-proxy:2375"
+    exposedByDefault: false
+    network: edge
+    watch: true
+    defaultRule: "Host(`invalid.local`)"
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true
+
+certificatesResolvers:
+  le:
+    acme:
+      email: "__ACME_EMAIL__"
+      storage: /letsencrypt/acme.json
+      httpChallenge:
+        entryPoint: web
+
+api:
+  dashboard: false
+
+ping:
+  entryPoint: traefik
+
+serversTransport:
+  insecureSkipVerify: false

@@ -1,0 +1,14 @@
+[Unit]
+Description=Oryon Foods encrypted offsite backup
+Documentation=file:/opt/oryonfoods/README.md
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/oryonfoods/scripts/backup.sh
+User=root
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=2h

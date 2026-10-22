@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     # ── JWT (verification only — no private key in this service) ──
     jwt_public_key_path: str = "keys/public.pem"
     jwt_algorithm: str = "RS256"
+    # Required in prod; optional locally so existing local tokens still work.
+    jwt_issuer: str | None = None
+    jwt_audience: str | None = None
+    jwt_key_id: str | None = None
     jwt_public_key: str | None = None
 
     # ── RabbitMQ ───────────────────────────────
@@ -112,20 +116,23 @@ class Settings(BaseSettings):
         elif len(self.internal_service_token) < 32:
             errors.append("INTERNAL_SERVICE_TOKEN must be at least 32 characters")
 
+        if not self.jwt_issuer:
+            errors.append("JWT_ISSUER is required in production")
+        if not self.jwt_audience:
+            errors.append("JWT_AUDIENCE is required in production")
+        if not self.jwt_key_id:
+            errors.append("JWT_KEY_ID is required in production")
+
         for setting_name, url in (
             ("INVENTORY_SERVICE_URL", self.inventory_service_url),
             ("IDENTITY_SERVICE_URL", self.identity_service_url),
         ):
             host = urlsplit(url).hostname or ""
             if host in {"", "localhost", "127.0.0.1", "::1"}:
-                errors.append(
-                    f"{setting_name} must point at the production service, not localhost"
-                )
+                errors.append(f"{setting_name} must point at the production service, not localhost")
 
         origins = [
-            origin.strip()
-            for origin in self.cors_allowed_origins.split(",")
-            if origin.strip()
+            origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()
         ]
         if "*" in origins:
             errors.append("CORS_ALLOWED_ORIGINS must not contain '*' in production")
@@ -133,9 +140,7 @@ class Settings(BaseSettings):
             errors.append("CORS_ALLOWED_ORIGINS must not contain localhost origins in production")
 
         if errors:
-            raise ValueError(
-                "Insecure production configuration:\n  - " + "\n  - ".join(errors)
-            )
+            raise ValueError("Insecure production configuration:\n  - " + "\n  - ".join(errors))
         return self
 
 

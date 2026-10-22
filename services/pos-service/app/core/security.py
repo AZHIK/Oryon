@@ -30,6 +30,17 @@ def _load_public_key() -> str:
         ) from None
 
 
+def _verify_expected_key_id(token: str, expected_key_id: str | None) -> None:
+    if not expected_key_id:
+        return
+    try:
+        header = jwt.get_unverified_header(token)
+    except jwt.InvalidTokenError as exc:
+        raise InvalidTokenError(str(exc)) from None
+    if header.get("kid") != expected_key_id:
+        raise InvalidTokenError("Token was signed by an unknown key")
+
+
 def decode_and_verify_access_token(token: str) -> dict[str, Any]:
     """Decode and verify an RS256 JWT access token.
 
@@ -38,6 +49,7 @@ def decode_and_verify_access_token(token: str) -> dict[str, Any]:
         2. Reject if the token is expired.
         3. Reject if the ``type`` claim is not ``"access"``
            (prevents a refresh token JWT from being accepted as an access token).
+        4. When configured, require the expected issuer, audience, and key id.
 
     Returns the decoded payload dict on success.
 
@@ -47,12 +59,24 @@ def decode_and_verify_access_token(token: str) -> dict[str, Any]:
     """
     settings = get_settings()
     public_key = _load_public_key()
+    _verify_expected_key_id(token, settings.jwt_key_id)
+
+    required_claims = ["exp", "iat", "type"]
+    decode_kwargs: dict[str, Any] = {}
+    if settings.jwt_issuer:
+        decode_kwargs["issuer"] = settings.jwt_issuer
+        required_claims.append("iss")
+    if settings.jwt_audience:
+        decode_kwargs["audience"] = settings.jwt_audience
+        required_claims.append("aud")
+
     try:
         payload: dict[str, Any] = jwt.decode(
             token,
             public_key,
             algorithms=[settings.jwt_algorithm],
-            options={"require": ["exp", "iat", "type"]},
+            options={"require": required_claims},
+            **decode_kwargs,
         )
     except jwt.ExpiredSignatureError:
         raise ExpiredTokenError("Access token has expired") from None

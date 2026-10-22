@@ -1,4 +1,4 @@
-# FOODO Business App - UI Completeness Audit Report
+# ORYON Business App - UI Completeness Audit Report
 **Date**: August 25, 2026 | **Status**: Pre-Backend Integration | **Scope**: Flutter Mobile/Desktop App
 
 ---
