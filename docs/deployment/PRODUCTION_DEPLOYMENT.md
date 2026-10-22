@@ -70,12 +70,25 @@ Trust boundaries:
 
 1. Install Docker Engine and the Compose plugin from Docker's official
    repository. Do not use the distro package.
-2. Copy the deploy package to `/opt/oryonfoods` and make it root-owned:
+2. Copy the deploy package to `/opt/oryonfoods` and make it root-owned. Run
+   these with `sudo` from your deploy account; `/opt` and root ownership
+   require it:
 
    ```bash
-   install -d -m 750 -o root -g root /opt/oryonfoods
-   cp -a deploy/. /opt/oryonfoods/
-   chown -R root:root /opt/oryonfoods
+   sudo install -d -m 755 -o root -g root /opt/oryonfoods
+   sudo cp -a deploy/. /opt/oryonfoods/
+   sudo chown -R root:root /opt/oryonfoods
+   ```
+
+   The directory is `755` so your account can `cd` into it; `.env` (`600`),
+   `secrets/` (`700`), and `generated/` (`700`) stay root-only.
+
+   Do this once. On later updates, exclude the live state so secrets are not
+   overwritten:
+
+   ```bash
+   sudo rsync -av --exclude secrets --exclude generated --exclude .env \
+     --exclude backups deploy/ /opt/oryonfoods/
    ```
 
 3. Run the hardening script as root:
@@ -117,8 +130,9 @@ every `REPLACE`/`example.com` value:
 
 ```bash
 cd /opt/oryonfoods
-cp .env.example .env
-chmod 600 .env
+sudo cp .env.example .env
+sudo chmod 600 .env
+sudo nano .env
 ```
 
 Required values:
@@ -189,7 +203,7 @@ Use a `sha-<git-sha>` tag. Never build on the VPS. If the GHCR packages are
 private, authenticate once:
 
 ```bash
-printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
+printf '%s' "$GHCR_TOKEN" | sudo docker login ghcr.io -u <github-user> --password-stdin
 ```
 
 Use a read-only token with `read:packages`, or make the three packages public.
@@ -291,7 +305,11 @@ the backups unrecoverable.
 Restore:
 
 ```bash
-restic restore latest --target /tmp/oryon-restore
+# run as root so restic can read .env and the restic password file
+sudo bash -c 'set -a; . /opt/oryonfoods/.env; set +a; \
+  restic restore latest --target /tmp/oryon-restore'
+
+cd /opt/oryonfoods
 sudo CONFIRM_RESTORE=yes ./scripts/restore.sh \
     /tmp/oryon-restore/opt/oryonfoods/backups/<timestamp>
 ```
@@ -328,7 +346,7 @@ migrations so the previous image remains compatible with the current schema.
 
 ## 10. Day-2 operations
 
-- **Logs:** `docker compose --env-file .env -f compose/docker-compose.prod.yml logs`
+- **Logs:** `sudo docker compose --env-file .env -f compose/docker-compose.prod.yml logs`
 - **Health:** monitor `/health` on all three public hosts.
 - **Disk:** alert before `/srv/oryonfoods` or the Docker root fills.
 - **Certificates:** Traefik renews automatically; alert on expiry.

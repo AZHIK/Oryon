@@ -26,14 +26,13 @@ failure modes, and the verification.
 
 # 2. Free ports 80/443 (remove any pre-existing Traefik).
 
-# 3. Stage the package.
-sudo install -d -m 750 -o root -g root /opt/oryonfoods
-rsync -av --exclude 'secrets' --exclude 'generated' --exclude '.env' \
-  --exclude 'backups' deploy/ root@<VPS_IP>:/opt/oryonfoods/
-
-# 4. On the VPS, once.
-cd /opt/oryonfoods
+# 3. Stage the package (from the checkout on the VPS).
+sudo install -d -m 755 -o root -g root /opt/oryonfoods
+sudo cp -a deploy/. /opt/oryonfoods/
 sudo chown -R root:root /opt/oryonfoods
+
+# 4. Harden the host, once.
+cd /opt/oryonfoods
 sudo SSH_PORT=22 RESTART_DOCKER=1 ./host/harden-host.sh
 
 # 5. Configure .env and provider credentials interactively.
@@ -64,6 +63,19 @@ Two facts drive the order of everything below:
    Encrypt HTTP-01 challenge. DNS must already resolve to the VPS and port 80
    must be reachable before that run. "Connecting the domain later" will fail the
    first deployment.
+
+### Root and sudo
+
+You do **not** need to log in as root. Use a normal account with `sudo`; every
+privileged command below is prefixed with `sudo`. The scripts check for effective
+UID 0 because `.env` and `secrets/` are root-only, and because they create
+`/srv` directories, repair container secret ownership, and manage Docker,
+UFW, and systemd.
+
+Do not enable SSH root login, and do not add your user to the `docker` group:
+that group is equivalent to root and is unnecessary here. The deploy scripts
+check for effective UID 0, so group membership would not remove the `sudo`
+requirement anyway.
 
 ### Information to gather
 
@@ -101,7 +113,7 @@ Identify what owns the edge ports:
 
 ```bash
 sudo ss -ltnp | grep -E ':(80|443)\b'
-docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}'
+sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}'
 systemctl list-units --type=service --all | grep -i traefik
 ```
 
@@ -110,7 +122,7 @@ Stop it according to how it was installed:
 ```bash
 # Docker container / compose project
 cd <directory containing that compose file>
-docker compose down
+sudo docker compose down
 
 # systemd service
 sudo systemctl disable --now traefik
@@ -161,30 +173,37 @@ Also open inbound 80/443 in the **provider's** firewall, not only UFW.
 
 ## 3. Stage the deploy package
 
-Create the target directory on the VPS:
+From the checkout on the VPS:
 
 ```bash
-sudo install -d -m 750 -o root -g root /opt/oryonfoods
+sudo install -d -m 755 -o root -g root /opt/oryonfoods
+sudo cp -a deploy/. /opt/oryonfoods/
+sudo chown -R root:root /opt/oryonfoods
+
+cd /opt/oryonfoods
+sudo find . -type f -name '*.sh' -exec chmod 755 {} \;
 ```
 
-From the local checkout:
+The directory itself is `755` so your sudo-capable account can `cd` into it;
+the sensitive state inside is protected separately: `.env` is `600`, and
+`secrets/` and `generated/` are `700`.
+
+If the checkout is on a workstation instead, copy it to a staging directory as
+your normal user, then move it into place with `sudo`. Do not enable root SSH
+just for this:
 
 ```bash
 rsync -av \
   --exclude 'secrets' --exclude 'generated' --exclude '.env' --exclude 'backups' \
-  deploy/ root@<VPS_IP>:/opt/oryonfoods/
-```
+  deploy/ <deploy-user>@<VPS_IP>:/tmp/oryonfoods-deploy/
 
-Then on the VPS:
-
-```bash
-cd /opt/oryonfoods
+# on the VPS
+sudo cp -a /tmp/oryonfoods-deploy/. /opt/oryonfoods/
 sudo chown -R root:root /opt/oryonfoods
-sudo find . -type f -name '*.sh' -exec chmod 755 {} \;
 ```
 
-The `--exclude` flags matter: without them, a later re-sync deletes `secrets/`
-and `generated/`, which breaks a running database.
+The `--exclude` flags matter: without them, a later re-sync overwrites live
+`secrets/`, `generated/`, and `.env`, which breaks a running database.
 
 ---
 
@@ -285,14 +304,14 @@ For example, commit `042873582db22af8b303d076e2fceeef0cf0cff3` is published as
 deploying:
 
 ```bash
-docker manifest inspect \
+sudo docker manifest inspect \
   ghcr.io/<owner>/oryon-identity:sha-<full-git-sha> >/dev/null && echo "tag exists"
 ```
 
 If the packages are private, authenticate once on the VPS:
 
 ```bash
-printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
+printf '%s' "$GHCR_TOKEN" | sudo docker login ghcr.io -u <github-user> --password-stdin
 ```
 
 `deploy.sh` reports a clear error if the pull is unauthorised.
@@ -439,8 +458,8 @@ Because `/admin/*` and `/api/v1/auth/platform/*` are restricted to
 **Option A — SSH tunnel (keeps admin fully private):**
 
 ```bash
-# on the workstation
-ssh -L 8443:127.0.0.1:443 root@<VPS_IP>
+# on the workstation; use the same sudo-capable account, not root
+ssh -L 8443:127.0.0.1:443 <deploy-user>@<VPS_IP>
 
 # in another terminal
 curl -sk --resolve "auth.oryonfoods.com:8443:127.0.0.1" \
@@ -521,6 +540,7 @@ the previous image remains compatible with the current schema.
 | Symptom | Cause / action |
 |---|---|
 | `Bind for 0.0.0.0:80 failed` | The previous Traefik is still running. See §1. |
+| `cd: permission denied` on `/opt/oryonfoods` | The directory is `750 root:root`; run `sudo chmod 755 /opt/oryonfoods`. `secrets/` and `generated/` stay `700`. |
 | `IMAGE_TAG still contains a placeholder` | `.env` still has `sha-REPLACE`. |
 | `configure.sh`: `IMAGE_TAG still contains a placeholder` | Pressing Enter accepted `sha-REPLACE`; enter the real CI tag. |
 | `AUTH_HOST still contains a placeholder` | An `example.com` or `REPLACE` value remains in a checked field. |

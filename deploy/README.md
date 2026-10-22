@@ -52,12 +52,29 @@ Talking, and Meta.
    scripts use `docker compose up --wait`).
 2. Point `auth`, `inventory`, and `pos` DNS records at the VPS.
 3. Allow inbound `22`, `80`, and `443` in the host firewall.
-4. Copy this directory to `/opt/oryonfoods` and keep it root-owned.
-5. Run `host/harden-host.sh` as root. It installs UFW, fail2ban, restic,
-   unattended upgrades, sysctl settings, and the Docker ingress firewall.
+4. From the repository root, copy the deploy directory to `/opt/oryonfoods` and
+   keep it root-owned. Run these with `sudo` from your normal account:
+
+   ```bash
+   sudo install -d -m 755 -o root -g root /opt/oryonfoods
+   sudo cp -a deploy/. /opt/oryonfoods/
+   sudo chown -R root:root /opt/oryonfoods
+   ```
+
+   Do this once. For later updates, exclude `secrets/`, `generated/`, `.env`,
+   and `backups/` so live state is not overwritten.
+5. From `/opt/oryonfoods`, run `sudo ./host/harden-host.sh`. It installs UFW,
+   fail2ban, restic, unattended upgrades, sysctl settings, and the Docker
+   ingress firewall.
 
 Do not enable SSH password hardening until key-based login has been verified.
 The harden script leaves that step opt-in via `SSH_HARDEN=1`.
+
+Run the operational scripts with `sudo` from a normal account; a root SSH login
+is not required. They check for effective UID 0 because `.env` and `secrets/` are
+root-owned and because they create `/srv` directories, repair container secret
+ownership, and manage Docker. Adding your user to the `docker` group would not
+remove that requirement, and the group is root-equivalent.
 
 ## 2. Site configuration
 
@@ -135,7 +152,7 @@ Actions workflow that builds and pushes these images to GHCR. If the GHCR
 packages are private, authenticate the VPS once before the first pull:
 
 ```bash
-printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
+printf '%s' "$GHCR_TOKEN" | sudo docker login ghcr.io -u <github-user> --password-stdin
 ```
 
 Use a read-only classic token with `read:packages`, or make the three packages
@@ -211,7 +228,9 @@ To restore from a restic snapshot:
 1. Restore the snapshot to a directory on the host:
 
    ```bash
-   restic restore latest --target /tmp/oryon-restore
+   # run as root so restic can read .env and the restic password file
+   sudo bash -c 'set -a; . /opt/oryonfoods/.env; set +a; \
+     restic restore latest --target /tmp/oryon-restore'
    ```
 
    The backup directory is under
@@ -244,7 +263,7 @@ current schema.
 
 ## 10. Day-2 operations
 
-- **Logs:** `docker compose --env-file .env -f compose/docker-compose.prod.yml logs`
+- **Logs:** `sudo docker compose --env-file .env -f compose/docker-compose.prod.yml logs`
 - **Health:** monitor `/health` on all three hosts from outside the VPS.
 - **Disk:** alert before `/srv/oryonfoods` or the Docker root fills.
 - **Certificates:** Traefik renews automatically; alert on expiry.
