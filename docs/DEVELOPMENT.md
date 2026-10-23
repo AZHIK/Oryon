@@ -79,14 +79,21 @@ Production rejects the development default.
 cd apps/restaurant_app
 flutter pub get
 flutter devices
+
+# Against the deployed Oryon Foods APIs
 flutter run -d linux
+
+# Against the local Docker Compose services
+flutter run -d linux --dart-define=API_ENV=local
 ```
 
-Debug builds default to the local service URLs. For an Android emulator, use
-the host alias `10.0.2.2`:
+Debug builds default to the deployed production APIs. For local development,
+pass `API_ENV=local`. For an Android emulator using the local stack, use the
+host alias `10.0.2.2`:
 
 ```bash
 flutter run \
+  --dart-define=API_ENV=local \
   --dart-define=IDENTITY_API_BASE_URL=http://10.0.2.2:8009/api/v1 \
   --dart-define=INVENTORY_API_BASE_URL=http://10.0.2.2:8100/api/v1 \
   --dart-define=POS_API_BASE_URL=http://10.0.2.2:8200/api/v1
