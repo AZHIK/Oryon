@@ -98,7 +98,7 @@ Oryon/
 │       │   ├── sync/            # Offline-first synchronisation
 │       │   └── widgets/         # Shared UI
 │       ├── test/                # Flutter tests
-│       └── android/ ios/ linux/ web/
+│       └── android/ ios/ linux/ web/ windows/
 │
 ├── services/
 │   ├── identity-service/

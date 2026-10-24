@@ -1,0 +1,173 @@
+name: Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "apps/restaurant_app/**"
+      - ".github/workflows/windows-installer.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/restaurant_app
+
+    env:
+      # Release builds refuse to start without explicit service URLs
+      # (lib/config/api_config.dart). Repository variables override the
+      # production defaults if the deployment ever moves.
+      IDENTITY_API_BASE_URL: ${{ vars.IDENTITY_API_BASE_URL || 'https://auth.oryonfoods.com/api/v1' }}
+      INVENTORY_API_BASE_URL: ${{ vars.INVENTORY_API_BASE_URL || 'https://inventory.oryonfoods.com/api/v1' }}
+      POS_API_BASE_URL: ${{ vars.POS_API_BASE_URL || 'https://pos.oryonfoods.com/api/v1' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.1"
+          channel: stable
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Read version from pubspec
+        id: version
+        shell: pwsh
+        run: |
+          $line = Get-Content pubspec.yaml |
+            Where-Object { $_ -match '^version:\s*(.+)$' } |
+            Select-Object -First 1
+          if (-not $line) { throw "No version field in pubspec.yaml" }
+          $value = [regex]::Match($line, '^version:\s*(.+)$').Groups[1].Value.Trim()
+          $name, $build = $value.Split('+')
+          if (-not $build) { $build = '0' }
+          if ($name -notmatch '^\d+\.\d+\.\d+$') {
+            throw "pubspec version '$name' must be major.minor.patch (+build)"
+          }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and ($env:GITHUB_REF_NAME -replace '^v', '') -ne $name) {
+            throw "Tag $env:GITHUB_REF_NAME does not match pubspec version $name"
+          }
+          "name=$name" >> $env:GITHUB_OUTPUT
+          "build=$build" >> $env:GITHUB_OUTPUT
+
+      - name: Build Windows release
+        run: |
+          flutter build windows --release `
+            --build-name=${{ steps.version.outputs.name }} `
+            --build-number=${{ steps.version.outputs.build }} `
+            "--dart-define=IDENTITY_API_BASE_URL=$env:IDENTITY_API_BASE_URL" `
+            "--dart-define=INVENTORY_API_BASE_URL=$env:INVENTORY_API_BASE_URL" `
+            "--dart-define=POS_API_BASE_URL=$env:POS_API_BASE_URL"
+
+      - name: Verify release bundle
+        shell: pwsh
+        run: |
+          $bundle = "build\windows\x64\runner\Release"
+          if (-not (Test-Path "$bundle\oryon.exe")) {
+            throw "Expected $bundle\oryon.exe after flutter build windows"
+          }
+          Get-ChildItem $bundle | Select-Object Name, Length | Format-Table
+
+      - name: Locate Inno Setup
+        id: inno
+        shell: pwsh
+        run: |
+          function Find-Iscc {
+            @("$env:ProgramFiles", "${env:ProgramFiles(x86)}") |
+              Where-Object { $_ -and (Test-Path $_) } |
+              ForEach-Object {
+                Get-ChildItem $_ -Directory -Filter "Inno Setup*" -ErrorAction SilentlyContinue
+              } |
+              ForEach-Object { Join-Path $_.FullName "ISCC.exe" } |
+              Where-Object { Test-Path $_ } |
+              Sort-Object -Descending |
+              Select-Object -First 1
+          }
+          $iscc = Find-Iscc
+          if (-not $iscc) {
+            choco install innosetup --no-progress -y
+            $iscc = Find-Iscc
+          }
+          if (-not $iscc) { throw "ISCC.exe (Inno Setup) not found" }
+          Write-Host "Using $iscc"
+          "iscc=$iscc" >> $env:GITHUB_OUTPUT
+
+      - name: Bundle Visual C++ runtime
+        # Flutter desktop apps link the MSVC runtime dynamically. Shipping the
+        # official redistributable lets the installer fix machines that lack it.
+        shell: pwsh
+        run: |
+          $dir = "windows\installer\redist"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" `
+            -OutFile "$dir\vc_redist.x64.exe"
+          Get-Item "$dir\vc_redist.x64.exe" | Select-Object Name, Length
+
+      - name: Build installer
+        run: |
+          & "${{ steps.inno.outputs.iscc }}" `
+            /DAppVersion=${{ steps.version.outputs.name }} `
+            /DAppBuild=${{ steps.version.outputs.build }} `
+            "windows\installer\oryon.iss"
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem build\windows\installer\*.exe | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Set-Content build\windows\installer\SHA256SUMS.txt -Encoding ascii
+
+      # Unsigned installer: Windows SmartScreen will warn on first run until a
+      # code-signing certificate is added. See docs/deployment/WINDOWS_INSTALLER.md.
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: oryon-windows-installer
+          path: |
+            apps/restaurant_app/build/windows/installer/*.exe
+            apps/restaurant_app/build/windows/installer/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download installer
+        uses: actions/download-artifact@v4
+        with:
+          name: oryon-windows-installer
+          path: dist
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/SHA256SUMS.txt
+          generate_release_notes: true
+          fail_on_unmatched_files: true

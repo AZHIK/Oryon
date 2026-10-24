@@ -39,6 +39,9 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
+# Windows installer payload downloaded by CI (see docs/deployment/WINDOWS_INSTALLER.md)
+/windows/installer/redist/
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile
