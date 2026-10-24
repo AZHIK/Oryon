@@ -26,6 +26,15 @@ The Flutter client is offline-first: it keeps an encrypted local database,
 synchronises with the services when a connection exists, and continues operating
 through short outages.
 
+The database is application state, not a user document. It is
+SQLCipher-encrypted and stored in the platform's private application-data
+directory — `%APPDATA%\Oryon Foods\Oryon` on Windows, `$XDG_DATA_HOME/oryon` on
+Linux, Application Support on macOS, and the app sandbox on Android and iOS —
+never in the user's Documents folder. On Windows the uninstaller deletes that
+directory, database and encryption key included, so any unsynced sales are
+discarded with it. See
+[Windows installer](docs/deployment/WINDOWS_INSTALLER.md) for details.
+
 ---
 
 ## 2. Architecture at a glance
@@ -169,7 +178,7 @@ describe persistence; schemas describe the HTTP contract.
 | Offline/sync | Connectivity awareness, Workmanager, custom sync services |
 | UI and charts | Material, fl_chart, Google Fonts |
 | Documents | PDF, Excel, share and file-picker packages |
-| Platforms | Android, iOS, Linux desktop, web |
+| Platforms | Android, iOS, Linux and Windows desktop, web |
 
 ### Backend
 
