@@ -379,6 +379,10 @@ abstract final class AppStrings {
       L10n.t('invalidEmail', 'Enter a valid email address');
   static String get continueAction => L10n.t('continueAction', 'Continue');
   static String sendCodeFailed(Object e) => 'Failed to send code: $e';
+  static String get otpNeedsInternet => L10n.t(
+    'otpNeedsInternet',
+    'You must be online to sign in or create an account. Connect to the internet and try again.',
+  );
   static String get enterPhoneNumber =>
       L10n.t('enterPhoneNumber', 'Enter your phone number');
   static String get enterEmail =>

@@ -730,6 +730,8 @@ const Map<String, String> kEnStrings = {
   'otherIncomesSubtitle': 'Ad-hoc revenue outside point-of-sale transactions',
   'otherIncomesTitle': 'Other incomes',
   'otherType': 'Other',
+  'otpNeedsInternet':
+      'You must be online to sign in or create an account. Connect to the internet and try again.',
   'outForDeliveryStatus': 'Out for Delivery',
   'outOfStockMetric': 'Out of stock',
   'outOfStockStatus': 'Out of stock',

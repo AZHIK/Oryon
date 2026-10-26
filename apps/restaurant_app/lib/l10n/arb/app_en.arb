@@ -143,6 +143,7 @@
   "enterPhoneNumber": "Enter your phone number",
   "enterEmail": "Enter your email address",
   "codeNotRight": "That code is not right. Check your messages.",
+  "otpNeedsInternet": "You must be online to sign in or create an account. Connect to the internet and try again.",
   "enterYourCode": "Enter your code",
   "signIn": "Sign in",
   "useRegisteredPhone": "Enter your phone number to sign in or create an account",

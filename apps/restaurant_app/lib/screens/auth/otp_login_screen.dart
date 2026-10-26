@@ -5,10 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../auth/identity_service_api.dart';
 import '../../constants/app_durations.dart';
 import '../../constants/app_limits.dart';
 import '../../constants/app_strings.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/connectivity_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../router/app_router.dart';
 import '../../theme/app_theme.dart';
@@ -91,6 +93,23 @@ class _OtpLoginScreenState extends ConsumerState<OtpLoginScreen> {
 
   String get _code => _digits.map((c) => c.text).join();
 
+  /// OTP sign-in and sign-up are online-only: the identity service both
+  /// delivers the code and mints the session. A known-offline signal blocks
+  /// the attempt before the round-trip, giving an immediate message instead of
+  /// a timeout.
+  ///
+  /// "Unknown" (null — the stream has not emitted yet, e.g. a cold start) is
+  /// treated as online: a failed request is mapped to the same message by
+  /// [_isNetworkError], so an offline device is still told, without ever
+  /// blocking a sign-in on a platform whose connectivity check is silent.
+  bool get _offlineNow => ref.read(isOnlineProvider).valueOrNull == false;
+
+  /// A request that never got an HTTP response is a transport failure —
+  /// offline, DNS, or a timeout — not a rejected code. [AuthException] carries
+  /// a status code only when the backend actually replied.
+  bool _isNetworkError(Object error) =>
+      error is AuthException && error.statusCode == null;
+
   // -------------------------------------------------------------------------
   // Identifier step
   // -------------------------------------------------------------------------
@@ -111,12 +130,21 @@ class _OtpLoginScreenState extends ConsumerState<OtpLoginScreen> {
       return;
     }
 
+    if (_offlineNow) {
+      setState(() => _inputError = AppStrings.otpNeedsInternet);
+      return;
+    }
+
     try {
       // Request OTP from the auth provider.
       await ref.read(sessionProvider.notifier).requestOtp('+255$digits');
     } catch (e) {
       if (!mounted) return;
-      setState(() => _inputError = AppStrings.sendCodeFailed(e));
+      setState(
+        () => _inputError = _isNetworkError(e)
+            ? AppStrings.otpNeedsInternet
+            : AppStrings.sendCodeFailed(e),
+      );
       return;
     }
 
@@ -134,11 +162,20 @@ class _OtpLoginScreenState extends ConsumerState<OtpLoginScreen> {
       return;
     }
 
+    if (_offlineNow) {
+      setState(() => _inputError = AppStrings.otpNeedsInternet);
+      return;
+    }
+
     try {
       await ref.read(sessionProvider.notifier).requestEmailOtp(email);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _inputError = AppStrings.sendCodeFailed(e));
+      setState(
+        () => _inputError = _isNetworkError(e)
+            ? AppStrings.otpNeedsInternet
+            : AppStrings.sendCodeFailed(e),
+      );
       return;
     }
 
@@ -162,6 +199,12 @@ class _OtpLoginScreenState extends ConsumerState<OtpLoginScreen> {
   /// successful resend does not stay visually rejected.
   Future<void> _resend() async {
     setState(() => _codeError = null);
+
+    if (_offlineNow) {
+      setState(() => _codeError = AppStrings.otpNeedsInternet);
+      return;
+    }
+
     try {
       if (_useEmail) {
         await ref
@@ -175,7 +218,11 @@ class _OtpLoginScreenState extends ConsumerState<OtpLoginScreen> {
       _startCooldown();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _codeError = AppStrings.sendCodeFailed(e));
+      setState(
+        () => _codeError = _isNetworkError(e)
+            ? AppStrings.otpNeedsInternet
+            : AppStrings.sendCodeFailed(e),
+      );
     }
   }
 
@@ -251,9 +298,29 @@ class _OtpLoginScreenState extends ConsumerState<OtpLoginScreen> {
     if (_code.length == _codeLength) _verify();
   }
 
+  /// Shows why the last code could not be accepted and resets the boxes so
+  /// the user can try again. Only a rejected code shakes — an offline attempt
+  /// is not the code's fault.
+  void _failVerification(String message, {required bool shake}) {
+    setState(() {
+      _verifying = false;
+      _codeError = message;
+      if (shake) _shakeToken++;
+      for (final controller in _digits) {
+        controller.clear();
+      }
+    });
+    _digitFocus.first.requestFocus();
+  }
 
   Future<void> _verify() async {
     final entered = _code;
+
+    if (_offlineNow) {
+      _failVerification(AppStrings.otpNeedsInternet, shake: false);
+      return;
+    }
+
     setState(() => _verifying = true);
     FocusScope.of(context).unfocus();
 
@@ -270,15 +337,11 @@ class _OtpLoginScreenState extends ConsumerState<OtpLoginScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _verifying = false;
-        _codeError = AppStrings.codeNotRight;
-        _shakeToken++;
-        for (final controller in _digits) {
-          controller.clear();
-        }
-      });
-      _digitFocus.first.requestFocus();
+      final offline = _isNetworkError(e);
+      _failVerification(
+        offline ? AppStrings.otpNeedsInternet : AppStrings.codeNotRight,
+        shake: !offline,
+      );
       return;
     }
 
@@ -296,6 +359,9 @@ class _OtpLoginScreenState extends ConsumerState<OtpLoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Keep connectivity live for this screen so a known-offline state is
+    // current at the moment Send/Resend/verify is tapped.
+    ref.watch(isOnlineProvider);
     return AuthScaffold(
       title: _codeSent ? AppStrings.enterYourCode : AppStrings.signIn,
       subtitle: _codeSent

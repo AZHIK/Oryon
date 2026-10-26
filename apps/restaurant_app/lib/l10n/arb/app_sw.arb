@@ -143,6 +143,7 @@
   "enterPhoneNumber": "Weka nambari yako ya simu",
   "enterEmail": "Weka anwani yako ya barua pepe",
   "codeNotRight": "Msimbo huo si sahihi. Angalia ujumbe wako.",
+  "otpNeedsInternet": "Lazima uwe mtandaoni ili kuingia au kufungua akaunti. Unganisha intaneti na ujaribu tena.",
   "enterYourCode": "Weka msimbo wako",
   "signIn": "Ingia",
   "useRegisteredPhone": "Weka nambari yako ya simu kuingia au kutengeneza akaunti",

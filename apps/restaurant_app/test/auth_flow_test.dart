@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -8,11 +9,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:restaurant_pos/auth/jwt_decoder.dart';
+import 'package:restaurant_pos/constants/app_strings.dart';
 import 'package:restaurant_pos/database/app_database.dart';
 import 'package:restaurant_pos/database/local_profile_repository.dart';
 import 'package:restaurant_pos/main.dart';
 import 'package:restaurant_pos/models/session.dart';
 import 'package:restaurant_pos/providers/auth_provider.dart';
+import 'package:restaurant_pos/providers/connectivity_provider.dart';
 import 'package:restaurant_pos/providers/database_providers.dart';
 import 'package:restaurant_pos/providers/session_provider.dart';
 import 'package:restaurant_pos/router/app_router.dart';
@@ -377,6 +380,86 @@ void main() {
 
       // Still on the phone step — the boxes only exist once a code is sent.
       expect(find.byKey(OtpLoginKeys.digit(0)), findsNothing);
+    });
+
+    testWidgets(
+      'requesting a code while offline says a connection is required',
+      (tester) async {
+        final state = FakeIdentityBackendState();
+        await pumpSession(
+          tester,
+          size: const Size(1440, 900),
+          session: const SessionState(bootstrapped: true),
+          route: AppRoute.loginPath,
+          overrides: [
+            ...fakeBackend(state),
+            isOnlineProvider.overrideWith((ref) => Stream.value(false)),
+          ],
+        );
+
+        await tester.enterText(
+          find.byKey(OtpLoginKeys.email),
+          'staff@example.com',
+        );
+        await tester.tap(find.byKey(OtpLoginKeys.sendCode));
+        await tester.pumpAndSettle();
+
+        expect(find.text(AppStrings.otpNeedsInternet), findsOneWidget);
+        expect(find.byKey(OtpLoginKeys.digit(0)), findsNothing);
+        expect(state.email, isNull);
+
+        // Same guard on the phone channel, which talks to a different endpoint.
+        await tester.tap(find.byKey(OtpLoginKeys.usePhoneInstead));
+        await tester.pumpAndSettle();
+
+        await tester.enterText(find.byKey(OtpLoginKeys.phone), '712345678');
+        await tester.tap(find.byKey(OtpLoginKeys.sendCode));
+        await tester.pumpAndSettle();
+
+        expect(find.text(AppStrings.otpNeedsInternet), findsOneWidget);
+        expect(find.byKey(OtpLoginKeys.digit(0)), findsNothing);
+      },
+    );
+
+    testWidgets('verifying while offline says a connection is required', (
+      tester,
+    ) async {
+      final connectivity = StreamController<bool>();
+      addTearDown(connectivity.close);
+      final container = await pumpSession(
+        tester,
+        size: const Size(1440, 900),
+        session: const SessionState(bootstrapped: true),
+        route: AppRoute.loginPath,
+        overrides: [
+          ...fakeBackend(FakeIdentityBackendState()),
+          isOnlineProvider.overrideWith((ref) => connectivity.stream),
+        ],
+      );
+
+      await tester.enterText(
+        find.byKey(OtpLoginKeys.email),
+        'staff@example.com',
+      );
+      await tester.tap(find.byKey(OtpLoginKeys.sendCode));
+      await tester.pumpAndSettle();
+      expect(find.byKey(OtpLoginKeys.digit(0)), findsOneWidget);
+
+      connectivity.add(false);
+      await tester.pump();
+      for (var i = 0; i < fakeOtpCode.length; i++) {
+        await tester.enterText(
+          find.byKey(OtpLoginKeys.digit(i)),
+          fakeOtpCode[i],
+        );
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+
+      expect(find.text(AppStrings.otpNeedsInternet), findsOneWidget);
+      expect(container.read(sessionProvider).isLoggedIn, isFalse);
+
+      await tester.pump(const Duration(seconds: 31));
     });
 
     testWidgets('a valid number opens the code step with a live cooldown', (

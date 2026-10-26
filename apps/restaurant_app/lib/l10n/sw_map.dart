@@ -739,6 +739,8 @@ const Map<String, String> kSwStrings = {
       'Mapato ya papo hapo nje ya miamala ya sehemu ya mauzo',
   'otherIncomesTitle': 'Mapato mengine',
   'otherType': 'Nyingine',
+  'otpNeedsInternet':
+      'Lazima uwe mtandaoni ili kuingia au kufungua akaunti. Unganisha intaneti na ujaribu tena.',
   'outForDeliveryStatus': 'Nje kwa Uwasilishaji',
   'outOfStockMetric': 'Vimeisha',
   'outOfStockStatus': 'Imeisha',
