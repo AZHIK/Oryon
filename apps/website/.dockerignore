@@ -13,6 +13,7 @@ test-results
 lighthouse
 Dockerfile
 docker-compose.yml
+docker-compose.local.yml
 DEPLOYMENT.md
 README.md
 SCREENSHOTS.md

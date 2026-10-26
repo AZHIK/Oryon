@@ -36,6 +36,35 @@ dig +short oryonfoods.com
 dig +short www.oryonfoods.com
 ```
 
+## Local Docker preview (not the VPS)
+
+The production `docker-compose.yml` expects the VPS Traefik/`oryon_edge`
+environment. For a laptop preview, use the separate local compose file. It
+publishes port 3000 and requires no Traefik, no external network and no DNS.
+
+Make sure the Docker daemon is running first. On a systemd host such as Kali:
+
+```bash
+sudo systemctl start docker
+```
+
+Then:
+
+```bash
+sudo docker compose -f docker-compose.local.yml up --build -d
+```
+
+Open <http://localhost:3000>. Logs and shutdown:
+
+```bash
+sudo docker compose -f docker-compose.local.yml logs -f website
+sudo docker compose -f docker-compose.local.yml down
+```
+
+This builds the same static image as production. It is intentionally separate
+from the VPS compose so local work cannot accidentally attach to the production
+edge network.
+
 ## 2. Get the code on the VPS
 
 This repository can be deployed by pulling `main` on the server. The website

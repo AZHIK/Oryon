@@ -48,6 +48,25 @@ the VPS Traefik instance at `https://oryonfoods.com`; it publishes no host
 ports. See [`DEPLOYMENT.md`](./DEPLOYMENT.md) for DNS, TLS, verification,
 rollback and the database-integration path.
 
+### Local Docker preview
+
+The production compose file expects the VPS edge network, so use the local
+compose file on a laptop:
+
+```bash
+sudo systemctl start docker   # if the daemon is not running
+sudo docker compose -f docker-compose.local.yml up --build -d
+```
+
+Open <http://localhost:3000>. Stop it with:
+
+```bash
+sudo docker compose -f docker-compose.local.yml down
+```
+
+This uses the same Dockerfile and static image, but publishes port 3000 and
+does not require Traefik or `oryon_edge`.
+
 ## Pages
 
 | Route | Purpose |
@@ -134,5 +153,6 @@ site.config.ts          Product, contact, store and download configuration
 Dockerfile              Multi-stage static-export + Nginx image
 nginx.conf              Non-root Nginx server configuration
 docker-compose.yml      Single-VPS deployment on the oryon_edge network
+docker-compose.local.yml Local-only preview on port 3000
 DEPLOYMENT.md           VPS deployment and database-extension notes
 ```
