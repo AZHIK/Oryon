@@ -27,10 +27,10 @@ import '../constants/app_durations.dart';
 import 'identity_service_api.dart';
 import 'token_storage.dart';
 
-/// Process-wide in-flight refreshes, keyed by session (null = current).
+/// Process-wide in-flight refreshes, keyed by the resolved session user id.
 /// Concurrent callers for the SAME session await the same future; different
 /// users on a shared device refresh independently.
-final Map<String?, Future<TokenSet>> _flights = {};
+final Map<String, Future<TokenSet>> _flights = {};
 
 /// Refreshes using the latest stored pair and persists the rotated result.
 ///
@@ -41,13 +41,22 @@ Future<TokenSet> refreshTokens({
   required IdentityServiceApi api,
   required TokenStorage storage,
   String? userId,
-}) {
-  final flight = _flights[userId];
+}) async {
+  // Resolve "current session" (null) to the stored current user id BEFORE
+  // joining the flight map. Callers that do pass a userId must share the same
+  // flight: the cold-start restore passes one, while the 401 interceptor does
+  // not, and keying those separately let both refresh with the same one-shot
+  // token — the backend read the second use as replay and revoked the whole
+  // session.
+  final key = userId ?? await storage.currentUserId();
+  if (key == null) throw StateError('No stored session to refresh');
+
+  final flight = _flights[key];
   if (flight != null) return flight;
-  final future = _doRefresh(api: api, storage: storage, userId: userId);
-  _flights[userId] = future;
+  final future = _doRefresh(api: api, storage: storage, userId: key);
+  _flights[key] = future;
   return future.whenComplete(() {
-    if (identical(_flights[userId], future)) _flights.remove(userId);
+    if (identical(_flights[key], future)) _flights.remove(key);
   });
 }
 

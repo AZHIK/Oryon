@@ -135,15 +135,15 @@ class TokenRefreshInterceptor extends Interceptor {
       if (inFlight != null) {
         try {
           await inFlight;
-        } on DioException catch (e) {
-          handler.next(e);
+        } catch (e) {
+          handler.next(_asDioException(e, err.requestOptions));
           return;
         }
       }
       try {
         handler.resolve(await _retry(err.requestOptions));
-      } on DioException catch (e) {
-        handler.next(e);
+      } catch (e) {
+        handler.next(_asDioException(e, err.requestOptions));
       }
       return;
     }
@@ -159,13 +159,7 @@ class TokenRefreshInterceptor extends Interceptor {
       // the lock; waiters above never touch it.
       _isRefreshing = false;
       _refreshFuture = null;
-      if (e is DioException) {
-        handler.next(e);
-      } else {
-        handler.next(
-          DioException(requestOptions: err.requestOptions, error: e),
-        );
-      }
+      handler.next(_asDioException(e, err.requestOptions));
       return;
     }
     _isRefreshing = false;
@@ -174,9 +168,21 @@ class TokenRefreshInterceptor extends Interceptor {
     // Retry the original request with the new token.
     try {
       handler.resolve(await _retry(err.requestOptions));
-    } on DioException catch (e) {
-      handler.next(e);
+    } catch (e) {
+      handler.next(_asDioException(e, err.requestOptions));
     }
+  }
+
+  /// Refresh/retry failures can surface as either raw [DioException] or the
+  /// [AuthException] `IdentityServiceApi` wraps them in. Normalise both so a
+  /// waiter always hands Dio a valid error instead of throwing out of the
+  /// interceptor (which would surface as `DioExceptionType.unknown`).
+  static DioException _asDioException(
+    Object error,
+    RequestOptions requestOptions,
+  ) {
+    if (error is DioException) return error;
+    return DioException(requestOptions: requestOptions, error: error);
   }
 
   /// Calls the API to refresh the access token.

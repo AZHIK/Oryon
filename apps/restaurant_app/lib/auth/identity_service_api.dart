@@ -119,7 +119,7 @@ class IdentityServiceApi {
       );
       return TokenResponse.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
-      throw AuthException('Token refresh failed: ${e.message}', e.response?.statusCode);
+      throw AuthException.fromDio('Token refresh failed', e);
     }
   }
 

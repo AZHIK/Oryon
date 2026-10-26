@@ -90,13 +90,19 @@ class TokenStorage {
     );
   }
 
+  /// The user whose tokens `getTokenSet()` currently resolves to, or null
+  /// when no session is stored. Used by the refresh coordinator to key a
+  /// "current session" refresh under the same identity as an explicit
+  /// per-user one.
+  Future<String?> currentUserId() => _storage.read(key: _keyCurrentUserId);
+
   /// Retrieves the token set for the current session, i.e. whichever user
   /// `saveTokenSet()` last ran for. Used by callers with no userId in hand
   /// (the request interceptor's auto-attach, cold-start session restore).
   Future<TokenSet?> getTokenSet() async {
-    final currentUserId = await _storage.read(key: _keyCurrentUserId);
-    if (currentUserId == null) return null;
-    return getTokenSetForUser(currentUserId);
+    final userId = await currentUserId();
+    if (userId == null) return null;
+    return getTokenSetForUser(userId);
   }
 
   /// Clears all stored tokens for a specific user.
