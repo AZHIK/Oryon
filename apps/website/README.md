@@ -8,7 +8,8 @@ app and does not import the Flutter client or any backend service.
 - **Styling:** Tailwind CSS 4 with CSS-first design tokens
 - **Type:** Inter, matching the product UI
 - **Motion:** `motion` for the mobile menu only; no scroll-linked effects
-- **Hosting:** any static host, including the existing VPS behind Nginx
+- **Hosting:** any static host, or the Docker/Nginx image in this directory
+  behind the existing VPS Traefik edge
 
 ## Local development
 
@@ -30,6 +31,22 @@ npm run preview
 
 The build writes a fully static site to `out/`. `npm run preview` serves that
 directory on port 3000.
+
+## Docker deployment
+
+The production image is a multi-stage build: Node builds the static export,
+then a non-root Nginx image serves `out/` on port 8080 with no Node runtime in
+the final image.
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+The container joins the existing external `oryon_edge` network and is routed by
+the VPS Traefik instance at `https://oryonfoods.com`; it publishes no host
+ports. See [`DEPLOYMENT.md`](./DEPLOYMENT.md) for DNS, TLS, verification,
+rollback and the database-integration path.
 
 ## Pages
 
@@ -111,7 +128,11 @@ components/legal/       Shared legal-page layout
 components/seo/         SoftwareApplication JSON-LD
 components/ui/          Section headings, badges, FAQ, links
 content/                English and Swahili copy
-lib/                    Metadata and link helpers
+lib/                    Metadata, link and feature helpers
 public/badges/          Official store badge artwork
 site.config.ts          Product, contact, store and download configuration
+Dockerfile              Multi-stage static-export + Nginx image
+nginx.conf              Non-root Nginx server configuration
+docker-compose.yml      Single-VPS deployment on the oryon_edge network
+DEPLOYMENT.md           VPS deployment and database-extension notes
 ```
