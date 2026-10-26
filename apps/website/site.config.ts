@@ -20,11 +20,13 @@ export const FEATURES_STATUS = {
   offlineInventory: "shipped",
   staffRoles: "shipped",
   sharedDevicePinLogin: "shipped",
+  recipesAndProduction: "shipped",
+  electronicPayments: "coming-soon",
   salesHistory: "shipped",
+  dashboard: "shipped",
   excelExport: "shipped",
   pdfExport: "shipped",
-  recipesAndProduction: "coming-soon",
-  aiInsights: "coming-soon",
+  aiMode: "coming-soon",
   advancedReports: "coming-soon",
 } as const satisfies Record<string, FeatureStatus>;
 

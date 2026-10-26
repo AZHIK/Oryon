@@ -7,14 +7,21 @@ import { useEffect, useRef, useState } from "react";
 
 import { LogoMark } from "@/components/brand/logo";
 import {
-  ArrowDownIcon,
+  ChevronRightIcon,
   CloseIcon,
+  DownloadIcon,
   MenuIcon,
 } from "@/components/icons";
 import { en as copy } from "@/content/en";
+import { cn } from "@/lib/cn";
 import { siteConfig } from "@/site.config";
 
-const APPLE_EASE: [number, number, number, number] = [0.25, 0.1, 0.25, 1];
+const EASE: [number, number, number, number] = [0.25, 0.1, 0.25, 1];
+
+function isRouteActive(pathname: string, href: string): boolean {
+  if (href.includes("#")) return false;
+  return href === "/" ? pathname === "/" : pathname.startsWith(href);
+}
 
 export function SiteHeader() {
   const pathname = usePathname();
@@ -93,17 +100,19 @@ export function SiteHeader() {
     return () => query.removeEventListener("change", onChange);
   }, []);
 
+  const downloadActive = pathname.startsWith("/download");
+
   return (
     <header className="site-header" data-scrolled={scrolled}>
       <div className="container-page">
-        <div className="flex h-16 items-center justify-between gap-5">
+        <div className="flex h-[4.5rem] items-center justify-between gap-5">
           <Link
             href="/"
             aria-label={copy.nav.homeLabel}
             className="flex items-center gap-2.5 rounded-lg"
             onClick={() => setOpen(false)}
           >
-            <LogoMark className="h-8 w-8" />
+            <LogoMark className="h-9 w-9 text-fill" />
             <span className="text-[1.0625rem] font-semibold tracking-[-0.025em] text-ink">
               {siteConfig.name}
             </span>
@@ -113,21 +122,29 @@ export function SiteHeader() {
             aria-label={copy.nav.primaryLabel}
             className="hidden items-center gap-0.5 lg:flex"
           >
-            {copy.nav.links.map((link) => (
-              <Link key={link.href} href={link.href} className="nav-link">
-                {link.label}
-              </Link>
-            ))}
+            {copy.nav.links.map((link) => {
+              const active = isRouteActive(pathname, link.href);
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn("nav-link", active && "nav-link-active")}
+                >
+                  {link.label}
+                </Link>
+              );
+            })}
           </nav>
 
           <div className="hidden items-center gap-2.5 lg:flex">
             <Link
               href="/download"
+              aria-current={downloadActive ? "page" : undefined}
               className="btn btn-primary btn-sm"
-              aria-label={copy.nav.download}
             >
+              <DownloadIcon className="h-4 w-4" />
               {copy.nav.download}
-              <ArrowDownIcon className="h-3.5 w-3.5" />
             </Link>
           </div>
 
@@ -138,7 +155,7 @@ export function SiteHeader() {
             aria-expanded={open}
             aria-controls={open ? "mobile-menu" : undefined}
             aria-label={open ? copy.nav.closeMenu : copy.nav.openMenu}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-line bg-surface/70 text-ink transition-colors hover:bg-surface-muted lg:hidden"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-line bg-surface text-ink transition-colors hover:bg-mint-surface lg:hidden"
           >
             {open ? (
               <CloseIcon className="h-5 w-5" />
@@ -155,26 +172,33 @@ export function SiteHeader() {
             id="mobile-menu"
             ref={panelRef}
             className="mobile-menu lg:hidden"
-            initial={reduceMotion ? false : { opacity: 0, y: -10 }}
+            initial={reduceMotion ? false : { opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={reduceMotion ? undefined : { opacity: 0, y: -10 }}
-            transition={{ duration: 0.28, ease: APPLE_EASE }}
+            exit={reduceMotion ? undefined : { opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: EASE }}
           >
-            <div className="container-page py-6">
+            <div className="container-page py-5">
               <nav aria-label={copy.nav.mobilePrimaryLabel}>
                 <ul className="flex flex-col">
-                  {copy.nav.links.map((link) => (
-                    <li key={link.href}>
-                      <Link
-                        href={link.href}
-                        onClick={() => setOpen(false)}
-                        className="flex items-center justify-between border-b border-line py-4 text-[1.35rem] font-semibold tracking-[-0.02em] text-ink"
-                      >
-                        {link.label}
-                        <ArrowDownIcon className="h-4 w-4 -rotate-90 text-ink-muted" />
-                      </Link>
-                    </li>
-                  ))}
+                  {copy.nav.links.map((link) => {
+                    const active = isRouteActive(pathname, link.href);
+                    return (
+                      <li key={link.href}>
+                        <Link
+                          href={link.href}
+                          onClick={() => setOpen(false)}
+                          aria-current={active ? "page" : undefined}
+                          className={cn(
+                            "flex items-center justify-between border-b border-line py-4 text-[1.15rem] font-semibold tracking-[-0.02em]",
+                            active ? "text-accent" : "text-ink",
+                          )}
+                        >
+                          {link.label}
+                          <ChevronRightIcon className="h-4 w-4 text-muted" />
+                        </Link>
+                      </li>
+                    );
+                  })}
                 </ul>
               </nav>
 
@@ -183,9 +207,12 @@ export function SiteHeader() {
                 onClick={() => setOpen(false)}
                 className="btn btn-primary mt-6 w-full"
               >
+                <DownloadIcon className="h-4 w-4" />
                 {copy.nav.download}
-                <ArrowDownIcon className="h-4 w-4" />
               </Link>
+              <p className="mt-3 text-center text-xs text-muted">
+                {copy.hero.primaryNoteSoon}
+              </p>
             </div>
           </motion.div>
         )}

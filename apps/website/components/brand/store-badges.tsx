@@ -1,6 +1,7 @@
 import Image from "next/image";
 
 import { copy } from "@/content";
+import { cn } from "@/lib/cn";
 import { storeHref } from "@/lib/links";
 import { isStoreAvailable, type StoreKey } from "@/site.config";
 
@@ -19,56 +20,64 @@ const BADGES = {
   },
 } as const;
 
-function StoreBadge({ store }: { store: StoreKey }) {
+export function StoreBadge({
+  store,
+  className,
+}: {
+  store: StoreKey;
+  className?: string;
+}) {
   const badge = BADGES[store];
   const href = storeHref(store);
 
+  const artwork = (
+    <Image
+      src={badge.src}
+      alt={href ? badge.alt : ""}
+      width={badge.width}
+      height={badge.height}
+      unoptimized
+      className="h-10 w-auto"
+    />
+  );
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`${badge.alt} (${copy.stores.opensInNewTab})`}
+        className={cn(
+          "store-badge-wrap transition-transform duration-200 hover:-translate-y-0.5",
+          className,
+        )}
+      >
+        {artwork}
+      </a>
+    );
+  }
+
   return (
-    <div
-      className="flex items-center"
-      data-store={store}
-      data-state={href ? "available" : "coming-soon"}
+    <span
+      role="link"
+      tabIndex={0}
+      aria-disabled="true"
+      aria-label={`${badge.alt} — ${copy.stores.comingSoon}`}
+      className={cn("store-badge-wrap cursor-not-allowed", className)}
     >
-      {href ? (
-        <a
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label={`${badge.alt} (${copy.stores.opensInNewTab})`}
-          className="rounded-[0.45rem] transition-transform duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)] hover:-translate-y-0.5"
-        >
-          <Image
-            src={badge.src}
-            alt={badge.alt}
-            width={badge.width}
-            height={badge.height}
-            unoptimized
-            className="h-10 w-auto sm:h-11"
-          />
-        </a>
-      ) : (
-        <span
-          role="link"
-          tabIndex={0}
-          aria-disabled="true"
-          aria-label={`${badge.alt} — ${copy.stores.comingSoon}`}
-          className="cursor-not-allowed rounded-[0.45rem]"
-        >
-          <Image
-            src={badge.src}
-            alt=""
-            width={badge.width}
-            height={badge.height}
-            unoptimized
-            className="h-10 w-auto sm:h-11"
-          />
-        </span>
-      )}
-    </div>
+      {artwork}
+    </span>
   );
 }
 
-export function StoreBadges({ className }: { className?: string }) {
+export function StoreBadges({
+  className,
+  showNote = true,
+}: {
+  className?: string;
+  showNote?: boolean;
+}) {
   const googlePlay = isStoreAvailable("googlePlay");
   const appStore = isStoreAvailable("appStore");
 
@@ -79,11 +88,13 @@ export function StoreBadges({ className }: { className?: string }) {
 
   return (
     <div className={className}>
-      <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-3">
+      <div className="flex flex-wrap items-center justify-center gap-2.5">
         <StoreBadge store="googlePlay" />
         <StoreBadge store="appStore" />
       </div>
-      <p className="mt-2.5 text-center text-xs text-ink-muted">{note}</p>
+      {showNote && (
+        <p className="mt-2 text-center text-xs text-muted">{note}</p>
+      )}
     </div>
   );
 }

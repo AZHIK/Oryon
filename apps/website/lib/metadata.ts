@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 
+import desktopShot from "@/assets/images/product_screenshots/desktop_shot.png";
 import { siteConfig, siteUrl } from "@/site.config";
+
+const socialImage = new URL(desktopShot.src, siteUrl).toString();
+const socialImageAlt = `${siteConfig.name} dashboard — ${siteConfig.tagline}`;
 
 type PageMetadataInput = {
   title: string;
@@ -32,10 +36,10 @@ export function buildMetadata({
       url: canonical,
       images: [
         {
-          url: "/og.png",
-          width: 1200,
-          height: 630,
-          alt: `${siteConfig.name} — ${siteConfig.tagline}`,
+          url: socialImage,
+          width: desktopShot.width,
+          height: desktopShot.height,
+          alt: socialImageAlt,
         },
       ],
     },
@@ -43,7 +47,7 @@ export function buildMetadata({
       card: "summary_large_image",
       title: socialTitle,
       description,
-      images: ["/og.png"],
+      images: [socialImage],
     },
     ...(noIndex ? { robots: { index: false, follow: false } } : {}),
   };
