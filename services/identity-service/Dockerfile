@@ -49,7 +49,14 @@ FROM python:3.12-slim-bookworm AS runtime
 # Fixed UID/GID so host volume and Docker-secret ownership is predictable.
 RUN groupadd -r -g 10001 oryonfoods && useradd -r -u 10001 -g oryonfoods -d /app oryonfoods
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Apply Debian security updates already present in the base image. The slim
+# tag floats, but its cached libcrypto/libssl can lag the security archive;
+# without this the image keeps shipping a base-layer OpenSSL that Trivy flags
+# as fixed upstream (e.g. CVE-2026-84782 in libssl3/openssl).
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
