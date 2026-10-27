@@ -61,6 +61,11 @@ sudo docker compose -f docker-compose.local.yml logs -f website
 sudo docker compose -f docker-compose.local.yml down
 ```
 
+To test the installer flip locally, create `/tmp/oryon-downloads`, drop
+`Oryon-windows-x64-setup.exe` (and optionally `latest.json`) there, and start
+the preview. The local compose file mounts that directory read-only at
+`/downloads/`.
+
 This builds the same static image as production. It is intentionally separate
 from the VPS compose so local work cannot accidentally attach to the production
 edge network.
@@ -191,7 +196,232 @@ For a prebuilt image, change `WEBSITE_IMAGE` to the new immutable
 `sha-<commit>` tag and run `docker compose up -d --no-build`. To roll back, put
 the previous image tag back and repeat.
 
-## 6. Troubleshooting
+## 6. Publishing the Windows installer
+
+This is the production runbook. The site is a static export and does **not**
+bake the installer into the image. `/download/` probes
+`/downloads/latest.json` and the stable alias
+`/downloads/Oryon-windows-x64-setup.exe` in the browser and switches from
+“Coming soon” to “Download for Windows” when they exist. After the one-time
+setup below, a release needs **no website rebuild and no redeploy** — only the
+installer upload.
+
+> **The switch happens in the browser.** `curl` on `/download/` will always
+> show the server-rendered “Coming soon” text. Verify the flip in a browser,
+> and verify the files themselves with `curl` against `/downloads/`.
+
+### 6.1 One-time VPS setup
+
+Do this once, after deploying the version of the website that contains the
+`/downloads/` routes and the read-only mount.
+
+1. Update the website checkout and rebuild the image:
+
+   ```bash
+   cd <repo-path>
+   git pull --ff-only origin main
+   cd apps/website
+   sudo docker compose build
+   ```
+
+   For the copy-only deployment, copy the new `apps/website` contents
+   (including `scripts/`) to `/opt/oryon-website` and run the same build there.
+
+2. Create the host directory **before** starting the container, so Docker does
+   not create it as `root`:
+
+   ```bash
+   sudo install -d -m 755 -o <deploy-user> -g <deploy-user> /srv/oryon/downloads
+   ```
+
+   Replace `<deploy-user>` with the SSH account you use to publish (for example
+   `ubuntu`, `deploy`, or your own user). If you publish as root, `root:root` is
+   fine.
+
+3. Apply the mount and confirm the container can see the directory:
+
+   ```bash
+   sudo docker compose up -d
+   sudo docker compose exec website ls -la /usr/share/nginx/html/downloads
+   ```
+
+   The production compose file uses
+   `${WEBSITE_DOWNLOADS_DIR:-/srv/oryon/downloads}`. If you need a different
+   host path, set `WEBSITE_DOWNLOADS_DIR` in `apps/website/.env` (or pass it to
+   `docker compose`) and run `sudo docker compose up -d` again.
+
+4. Confirm the route is wired up. A `404` is expected while the directory is
+   empty:
+
+   ```bash
+   curl -sSI https://oryonfoods.com/downloads/latest.json
+   ```
+
+### 6.2 Get and verify the installer artifact
+
+Use the artifact produced by `.github/workflows/windows-installer.yml`. It
+contains `Oryon-<version>-windows-x64-setup.exe` and `SHA256SUMS.txt`.
+
+**From a GitHub Actions run** (manual run or tag):
+
+```bash
+gh run list --workflow=windows-installer.yml --limit 5
+gh run download <run-id> -n oryon-windows-installer -D ./dist
+```
+
+**From a GitHub Release** (tag `v1.0.0`):
+
+```bash
+gh release download v1.0.0 \
+  -p 'Oryon-1.0.0-windows-x64-setup.exe' \
+  -p 'SHA256SUMS.txt' \
+  -D ./dist
+```
+
+**From a local build or a teammate:** use the directory containing the `.exe`
+and `SHA256SUMS.txt` (for example an extracted
+`oryon-windows-installer` folder). Copy it into `./dist` so the commands below
+match.
+
+Verify the artifact before it goes anywhere near the server:
+
+```bash
+cd dist
+sha256sum -c SHA256SUMS.txt
+```
+
+### 6.3 Upload and publish
+
+Copy the installer to the VPS. Staging in `/tmp` keeps ownership predictable:
+
+```bash
+scp ./dist/Oryon-1.0.0-windows-x64-setup.exe \
+  <deploy-user>@<VPS_IP>:/tmp/
+```
+
+On the VPS, run the publish script. **Do not set `ORYON_DOWNLOAD_BASE_URL` for
+production**; the default is `https://oryonfoods.com/downloads`.
+
+```bash
+ssh <deploy-user>@<VPS_IP>
+cd <website-dir>
+bash scripts/publish-release.sh /tmp/Oryon-1.0.0-windows-x64-setup.exe
+```
+
+`<website-dir>` is the directory containing the website’s `docker-compose.yml`:
+`<repo-path>/apps/website` for a git checkout, or `/opt/oryon-website` for the
+copy-only deployment.
+
+If the downloads directory is not writable by `<deploy-user>`:
+
+```bash
+sudo ORYON_DOWNLOADS_DIR=/srv/oryon/downloads \
+  bash scripts/publish-release.sh /tmp/Oryon-1.0.0-windows-x64-setup.exe
+```
+
+Running the script as `root` makes the published files root-owned. Either
+publish as the directory owner, or fix ownership afterwards:
+
+```bash
+sudo chown -R <deploy-user>:<deploy-user> /srv/oryon/downloads
+```
+
+The script:
+
+- copies the build to `Oryon-<version>-windows-x64-setup.exe`;
+- points `Oryon-windows-x64-setup.exe` at it;
+- regenerates `SHA256SUMS.txt` for every version in the directory;
+- writes `latest.json` with the version, size, checksum and production URL.
+
+### 6.4 Verify the release
+
+On the VPS:
+
+```bash
+cat /srv/oryon/downloads/latest.json
+cat /srv/oryon/downloads/SHA256SUMS.txt
+sha256sum /srv/oryon/downloads/Oryon-1.0.0-windows-x64-setup.exe
+```
+
+Through the public site:
+
+```bash
+curl -sS https://oryonfoods.com/downloads/latest.json | jq
+curl -sSI https://oryonfoods.com/downloads/Oryon-windows-x64-setup.exe
+curl -sSLo /tmp/oryon-check.exe \
+  https://oryonfoods.com/downloads/Oryon-windows-x64-setup.exe
+sha256sum /tmp/oryon-check.exe
+```
+
+Expected:
+
+- `latest.json` returns `200` and the version you just published.
+- The alias returns `200`, `content-type: application/octet-stream`,
+  `content-length` equal to the file size, and `cache-control: no-cache`.
+- The downloaded hash matches the hash in `SHA256SUMS.txt`.
+- `latest.json` shows `https://oryonfoods.com/downloads/...`, not `localhost`.
+
+Finally, open <https://oryonfoods.com/download/> in a browser and hard-reload.
+The badge should read **Available now**, the card should show the version, size
+and SHA-256, and the button should download the installer. Check the home-page
+hero CTA as well.
+
+### 6.5 Publish a new version
+
+1. Bump `version:` in `apps/restaurant_app/pubspec.yaml`.
+2. Commit and tag `v<version>`. The workflow builds the installer and publishes
+   the GitHub Release.
+3. Download the new artifact, verify it, and repeat §6.3.
+
+The stable alias and `latest.json` move to the new build automatically. Keep
+older versioned files in the directory for rollback.
+
+Never reuse a version number with different bytes: versioned files are served
+with `cache-control: immutable`, so browsers and proxies may keep the old copy.
+
+### 6.6 Rollback
+
+Re-run the script with an older installer that is still in the directory:
+
+```bash
+cd <website-dir>
+bash scripts/publish-release.sh \
+  /srv/oryon/downloads/Oryon-0.9.0-windows-x64-setup.exe
+```
+
+This rewrites `latest.json` and repoints the stable alias. The alias and
+manifest revalidate on the next page load.
+
+### 6.7 Manual fallback
+
+If you only copy `Oryon-windows-x64-setup.exe` into the directory, the HEAD
+probe still flips the page, but it shows “Latest” and no checksum. The script is
+the supported path because it keeps `latest.json` accurate.
+
+### 6.8 Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| `404` from `/downloads/...` | `sudo docker compose exec website ls -la /usr/share/nginx/html/downloads`; the mount source in `docker compose config`; the exact filename |
+| `403` | Directory mode `755`, files mode `644`; the container’s nginx user must be able to read the host path |
+| Page still says “Coming soon” | Hard reload; DevTools → Network: `latest.json` or the alias `HEAD` must return `200`; JavaScript must be enabled |
+| Button points at `localhost` | `latest.json` was generated with a local base URL. Re-run the script without `ORYON_DOWNLOAD_BASE_URL` |
+| New build not picked up | The versioned filename must change; immutable caching keeps the old bytes |
+| `latest.json` is stale | Re-run the script; it rewrites the manifest after the binary and alias |
+| Disk filling up | Old installers are kept for rollback; archive or remove very old versions deliberately |
+
+### 6.9 Production checklist
+
+- [ ] `/srv/oryon/downloads` exists and is writable by the publish account.
+- [ ] `docker compose config` shows the `/usr/share/nginx/html/downloads` mount.
+- [ ] `sha256sum -c SHA256SUMS.txt` passed on the downloaded artifact.
+- [ ] `latest.json` shows the production URL, not `localhost`.
+- [ ] `/downloads/latest.json` and the alias return `200` over HTTPS.
+- [ ] A browser shows “Available now” and downloads the exact file.
+- [ ] The installer is code-signed. When it is, set `signed: true` in
+      `apps/website/site.config.ts` and redeploy the website once.
+
+## 7. Troubleshooting
 
 | Symptom | Check |
 |---|---|
@@ -211,7 +441,7 @@ sudo docker network inspect oryon_edge --format '{{range .Containers}}{{.Name}} 
 sudo docker logs oryonfoods-traefik-1 --tail 100
 ```
 
-## 7. Adding a database later
+## 8. Adding a database later
 
 There are two clean options.
 
@@ -238,7 +468,7 @@ behind Traefik on port 3000. That is a different operational model: a Node
 process, a larger image, and no static-host portability. Do not expose
 Postgres either way.
 
-## 8. Operational notes
+## 9. Operational notes
 
 - The runtime filesystem is read-only; only `/tmp`, `/var/cache/nginx` and
   `/var/run` are writable tmpfs.

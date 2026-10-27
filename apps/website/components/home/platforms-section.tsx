@@ -1,17 +1,13 @@
 import { StoreBadge } from "@/components/brand/store-badges";
+import { WindowsStatusBadge } from "@/components/download/windows-availability";
 import { MonitorIcon } from "@/components/icons";
 import { Badge } from "@/components/ui/badge";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { TextLink } from "@/components/ui/text-link";
 import { copy } from "@/content";
-import {
-  isDownloadAvailable,
-  isStoreAvailable,
-  siteConfig,
-} from "@/site.config";
+import { isStoreAvailable } from "@/site.config";
 
 export function PlatformsSection() {
-  const windowsAvailable = isDownloadAvailable(siteConfig.downloads.windows);
   const googleAvailable = isStoreAvailable("googlePlay");
   const appleAvailable = isStoreAvailable("appStore");
 
@@ -49,11 +45,10 @@ export function PlatformsSection() {
               </p>
             </div>
             <div>
-              <Badge tone={windowsAvailable ? "mint" : "orange"}>
-                {windowsAvailable
-                  ? copy.platforms.statusAvailable
-                  : copy.platforms.statusComingSoon}
-              </Badge>
+              <WindowsStatusBadge
+                availableLabel={copy.platforms.statusAvailable}
+                soonLabel={copy.platforms.statusComingSoon}
+              />
               <div className="mt-3">
                 <TextLink href="/download">
                   {copy.platforms.windows.cta}

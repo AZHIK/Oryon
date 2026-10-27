@@ -1,19 +1,16 @@
 import Link from "next/link";
 
 import { StoreBadges } from "@/components/brand/store-badges";
+import {
+  WindowsHeroCta,
+  WindowsHeroNote,
+} from "@/components/download/windows-availability";
 import { HeroStage } from "@/components/home/hero-stage";
 import { FeatureIcon } from "@/components/home/feature-icon";
-import {
-  ChevronRightIcon,
-  DownloadIcon,
-} from "@/components/icons";
+import { ChevronRightIcon } from "@/components/icons";
 import { copy } from "@/content";
-import { isDownloadAvailable, siteConfig } from "@/site.config";
 
 export function Hero() {
-  const windows = siteConfig.downloads.windows;
-  const windowsAvailable = isDownloadAvailable(windows);
-
   const comma = copy.hero.title.indexOf(",");
   const titleLead =
     comma === -1 ? copy.hero.title : copy.hero.title.slice(0, comma);
@@ -48,27 +45,7 @@ export function Hero() {
           </p>
 
           <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            {windowsAvailable ? (
-              <a
-                href={windows.url}
-                className="btn btn-primary btn-lg w-full sm:w-auto"
-                data-testid="hero-primary-cta"
-                data-state="available"
-              >
-                <DownloadIcon className="h-4 w-4" />
-                {copy.hero.primaryCta}
-              </a>
-            ) : (
-              <Link
-                href="/download"
-                className="btn btn-primary btn-lg w-full sm:w-auto"
-                data-testid="hero-primary-cta"
-                data-state="coming-soon"
-              >
-                <DownloadIcon className="h-4 w-4" />
-                {copy.hero.primaryCtaSoon}
-              </Link>
-            )}
+            <WindowsHeroCta />
 
             <Link
               href="#features"
@@ -79,11 +56,7 @@ export function Hero() {
             </Link>
           </div>
 
-          <p className="mt-3 text-xs leading-relaxed text-muted">
-            {windowsAvailable
-              ? copy.hero.primaryNoteReady
-              : copy.hero.primaryNoteSoon}
-          </p>
+          <WindowsHeroNote />
 
           <StoreBadges className="mt-5" />
         </div>

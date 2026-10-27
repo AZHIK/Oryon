@@ -77,6 +77,26 @@ does not require Traefik or `oryon_edge`.
 | `/privacy/` | Privacy policy draft |
 | `/terms/` | Terms of use draft |
 
+## Windows installer downloads
+
+Installers are not part of the static export or the Docker image. In production
+the compose file mounts `$WEBSITE_DOWNLOADS_DIR` (default
+`/srv/oryon/downloads`) read-only at `/downloads/`. The download page probes
+`/downloads/latest.json` and the stable alias
+`/downloads/Oryon-windows-x64-setup.exe` in the browser, so publishing a build
+flips “Coming soon” to “Download for Windows” with no rebuild.
+
+Publish with [`scripts/publish-release.sh`](./scripts/publish-release.sh):
+
+```bash
+bash scripts/publish-release.sh /path/to/Oryon-1.0.0-windows-x64-setup.exe
+```
+
+See [`DEPLOYMENT.md`](./DEPLOYMENT.md#6-publishing-the-windows-installer) for
+host setup, verification and rollback. For a local check, put the same files in
+`/tmp/oryon-downloads` and start the local compose preview, or place them in
+`public/downloads/` while running `npm run dev`.
+
 ## Product screenshots
 
 The real app screenshots live in
@@ -113,6 +133,10 @@ Empty URLs render as polished “Coming soon” states. Never replace them with
 placeholder links. Outstanding values are recorded in
 [`CONTENT_TODO.md`](./CONTENT_TODO.md).
 
+The Windows installer is the exception: leave `DOWNLOADS.windows.url` empty and
+the download page discovers whatever is published under `/downloads/` at
+runtime. A non-empty URL is an explicit override for a mirror.
+
 All visible copy is in `content/`, typed for English (`en`) and Swahili (`sw`).
 Swahili is a draft and must be reviewed by a native speaker before it is shown.
 
@@ -140,6 +164,7 @@ analytics is enabled only with `NEXT_PUBLIC_PLAUSIBLE_DOMAIN`.
 app/                    Routes, metadata, sitemap, robots, global styles
 assets/images/          Supplied product screenshots
 components/brand/       Logo and store badges
+components/download/    Runtime download detection and installer card
 components/device/      Real-screenshot desktop and phone frames
 components/home/        Home sections
 components/layout/      Header and footer
@@ -149,6 +174,7 @@ components/ui/          Section headings, badges, FAQ, links
 content/                English and Swahili copy
 lib/                    Metadata, link and feature helpers
 public/badges/          Official store badge artwork
+scripts/                publish-release.sh (installer manifest and alias)
 site.config.ts          Product, contact, store and download configuration
 Dockerfile              Multi-stage static-export + Nginx image
 nginx.conf              Non-root Nginx server configuration

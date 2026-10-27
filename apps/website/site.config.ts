@@ -31,7 +31,14 @@ export const FEATURES_STATUS = {
 } as const satisfies Record<string, FeatureStatus>;
 
 export type DownloadInfo = {
-  /** Direct installer URL. Empty string means "not published yet". */
+  /**
+   * Direct installer URL.
+   *
+   * Leave empty for the normal path: `/download/` probes
+   * `/downloads/latest.json` and `/downloads/Oryon-windows-x64-setup.exe` at
+   * runtime, so publishing a build needs no website rebuild. Set this only to
+   * point at a mirror or a fixed external URL.
+   */
   url: string;
   /** Human-readable version, for example "1.0.0". */
   version: string;
@@ -55,7 +62,11 @@ export const DOWNLOADS: {
   androidApk?: DownloadInfo;
 } = {
   windows: {
+    // Empty by design. Leave it empty so the download page discovers the
+    // published installer under /downloads/ at runtime.
     url: "",
+    // Only used as a fallback when a manifest has not been published yet.
+    // scripts/publish-release.sh writes the live version, size and checksum.
     version: "",
     sizeMb: 0,
     sha256: "",

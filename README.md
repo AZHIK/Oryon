@@ -280,7 +280,7 @@ important entry points are:
 | [Website overview](apps/website/README.md) | Stack, local development, pages, design system and project structure |
 | [Website deployment](apps/website/DEPLOYMENT.md) | Local Docker preview, GitHub-pull VPS deployment, DNS/TLS, rollback and database-integration path |
 | [Website screenshots](apps/website/SCREENSHOTS.md) | Product screenshot files, usage and proportion rules |
-| [Website content TODO](apps/website/CONTENT_TODO.md) | Outstanding store URLs, installer metadata, contact details and review gates |
+| [Website content TODO](apps/website/CONTENT_TODO.md) | Outstanding installer publishing, store URLs, contact details and review gates |
 
 ---
 

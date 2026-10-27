@@ -18,6 +18,11 @@ services:
     restart: "no"
     init: true
     read_only: true
+    volumes:
+      # Optional local installer directory. Put a file at
+      # /tmp/oryon-downloads/Oryon-windows-x64-setup.exe to test the
+      # "Coming soon" -> "Download" flip without rebuilding.
+      - ${WEBSITE_DOWNLOADS_DIR:-/tmp/oryon-downloads}:/usr/share/nginx/html/downloads:ro
     tmpfs:
       - /tmp:size=16m,mode=1777
       - /var/cache/nginx:size=16m,mode=1777

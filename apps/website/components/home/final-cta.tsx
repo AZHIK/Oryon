@@ -1,12 +1,10 @@
 import Link from "next/link";
 
+import { WindowsCtaNote } from "@/components/download/windows-availability";
 import { ChevronRightIcon, DownloadIcon } from "@/components/icons";
 import { copy } from "@/content";
-import { isDownloadAvailable, siteConfig } from "@/site.config";
 
 export function FinalCta() {
-  const windowsAvailable = isDownloadAvailable(siteConfig.downloads.windows);
-
   return (
     <section className="section-tight bg-app" aria-labelledby="cta-title">
       <div className="container-page">
@@ -33,9 +31,7 @@ export function FinalCta() {
                 <ChevronRightIcon className="h-4 w-4" />
               </Link>
             </div>
-            <p className="mt-4 text-xs text-mint">
-              {windowsAvailable ? copy.cta.noteReady : copy.cta.noteSoon}
-            </p>
+            <WindowsCtaNote className="mt-4 text-xs text-mint" />
           </div>
         </div>
       </div>

@@ -11,3 +11,7 @@ next-env.d.ts
 playwright-report/
 test-results/
 lighthouse/
+
+# Locally downloaded installers (served from the host mount in production).
+public/downloads/
+.downloads/

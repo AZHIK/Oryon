@@ -15,6 +15,10 @@ services:
     restart: unless-stopped
     init: true
     read_only: true
+    volumes:
+      # Installers live on the host, not in the image. Create this directory
+      # and publish with scripts/publish-release.sh. See DEPLOYMENT.md §6.
+      - ${WEBSITE_DOWNLOADS_DIR:-/srv/oryon/downloads}:/usr/share/nginx/html/downloads:ro
     tmpfs:
       - /tmp:size=16m,mode=1777
       - /var/cache/nginx:size=16m,mode=1777

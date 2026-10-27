@@ -163,6 +163,16 @@ jobs:
           name: oryon-windows-installer
           path: dist
 
+      - name: Add stable download alias
+        # Keeps releases/latest/download/Oryon-windows-x64-setup.exe working
+        # without knowing the version. The website uses its own /downloads/
+        # directory; this is the public GitHub fallback.
+        run: |
+          set -euo pipefail
+          exe="$(find dist -maxdepth 1 -name 'Oryon-*-windows-x64-setup.exe' -print -quit)"
+          test -n "$exe"
+          cp "$exe" dist/Oryon-windows-x64-setup.exe
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:

@@ -13,9 +13,15 @@ disabled state. Do not replace these gaps with dead links or invented details.
 
 ## Downloads
 
-- [ ] Set `DOWNLOADS.windows.url` to the published installer URL.
-- [ ] Fill `DOWNLOADS.windows.version`, `sizeMb` and `sha256` when the release
-      is final.
+- [ ] Publish the first installer to `/srv/oryon/downloads` with
+      `apps/website/scripts/publish-release.sh`. `/download/` detects it at
+      runtime and flips from “Coming soon” to “Download for Windows”; no site
+      rebuild is needed. See `DEPLOYMENT.md` §6.
+- [ ] Leave `DOWNLOADS.windows.url` empty for the automatic path. Set it only
+      to point at a mirror; a configured URL wins immediately and skips the
+      probe.
+- [ ] `DOWNLOADS.windows.version`, `sizeMb` and `sha256` are fallbacks only.
+      The live values come from `/downloads/latest.json`.
 - [ ] Set `signed: true` only after the installer is code-signed. The
       SmartScreen note is shown only while `signed` is `false`.
 - [ ] Add `DOWNLOADS.macos` only if a macOS build is published.

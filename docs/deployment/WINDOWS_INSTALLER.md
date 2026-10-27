@@ -13,6 +13,7 @@ the same artifact by hand.
 | Installer script | `apps/restaurant_app/windows/installer/oryon.iss` |
 | Artifact (GitHub Actions) | `oryon-windows-installer` |
 | Installer file | `Oryon-1.0.0-windows-x64-setup.exe` |
+| Stable release asset | `Oryon-windows-x64-setup.exe` (copy attached to the GitHub release) |
 | Checksums | `SHA256SUMS.txt` next to the installer |
 | Local output directory | `apps/restaurant_app/build/windows/installer/` |
 
@@ -37,6 +38,87 @@ version: 1.0.0+1   # installer/exe version 1.0.0, build number 1
 
 The build fails if a tag does not match that version (tag `v1.0.0` requires
 `version: 1.0.0+…`). Bump `pubspec.yaml` first, then tag the commit.
+
+## Publishing to the website
+
+The public download page does not embed the installer. It probes
+`/downloads/latest.json` and the stable alias
+`/downloads/Oryon-windows-x64-setup.exe` at runtime, so publishing a build flips
+the page from “Coming soon” to “Download for Windows” without rebuilding the
+site.
+
+### Get and verify the artifact
+
+Download the workflow artifact or the GitHub Release asset:
+
+```bash
+gh run download <run-id> -n oryon-windows-installer -D ./dist
+
+# or, for a tagged release
+gh release download v1.0.0 \
+  -p 'Oryon-1.0.0-windows-x64-setup.exe' \
+  -p 'SHA256SUMS.txt' \
+  -D ./dist
+
+cd dist
+sha256sum -c SHA256SUMS.txt
+```
+
+### Upload and publish
+
+```bash
+scp ./dist/Oryon-1.0.0-windows-x64-setup.exe \
+  <deploy-user>@<VPS_IP>:/tmp/
+
+ssh <deploy-user>@<VPS_IP>
+cd <website-dir>
+bash scripts/publish-release.sh /tmp/Oryon-1.0.0-windows-x64-setup.exe
+```
+
+Do **not** set `ORYON_DOWNLOAD_BASE_URL` in production; the default is
+`https://oryonfoods.com/downloads`. `<website-dir>` is
+`<repo-path>/apps/website` for a git checkout, or `/opt/oryon-website` for the
+copy-only deployment.
+
+### Verify
+
+```bash
+curl -sS https://oryonfoods.com/downloads/latest.json | jq
+curl -sSI https://oryonfoods.com/downloads/Oryon-windows-x64-setup.exe
+```
+
+Then open <https://oryonfoods.com/download/> in a browser and hard-reload. The
+badge should read **Available now** and the button should download the
+installer.
+
+> The flip happens in the browser. `curl` on `/download/` always shows the
+> server-rendered “Coming soon” text; verify the files under `/downloads/` with
+> `curl`, and the badge in a browser.
+
+### Rollback
+
+Re-run the script with an older installer that is still on the server:
+
+```bash
+cd <website-dir>
+bash scripts/publish-release.sh \
+  /srv/oryon/downloads/Oryon-0.9.0-windows-x64-setup.exe
+```
+
+The script writes the versioned file, the stable alias, `SHA256SUMS.txt` and
+`latest.json`. It is idempotent and keeps older versions for rollback. Never
+reuse a version with different bytes: versioned files are cached as immutable.
+
+The GitHub release also carries a constant-name copy, so this URL always works
+for the newest tag:
+
+```text
+https://github.com/AZHIK/Oryon/releases/latest/download/Oryon-windows-x64-setup.exe
+```
+
+See [the website deployment guide](../../apps/website/DEPLOYMENT.md#6-publishing-the-windows-installer)
+for the one-time host setup, directory permissions, verification and
+troubleshooting.
 
 ## Backend URLs
 

@@ -11,6 +11,8 @@ npm-debug.log*
 playwright-report
 test-results
 lighthouse
+public/downloads
+.downloads
 Dockerfile
 docker-compose.yml
 docker-compose.local.yml

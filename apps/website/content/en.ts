@@ -364,7 +364,7 @@ export const en = {
     eyebrow: "Download",
     title: `Take ${brand} to the counter.`,
     description:
-      "The Windows installer is being prepared. Store listings will follow. Here is what you will need when it lands.",
+      "Install Oryon on a Windows counter or a phone. Here is what you need, and what is ready today.",
     backHome: "Back to home",
     statusReady: "Available now",
     statusSoon: "Coming soon",
@@ -390,7 +390,7 @@ export const en = {
       ],
       smartScreenTitle: "About Windows SmartScreen",
       smartScreenBody:
-        "This installer is not code-signed yet. When it is published, Windows may show a SmartScreen warning. Choose “More info”, then “Run anyway” only if you downloaded the file from this site.",
+        "Because this installer is not code-signed, Windows may show a SmartScreen warning. Choose “More info”, then “Run anyway” only if you downloaded the file from this site.",
       smartScreenSigned:
         "This installer is code-signed. Windows should recognise the publisher.",
       note:
