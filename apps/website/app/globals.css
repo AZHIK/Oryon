@@ -649,8 +649,14 @@
   }
 
   .mobile-menu {
-    position: fixed;
-    inset: 4.5rem 0 0;
+    /* The header has a backdrop-filter, which makes it the containing block
+       for fixed descendants. Anchor the panel to the header instead of the
+       viewport so it gets the full remaining screen height. */
+    position: absolute;
+    inset-inline: 0;
+    top: 100%;
+    height: calc(100vh - 4.5rem);
+    height: calc(100dvh - 4.5rem);
     overflow-y: auto;
     overscroll-behavior: contain;
     background-color: var(--page);
