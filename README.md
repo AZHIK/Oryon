@@ -35,6 +35,10 @@ directory, database and encryption key included, so any unsynced sales are
 discarded with it. See
 [Windows installer](docs/deployment/WINDOWS_INSTALLER.md) for details.
 
+A separate public website lives in `apps/website`. It is a static Next.js
+marketing and download site served by a non-root Nginx container on the same
+VPS edge. It does not import the Flutter client or any backend service.
+
 ---
 
 ## 2. Architecture at a glance
@@ -83,6 +87,17 @@ discarded with it. See
 | Inventory Service | `services/inventory-service` | Items, categories, units, stock movements, suppliers, requisitions, purchase orders, recipes, WhatsApp ordering |
 | POS Service | `services/pos-service` | Sales, payments, refunds, finance entries, customers, receipts, reporting |
 | Flutter client | `apps/restaurant_app` | Offline-first POS and management UI for phones, tablets, desktop, and web |
+| Public website | `apps/website` | Product story, screenshots, download/store options, support and legal pages; static Next.js export served by Nginx |
+
+### Public website
+
+The public marketing and download site is a standalone Next.js 16 static export
+with routes for the product story, downloads, support, privacy and terms. It
+uses the supplied desktop and mobile product screenshots and the app's
+deep-teal/mint visual language. It does not import the Flutter client or call
+the backend APIs; a non-root Nginx container serves it through the same VPS
+edge. See the [website overview](apps/website/README.md) and
+[deployment guide](apps/website/DEPLOYMENT.md).
 
 Local ports, database names, and development topology are documented in
 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) and each service's README.
@@ -94,20 +109,29 @@ Local ports, database names, and development topology are documented in
 ```text
 Oryon/
 ├── apps/
-│   └── restaurant_app/          # Flutter client
-│       ├── lib/
-│       │   ├── auth/            # Login, session, token refresh
-│       │   ├── config/          # Environment-specific API endpoints
-│       │   ├── database/        # Drift/SQLite schema and encryption
-│       │   ├── models/          # Client domain models
-│       │   ├── providers/       # Riverpod state and API clients
-│       │   ├── router/          # go_router navigation
-│       │   ├── screens/         # POS, inventory, finance, staff, settings
-│       │   ├── services/        # HTTP service clients
-│       │   ├── sync/            # Offline-first synchronisation
-│       │   └── widgets/         # Shared UI
-│       ├── test/                # Flutter tests
-│       └── android/ ios/ linux/ web/ windows/
+│   ├── restaurant_app/          # Flutter client
+│   │   ├── lib/
+│   │   │   ├── auth/            # Login, session, token refresh
+│   │   │   ├── config/          # Environment-specific API endpoints
+│   │   │   ├── database/        # Drift/SQLite schema and encryption
+│   │   │   ├── models/          # Client domain models
+│   │   │   ├── providers/       # Riverpod state and API clients
+│   │   │   ├── router/          # go_router navigation
+│   │   │   ├── screens/         # POS, inventory, finance, staff, settings
+│   │   │   ├── services/        # HTTP service clients
+│   │   │   ├── sync/            # Offline-first synchronisation
+│   │   │   └── widgets/         # Shared UI
+│   │   ├── test/                # Flutter tests
+│   │   └── android/ ios/ linux/ web/ windows/
+│   │
+│   └── website/                 # Public marketing and download site
+│       ├── app/                 # Routes, metadata, sitemap, robots, styles
+│       ├── components/          # Brand, layout, home sections, screenshots
+│       ├── content/             # English and Swahili copy
+│       ├── assets/images/       # Supplied product screenshots
+│       ├── public/badges/       # Official store badge artwork
+│       ├── Dockerfile / nginx.conf / docker-compose*.yml
+│       └── README.md / DEPLOYMENT.md
 │
 ├── services/
 │   ├── identity-service/
@@ -180,6 +204,16 @@ describe persistence; schemas describe the HTTP contract.
 | Documents | PDF, Excel, share and file-picker packages |
 | Platforms | Android, iOS, Linux and Windows desktop, web |
 
+### Public website
+
+| Concern | Technology |
+|---|---|
+| Framework | Next.js 16 App Router, TypeScript, static export |
+| UI | Tailwind CSS 4, Inter via `next/font`, Motion for the mobile menu |
+| Images | `next/image` with the supplied desktop and mobile product screenshots |
+| Hosting | Multi-stage Docker image, non-root Nginx, Traefik on the existing VPS |
+| Documentation | [`apps/website/README.md`](apps/website/README.md), [`DEPLOYMENT.md`](apps/website/DEPLOYMENT.md) |
+
 ### Backend
 
 | Concern | Technology |
@@ -239,6 +273,15 @@ important entry points are:
 | [App UI Audit](apps/restaurant_app/ORYON_BUSINESS_APP_AUDIT.md) | Feature completeness review |
 | [Permission Integration](apps/restaurant_app/docs/PERMISSION_INTEGRATION_PATTERN.md) | How screens and actions are permission-gated |
 
+### Public website
+
+| Document | Purpose |
+|---|---|
+| [Website overview](apps/website/README.md) | Stack, local development, pages, design system and project structure |
+| [Website deployment](apps/website/DEPLOYMENT.md) | Local Docker preview, GitHub-pull VPS deployment, DNS/TLS, rollback and database-integration path |
+| [Website screenshots](apps/website/SCREENSHOTS.md) | Product screenshot files, usage and proportion rules |
+| [Website content TODO](apps/website/CONTENT_TODO.md) | Outstanding store URLs, installer metadata, contact details and review gates |
+
 ---
 
 ## 7. Environment model
@@ -250,6 +293,9 @@ PostgreSQL database; Identity also runs Redis. The Flutter client points at the
 three local APIs. Local defaults are intentionally convenient, not secure, and
 are rejected when a service is started in production mode.
 
+The public website is independent: it runs locally through its development
+server or a local Docker compose file and does not call the backend services.
+
 ### Production
 
 Production targets a single hardened Linux VPS:
@@ -260,6 +306,8 @@ Production targets a single hardened Linux VPS:
   service tokens.
 - PostgreSQL and Redis sit on an internal-only network with no published ports.
 - Images are built, scanned, and pushed by CI, then deployed by immutable tag.
+- The public website is a static Next.js export in a non-root Nginx container
+  attached to the same edge network and served at `oryonfoods.com`.
 - Backups leave the host encrypted; restore procedures are documented and must
   be drilled before go-live and after any restore-path change.
 

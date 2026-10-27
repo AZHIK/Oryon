@@ -2,7 +2,8 @@
 
 This directory holds the cross-cutting documentation for the Oryon platform.
 Each backend service and the Flutter app also keep their own documentation next
-to the code.
+to the code. The public website keeps its own docs in
+[`apps/website`](../apps/website/README.md).
 
 ## Start here
 
@@ -10,6 +11,15 @@ to the code.
 |---|---|---|
 | [Project overview](../README.md) | Everyone | What Oryon is, its architecture, project structure, and technology stack |
 | [Development guide](DEVELOPMENT.md) | Engineers | Local stack, tests, and client workflow |
+
+## Public website
+
+| Document | Audience | Purpose |
+|---|---|---|
+| [Website overview](../apps/website/README.md) | Engineering, marketing | Stack, local development, pages, design system, and structure |
+| [Website deployment](../apps/website/DEPLOYMENT.md) | Operations, engineering | Local Docker preview, GitHub-pull VPS deployment, DNS/TLS, rollback, and the database-integration path |
+| [Website screenshots](../apps/website/SCREENSHOTS.md) | Design, marketing | Product screenshot files, usage, proportions, and alt-text rules |
+| [Website content TODO](../apps/website/CONTENT_TODO.md) | Product, marketing | Outstanding store URLs, installer metadata, contact details, and review gates |
 
 ## Security
 
